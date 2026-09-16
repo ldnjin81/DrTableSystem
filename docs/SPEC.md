@@ -78,9 +78,11 @@ SubKey<EElement>  열거형 서브키
 생성 결과는 **C 스타일 고정 배열**이다. 언리얼 리플렉션이 이를 지원하며(`FProperty::ArrayDim`), 힙 할당이 없고 행 안에 연속으로 들어간다.
 
 ```cpp
-UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dt|Effects")
-int32 Reward[3];
+UPROPERTY(EditAnywhere, Category = "Dt|Effects")
+int32 Reward[3] = {};
 ```
+
+**배열 열에는 `BlueprintReadOnly`를 붙이지 않는다.** UE 리플렉션은 고정 배열을 다루지만(`FProperty::ArrayDim`), 블루프린트 노출은 막혀 있어 UHT가 `Static array cannot be exposed to blueprint`로 빌드를 거부한다. 배열 필드는 `EditAnywhere`만 붙여 C++과 에디터에서만 쓴다.
 
 JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 
@@ -157,7 +159,7 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 열거형 시트가 만든 `이름Info` 테이블(1.4 나)도 보통 테이블과 똑같이 행 구조체 헤더와 JSON을 낸다.
 
 - 파일 머리에 `// 자동 생성됨 — 직접 수정하지 말 것. 출처: <파일>.xlsx / <시트>` 를 넣는다.
-- 행 구조체는 `USTRUCT(BlueprintType)`, 필드는 `UPROPERTY(EditAnywhere, BlueprintReadOnly)`.
+- 행 구조체는 `USTRUCT(BlueprintType)`, 필드는 `UPROPERTY(EditAnywhere, BlueprintReadOnly)`. **단 배열 필드는 `UPROPERTY(EditAnywhere)`만 붙인다**(1.2.1 참고 — UHT가 고정 배열의 블루프린트 노출을 거부한다).
 - 구조체 이름 `F<접두사><테이블>Row`, 열거형 `E<접두사><이름>`. 접두사는 `--prefix`로 받으며 기본 `Dt`.
 - **클라 범위(`C`,`B`) 필드만** 넣는다.
 - 열거형은 `UENUM(BlueprintType)`, 기반 타입 `uint8`.

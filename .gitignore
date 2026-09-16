@@ -1,0 +1,12 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 산출물
+Generated/
+out/
+build/
+
+# OS
+.DS_Store

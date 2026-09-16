@@ -161,12 +161,15 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 
 ```json
 {
-  "generated_at_utc": "2026-09-16T12:00:00Z",
   "source_files": ["Tables.xlsx"],
   "tables": [{"name": "Effects", "rows": 42, "schema_hash": "sha256:..."}],
   "enums": [{"name": "Element", "values": 6}]
 }
 ```
+
+**타임스탬프는 기본적으로 넣지 않는다.** 생성 시각을 넣으면 같은 입력인데도 결과 바이트가 달라져 결정성 규칙과 충돌하기 때문이다. 이력이 필요하면 호출자가 `--stamp <ISO8601>`로 값을 주입하고, 그때만 `generated_at` 항목이 추가된다(CI가 빌드 시각이나 커밋 해시를 넘기는 용도). 값을 주입한 경우는 결정성 검사 대상에서 제외한다.
+
+`source_files`는 입력 경로 전체가 아니라 **파일 이름만** 넣는다(작업 디렉터리가 달라도 산출물이 같도록).
 
 `schema_hash`는 **필드명·자료형·키 지정·범위**로만 계산한다(데이터 값은 제외). 나중에 인앱 패치에서 클라이언트가 자기 코드와 페이로드가 맞는지 확인하는 데 쓴다.
 
@@ -175,7 +178,7 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 ## 3. CLI
 
 ```
-datagen build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt]
+datagen build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt] [--stamp <ISO8601>]
 datagen check  --input <xlsx 파일 또는 폴더>        # 파일을 쓰지 않고 검증만
 datagen --version
 ```

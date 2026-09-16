@@ -160,6 +160,14 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 - 구조체 이름 `F<접두사><테이블>Row`, 열거형 `E<접두사><이름>`. 접두사는 `--prefix`로 받으며 기본 `Dt`.
 - **클라 범위(`C`,`B`) 필드만** 넣는다.
 - 열거형은 `UENUM(BlueprintType)`, 기반 타입 `uint8`.
+- **모든 필드는 선언과 함께 초기화한다.** UE의 `USTRUCT`는 멤버를 자동으로 0으로 채우지 않으므로, 초기화자가 없으면 쓰레기 값이 남는다. 숫자는 `= 0`, `bool`은 `= false`, 열거형은 첫 항목, 고정 배열은 `{}`를 쓴다. `FName`·`FString`은 자체 기본 생성자가 있어 그대로 둔다.
+
+```cpp
+int32 Id = 0;
+float Damage = 0.0f;
+EDtElement Element = EDtElement::None;
+int32 Reward[3] = {};
+```
 
 ### 2.2 클라이언트 JSON
 

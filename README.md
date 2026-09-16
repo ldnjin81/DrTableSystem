@@ -24,6 +24,7 @@ uv run datagen check --input Data\Tables.xlsx
 - 테이블 헤더는 3행: **필드명 / 자료형 / 범위**. 데이터는 4행부터.
 - 키는 자료형을 감싸서 적는다: `ID<int32>`(기본키, 테이블마다 하나), `SubKey<FName>`(서브키, 여러 개 가능). 일반 필드는 자료형만 쓴다.
 - 범위는 `B`(둘 다) · `C`(클라만) · `S`(서버만) · `#`(주석, 제외).
+- `Reward[0]`, `Reward[1]` 처럼 번호를 붙인 열은 하나의 고정 배열 필드로 묶인다(`int32 Reward[N];`, JSON은 배열).
 
 자세한 규칙과 산출물 형식은 [docs/SPEC.md](docs/SPEC.md)에 있다.
 

@@ -12,8 +12,12 @@ def emit_cpp(model: DataModel, output: Path, prefix: str) -> None:
     output.mkdir(parents=True, exist_ok=True)
     for enum in model.enums:
         _write(output / f"E{prefix}{enum.name}.h", _enum_header(enum, prefix))
+    enums = {enum.name: enum for enum in model.enums}
     for table in model.tables:
-        _write(output / f"{prefix}{table.name}Row.h", _table_header(table, prefix))
+        _write(
+            output / f"{prefix}{table.name}Row.h",
+            _table_header(table, prefix, enums),
+        )
     _write(output / f"{prefix}GeneratedTables.h", _tables_header(model, prefix))
 
 
@@ -40,7 +44,11 @@ def _enum_header(enum: EnumSchema, prefix: str) -> str:
     return "\n".join(lines)
 
 
-def _table_header(table: TableSchema, prefix: str) -> str:
+def _table_header(
+    table: TableSchema,
+    prefix: str,
+    enums: dict[str, EnumSchema],
+) -> str:
     enum_includes = sorted(
         {column.type_name[1:] for column in table.columns if column.type_name.startswith("E")}
     )
@@ -71,7 +79,9 @@ def _table_header(table: TableSchema, prefix: str) -> str:
         )
         declaration = f"{_cpp_type(column, prefix)} {column.name}"
         if column.is_array:
-            declaration += f"[{column.array_size}]"
+            declaration += f"[{column.array_size}] = {{}}"
+        else:
+            declaration += _cpp_initializer(column, prefix, enums)
         lines.extend([f"    {declaration};", ""])
     lines.extend(["};", ""])
     return "\n".join(lines)
@@ -108,6 +118,27 @@ def _cpp_type(column: ColumnSchema, prefix: str) -> str:
     if column.type_name.startswith("E"):
         return f"E{prefix}{column.type_name[1:]}"
     return column.type_name
+
+
+def _cpp_initializer(
+    column: ColumnSchema,
+    prefix: str,
+    enums: dict[str, EnumSchema],
+) -> str:
+    initializers = {
+        "int32": " = 0",
+        "int64": " = 0",
+        "float": " = 0.0f",
+        "double": " = 0.0",
+        "bool": " = false",
+    }
+    if column.type_name in initializers:
+        return initializers[column.type_name]
+    if column.type_name.startswith("E"):
+        enum_name = column.type_name[1:]
+        first_value = enums[enum_name].values[0].name
+        return f" = E{prefix}{enum_name}::{first_value}"
+    return ""
 
 
 def _cpp_comment(value: str) -> str:

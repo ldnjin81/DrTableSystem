@@ -193,6 +193,12 @@ def build_columns(
     ids = [column for column in columns if column.role == "id"]
     if len(ids) != 1:
         errors.add(sheet, "A2", f"기본키는 정확히 1개여야 합니다(현재 {len(ids)}개)")
+    elif ids[0].scope != "B":
+        errors.add(
+            sheet,
+            _cell(ids[0].source_columns[0], 3),
+            "기본키 범위는 B여야 합니다",
+        )
     return columns
 
 

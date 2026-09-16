@@ -95,7 +95,11 @@ def test_build_outputs_scope_array_and_determinism(tmp_path: Path) -> None:
     header = (cpp / "DtEffectsRow.h").read_text(encoding="utf-8")
     enum_header = (cpp / "EDtElement.h").read_text(encoding="utf-8")
     assert "Fire = 0, // 불" in enum_header
-    assert "int32 Reward[2];" in header
+    assert "int32 Id = 0;" in header
+    assert "FName Name;" in header
+    assert "EDtElement Element = EDtElement::Fire;" in header
+    assert "float ClientOnly = 0.0f;" in header
+    assert "int32 Reward[2] = {};" in header
     assert "ClientOnly" in header
     assert "ServerOnly" not in header
     client_data = json.loads((client / "Effects.json").read_text(encoding="utf-8"))
@@ -139,7 +143,7 @@ def test_enum_info_table_and_stamp(tmp_path: Path) -> None:
     )
     assert result == 0
     row_header = (tmp_path / "cpp" / "DtItemTypeInfoRow.h").read_text(encoding="utf-8")
-    assert "EDtItemType Id;" in row_header
+    assert "EDtItemType Id = EDtItemType::Weapon;" in row_header
     assert "Value" not in row_header
     assert "Comment" not in row_header
     client = json.loads((tmp_path / "client" / "ItemTypeInfo.json").read_text(encoding="utf-8"))
@@ -148,6 +152,27 @@ def test_enum_info_table_and_stamp(tmp_path: Path) -> None:
     assert server["rows"] == [{"Id": "Weapon", "MaxStack": 1}]
     manifest = json.loads((tmp_path / "client" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["generated_at"] == "2026-09-17T00:00:00Z"
+
+
+def test_cpp_scalar_initializers(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Numbers"
+    sheet.append(["Id", "Big", "Ratio", "Precise", "Enabled", "Label"])
+    sheet.append(["ID<int32>", "int64", "float", "double", "bool", "FString"])
+    sheet.append(["B", "B", "B", "B", "B", "B"])
+    sheet.append([1, 2, 3.5, 4.5, True, "값"])
+    source = tmp_path / "initializers.xlsx"
+    workbook.save(source)
+
+    assert _build(source, tmp_path) == 0
+    header = (tmp_path / "cpp" / "DtNumbersRow.h").read_text(encoding="utf-8")
+    assert "int32 Id = 0;" in header
+    assert "int64 Big = 0;" in header
+    assert "float Ratio = 0.0f;" in header
+    assert "double Precise = 0.0;" in header
+    assert "bool Enabled = false;" in header
+    assert "FString Label;" in header
 
 
 def test_manifest_has_no_stamp_by_default(tmp_path: Path) -> None:
@@ -226,6 +251,23 @@ def test_sub_keys_can_be_empty(tmp_path: Path) -> None:
     assert _build(source, tmp_path) == 0
     payload = json.loads((tmp_path / "client" / "Items.json").read_text(encoding="utf-8"))
     assert payload["sub_keys"] == []
+
+
+def test_primary_key_scope_must_be_b(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workbook = Workbook()
+    add_enum(workbook)
+    sheet = add_table(workbook)
+    sheet["A3"] = "C"
+    source = tmp_path / "bad-primary-scope.xlsx"
+    workbook.save(source)
+
+    assert main(["check", "--input", str(source)]) == 1
+    stderr = capsys.readouterr().err
+    assert "Effects!A3" in stderr
+    assert "기본키 범위는 B" in stderr
 
 
 def test_check_does_not_write_files(tmp_path: Path) -> None:

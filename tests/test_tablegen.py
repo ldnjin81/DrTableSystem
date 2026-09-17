@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from datagen.cli import main
+from tablegen.cli import main
 
 
 def add_enum(workbook: Workbook) -> None:

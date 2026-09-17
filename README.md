@@ -1,4 +1,4 @@
-# datagen
+# TableGen
 
 엑셀 한 벌에서 **서버 JSON · 클라이언트 JSON · 언리얼 C++ 코드**를 뽑는 데이터 생성기.
 
@@ -14,8 +14,8 @@ Tables.xlsx ──┬─→ C++ (USTRUCT 행 구조체, UENUM 열거형, 테이�
 
 ```powershell
 uv sync
-uv run datagen build --input Data\Tables.xlsx --out-cpp Generated --out-client Data\client --out-server Data\server
-uv run datagen check --input Data\Tables.xlsx
+uv run tablegen build --input Data\Tables.xlsx --out-cpp Generated --out-client Data\client --out-server Data\server
+uv run tablegen check --input Data\Tables.xlsx
 ```
 
 ## 엑셀 규약 요약
@@ -31,5 +31,5 @@ uv run datagen check --input Data\Tables.xlsx
 자세한 규칙과 산출물 형식은 [docs/SPEC.md](docs/SPEC.md)에 있다.
 
 - Codex 작업 규칙: [AGENTS.md](AGENTS.md)
-- 설치 위치: PC `C:\tools\datagen`, 맥 `~/Project/datagen`
+- 설치 위치: PC `C:\tools\tablegen`, 맥 `~/Project/tablegen`
 - 상태: v0.1 구현

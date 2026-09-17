@@ -1,4 +1,4 @@
-"""datagen 명령줄 인터페이스."""
+"""tablegen 명령줄 인터페이스."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .schema import IDENTIFIER_RE
 
 
 def create_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="datagen")
+    parser = argparse.ArgumentParser(prog="tablegen")
     parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 

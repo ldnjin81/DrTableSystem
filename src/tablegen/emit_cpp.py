@@ -7,9 +7,19 @@ from pathlib import Path
 from .excel import DataModel
 from .schema import ColumnSchema, EnumSchema, TableSchema
 
+DEFAULT_ASSET_BASE = "UPrimaryDataAsset"
+DEFAULT_ASSET_BASE_HEADER = "Engine/DataAsset.h"
 
-def emit_cpp(model: DataModel, output: Path, prefix: str) -> None:
+
+def emit_cpp(
+    model: DataModel,
+    output: Path,
+    prefix: str,
+    asset_base: str = DEFAULT_ASSET_BASE,
+    asset_base_header: str | None = None,
+) -> None:
     output.mkdir(parents=True, exist_ok=True)
+    header = asset_base_header or DEFAULT_ASSET_BASE_HEADER
     for enum in model.enums:
         _write(output / f"E{prefix}{enum.name}.h", _enum_header(enum, prefix))
     enums = {enum.name: enum for enum in model.enums}
@@ -17,6 +27,10 @@ def emit_cpp(model: DataModel, output: Path, prefix: str) -> None:
         _write(
             output / f"{prefix}{table.name}Row.h",
             _table_header(table, prefix, enums),
+        )
+        _write(
+            output / f"{prefix}{table.name}Table.h",
+            _asset_header(table, prefix, asset_base, header),
         )
     _write(output / f"{prefix}GeneratedTables.h", _tables_header(model, prefix))
 
@@ -88,6 +102,68 @@ def _table_header(
         else:
             declaration += _cpp_initializer(column, prefix, enums)
         lines.extend([f"    {declaration};", ""])
+    lines.extend(["};", ""])
+    return "\n".join(lines)
+
+
+def _asset_header(
+    table: TableSchema,
+    prefix: str,
+    asset_base: str,
+    asset_base_header: str,
+) -> str:
+    """커밋릿이 구울 DataAsset 클래스. 인덱스는 빌드 타임에 계산돼 그대로 담긴다."""
+    client_columns = [column for column in table.columns if column.scope in {"B", "C"}]
+    enum_includes = sorted(
+        {column.type_name[1:] for column in client_columns if column.type_name.startswith("E")}
+    )
+    lines = [
+        _source_line(table.source_name, table.sheet).rstrip("\n"),
+        "#pragma once",
+        "",
+        '#include "CoreMinimal.h"',
+        f'#include "{asset_base_header}"',
+        f'#include "{prefix}{table.name}Row.h"',
+    ]
+    lines.extend(f'#include "E{prefix}{name}.h"' for name in enum_includes)
+    lines.extend(
+        [
+            f'#include "{prefix}{table.name}Table.generated.h"',
+            "",
+            "UCLASS(BlueprintType)",
+            f"class U{prefix}{table.name}Table : public {asset_base}",
+            "{",
+            "    GENERATED_BODY()",
+            "",
+            "public:",
+            "    // 행은 연속 배열 하나. 기본키 오름차순으로 정렬돼 있다.",
+            f'    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "{prefix}|{table.name}")',
+            f"    TArray<F{prefix}{table.name}Row> Rows;",
+            "",
+            "    // 기본키 — Rows와 같은 순서라 이진 탐색이 된다.",
+            "    UPROPERTY()",
+            f"    TArray<{_cpp_type(table.primary_key, prefix)}> PrimaryKeys;",
+            "",
+        ]
+    )
+    for column in table.sub_keys:
+        if column.scope not in {"B", "C"}:
+            continue
+        key_type = _cpp_type(column, prefix)
+        lines.extend(
+            [
+                f"    // 서브키 {column.name} — CSR 인덱스(버킷 경계 + 행 인덱스).",
+                "    UPROPERTY()",
+                f"    TArray<{key_type}> {column.name}_Keys;",
+                "",
+                "    UPROPERTY()",
+                f"    TArray<int32> {column.name}_Offsets;",
+                "",
+                "    UPROPERTY()",
+                f"    TArray<int32> {column.name}_Indices;",
+                "",
+            ]
+        )
     lines.extend(["};", ""])
     return "\n".join(lines)
 

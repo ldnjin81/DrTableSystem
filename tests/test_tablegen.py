@@ -90,6 +90,7 @@ def test_build_outputs_scope_array_and_determinism(tmp_path: Path) -> None:
     assert {path.name for path in cpp.iterdir()} == {
         "EDtElement.h",
         "DtEffectsRow.h",
+        "DtEffectsTable.h",
         "DtGeneratedTables.h",
     }
     header = (cpp / "DtEffectsRow.h").read_text(encoding="utf-8")
@@ -371,3 +372,165 @@ def _build(source: Path, root: Path) -> int:
             str(root / "server"),
         ]
     )
+
+
+def add_unsorted_table(workbook: Workbook) -> None:
+    """기본키를 일부러 내림차순으로 넣어 정렬이 실제로 동작하는지 본다.
+
+    Element 열은 열거자 이름 순서(Fire < Water)와 값 순서(Fire=0, Water=1)가
+    같지 않도록 Zeta를 끼워 넣는다.
+    """
+    sheet = workbook.create_sheet("Effects")
+    sheet.append(["Id", "Name", "Element", "ServerOnly"])
+    sheet.append(["ID<int32>", "SubKey<FName>", "SubKey<EElement>", "int32"])
+    sheet.append(["B", "B", "B", "S"])
+    sheet.append([1003, "Curse", "Water", 3])
+    sheet.append([1001, "Burn", "Zeta", 1])
+    sheet.append([1002, "Freeze", "Water", 2])
+
+
+def save_unsorted(path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "<enum>Element"
+    sheet.append(["Id", "Value", "Comment"])
+    sheet.append(["ID<FName>", "int32", "FString"])
+    sheet.append(["B", "B", "#"])
+    sheet.append(["Zeta", 0, "이름은 뒤지만 값이 앞"])
+    sheet.append(["Water", 1, "물"])
+    add_unsorted_table(workbook)
+    workbook.save(path)
+
+
+def test_asset_class_header_is_generated(tmp_path: Path) -> None:
+    source = tmp_path / "Tables.xlsx"
+    save_valid(source)
+    assert _build(source, tmp_path) == 0
+    header = (tmp_path / "cpp" / "DtEffectsTable.h").read_text(encoding="utf-8")
+    assert "class UDtEffectsTable : public UPrimaryDataAsset" in header
+    assert '#include "Engine/DataAsset.h"' in header
+    assert '#include "DtEffectsRow.h"' in header
+    assert '#include "EDtElement.h"' in header
+    assert "TArray<FDtEffectsRow> Rows;" in header
+    assert "TArray<int32> PrimaryKeys;" in header
+    assert "TArray<FName> Name_Keys;" in header
+    assert "TArray<int32> Name_Offsets;" in header
+    assert "TArray<int32> Name_Indices;" in header
+    assert "TArray<EDtElement> Element_Keys;" in header
+
+
+def test_asset_class_without_sub_keys_has_no_index_arrays(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Items"
+    sheet.append(["Id", "Name"])
+    sheet.append(["ID<FName>", "FString"])
+    sheet.append(["B", "B"])
+    sheet.append(["Sword", "검"])
+    source = tmp_path / "items.xlsx"
+    workbook.save(source)
+    assert _build(source, tmp_path) == 0
+    header = (tmp_path / "cpp" / "DtItemsTable.h").read_text(encoding="utf-8")
+    assert "TArray<FName> PrimaryKeys;" in header
+    assert "_Keys;" not in header
+    assert "_Offsets;" not in header
+    assert "_Indices;" not in header
+
+
+def test_asset_base_option_uses_given_class_and_header(tmp_path: Path) -> None:
+    source = tmp_path / "Tables.xlsx"
+    save_valid(source)
+    code = main(
+        [
+            "build",
+            "--input",
+            str(source),
+            "--out-cpp",
+            str(tmp_path / "cpp"),
+            "--out-client",
+            str(tmp_path / "client"),
+            "--out-server",
+            str(tmp_path / "server"),
+            "--asset-base",
+            "UDtTableAsset",
+            "--asset-base-header",
+            "TableData/DtTableAsset.h",
+        ]
+    )
+    assert code == 0
+    header = (tmp_path / "cpp" / "DtEffectsTable.h").read_text(encoding="utf-8")
+    assert "class UDtEffectsTable : public UDtTableAsset" in header
+    assert '#include "TableData/DtTableAsset.h"' in header
+    assert '#include "Engine/DataAsset.h"' not in header
+
+
+def test_asset_base_without_header_is_usage_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "Tables.xlsx"
+    save_valid(source)
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "build",
+                "--input",
+                str(source),
+                "--out-cpp",
+                str(tmp_path / "cpp"),
+                "--out-client",
+                str(tmp_path / "client"),
+                "--out-server",
+                str(tmp_path / "server"),
+                "--asset-base",
+                "UDtTableAsset",
+            ]
+        )
+    assert excinfo.value.code == 2
+    assert "--asset-base-header" in capsys.readouterr().err
+
+
+def test_client_rows_are_sorted_by_primary_key(tmp_path: Path) -> None:
+    source = tmp_path / "unsorted.xlsx"
+    save_unsorted(source)
+    assert _build(source, tmp_path) == 0
+    client = json.loads((tmp_path / "client" / "Effects.json").read_text(encoding="utf-8"))
+    server = json.loads((tmp_path / "server" / "Effects.json").read_text(encoding="utf-8"))
+    assert [row["Id"] for row in client["rows"]] == [1001, 1002, 1003]
+    assert client["primary_keys"] == [1001, 1002, 1003]
+    # 서버 JSON도 같은 행 순서를 쓴다(인덱스만 없다).
+    assert [row["Id"] for row in server["rows"]] == [1001, 1002, 1003]
+
+
+def test_client_csr_index_is_valid_and_enum_keys_sort_by_value(tmp_path: Path) -> None:
+    source = tmp_path / "unsorted.xlsx"
+    save_unsorted(source)
+    assert _build(source, tmp_path) == 0
+    client = json.loads((tmp_path / "client" / "Effects.json").read_text(encoding="utf-8"))
+    rows = client["rows"]
+    by_name = {item["name"]: item for item in client["sub_keys"]}
+
+    for entry in client["sub_keys"]:
+        keys, offsets, indices = entry["keys"], entry["offsets"], entry["indices"]
+        assert len(offsets) == len(keys) + 1
+        assert offsets[-1] == len(indices)
+        assert offsets == sorted(offsets)
+        for position, key in enumerate(keys):
+            bucket = indices[offsets[position] : offsets[position + 1]]
+            assert bucket, f"빈 버킷: {key}"
+            for index in bucket:
+                assert rows[index][entry["field"]] == key
+
+    # 열거형 서브키는 이름(Water < Zeta)이 아니라 값(Zeta=0, Water=1) 순서를 따른다.
+    assert by_name["Element"]["keys"] == ["Zeta", "Water"]
+    assert by_name["Name"]["keys"] == ["Burn", "Curse", "Freeze"]
+
+
+def test_server_json_has_no_index(tmp_path: Path) -> None:
+    source = tmp_path / "unsorted.xlsx"
+    save_unsorted(source)
+    assert _build(source, tmp_path) == 0
+    server = json.loads((tmp_path / "server" / "Effects.json").read_text(encoding="utf-8"))
+    assert "primary_keys" not in server
+    for entry in server["sub_keys"]:
+        assert set(entry) == {"name", "field"}

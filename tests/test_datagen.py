@@ -116,6 +116,26 @@ def test_build_outputs_scope_array_and_determinism(tmp_path: Path) -> None:
     assert output_bytes(tmp_path) == first
 
 
+def test_cpp_array_property_is_not_exposed_to_blueprint(tmp_path: Path) -> None:
+    source = tmp_path / "Tables.xlsx"
+    save_valid(source)
+    output = tmp_path / "output"
+
+    assert _build(source, output) == 0
+
+    header = (output / "cpp" / "DtEffectsRow.h").read_text(encoding="utf-8")
+    scalar_property = (
+        '    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dt|Effects")\n'
+        "    int32 Id = 0;"
+    )
+    array_property = (
+        '    UPROPERTY(EditAnywhere, Category = "Dt|Effects")\n'
+        "    int32 Reward[2] = {};"
+    )
+    assert scalar_property in header
+    assert array_property in header
+
+
 def test_enum_info_table_and_stamp(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active

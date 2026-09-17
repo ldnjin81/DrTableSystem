@@ -74,8 +74,13 @@ def _table_header(
     for column in table.columns:
         if column.scope not in {"B", "C"}:
             continue
+        property_specifiers = (
+            "EditAnywhere"
+            if column.is_array
+            else "EditAnywhere, BlueprintReadOnly"
+        )
         lines.append(
-            f'    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "{prefix}|{table.name}")'
+            f'    UPROPERTY({property_specifiers}, Category = "{prefix}|{table.name}")'
         )
         declaration = f"{_cpp_type(column, prefix)} {column.name}"
         if column.is_array:

@@ -153,6 +153,7 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 ```
 <out-cpp>/EDtElement.h              // 열거형 하나당 헤더 하나
 <out-cpp>/DtEffectsRow.h            // 테이블 하나당 행 구조체 하나
+<out-cpp>/DtEffectsTable.h          // 테이블 하나당 에셋 클래스 하나
 <out-cpp>/DtGeneratedTables.h       // 전체 목록·키 정보·스키마 해시 상수
 ```
 
@@ -163,6 +164,35 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 - 구조체 이름 `F<접두사><테이블>Row`, 열거형 `E<접두사><이름>`. 접두사는 `--prefix`로 받으며 기본 `Dt`.
 - **클라 범위(`C`,`B`) 필드만** 넣는다.
 - 열거형은 `UENUM(BlueprintType)`, 기반 타입 `uint8`.
+
+#### 2.1.1 테이블 에셋 클래스
+
+테이블마다 `UCLASS` 에셋 클래스를 하나 낸다. 에디터 커밋릿이 이 클래스의 인스턴스를 만들어 클라 JSON의 내용을 채우고 `.uasset`으로 굽는다(3절 파이프라인).
+
+```cpp
+UCLASS(BlueprintType)
+class UDtEffectsTable : public UPrimaryDataAsset
+{
+    GENERATED_BODY()
+public:
+    // 행은 연속 배열 하나로 저장한다. 기본키 오름차순으로 정렬돼 있다.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dt|Effects")
+    TArray<FDtEffectsRow> Rows;
+
+    // 기본키 — Rows와 같은 순서(정렬됨)라 이진 탐색이 된다.
+    UPROPERTY() TArray<int32> PrimaryKeys;
+
+    // 서브키마다 CSR 인덱스 세 벌. 선언하지 않은 서브키는 아예 생기지 않는다.
+    UPROPERTY() TArray<EDtElement> Element_Keys;     // 버킷 순서의 키 값
+    UPROPERTY() TArray<int32>      Element_Offsets;  // 버킷 경계(크기 = Keys+1)
+    UPROPERTY() TArray<int32>      Element_Indices;  // Rows 인덱스
+};
+```
+
+- **인덱스는 생성기가 빌드 타임에 계산한다.** 런타임 구축 비용을 0으로 만드는 것이 DataAsset을 고른 이유다.
+- 기반 클래스는 `--asset-base`로 받으며 기본값은 `UPrimaryDataAsset`이다. **프로젝트 고유 타입을 박지 않는다**(이 생성기는 프로젝트에 종속되지 않는다).
+- 클래스 이름은 `U<접두사><테이블>Table`, 파일은 `<접두사><테이블>Table.h`.
+- 행 구조체와 마찬가지로 **클라 범위(`C`,`B`) 필드만** 들어간다.
 - **모든 필드는 선언과 함께 초기화한다.** UE의 `USTRUCT`는 멤버를 자동으로 0으로 채우지 않으므로, 초기화자가 없으면 쓰레기 값이 남는다. 숫자는 `= 0`, `bool`은 `= false`, 열거형은 첫 항목, 고정 배열은 `{}`를 쓴다. `FName`·`FString`은 자체 기본 생성자가 있어 그대로 둔다.
 
 ```cpp
@@ -179,14 +209,18 @@ int32 Reward[3] = {};
   "table": "Effects",
   "schema_hash": "sha256:...",
   "primary_key": "Id",
-  "sub_keys": [{"name": "Element", "field": "Element"}],
+  "sub_keys": [{"name": "Element", "field": "Element",
+                "keys": ["Fire", "Water"], "offsets": [0, 1, 2], "indices": [0, 1]}],
+  "primary_keys": [1001, 1002],
   "rows": [{"Id": 1001, "Name": "Burn", "Element": "Fire"}]
 }
 ```
 
+클라 JSON에는 **구워진 인덱스가 함께 들어간다** — 커밋릿이 그대로 에셋에 옮긴다. `rows`는 기본키 오름차순으로 정렬해 내보내고 `primary_keys`는 그와 같은 순서다. 서브키의 `offsets` 길이는 `keys` 길이 + 1이다.
+
 ### 2.3 서버 JSON
 
-같은 형식이되 서버 범위(`S`,`B`) 필드만 담는다. 클라와 서버 파일은 **별도 디렉터리**에 쓴다.
+같은 형식이되 서버 범위(`S`,`B`) 필드만 담는다. **서버 JSON에는 인덱스를 넣지 않는다**(에셋으로 굽지 않으므로). 클라와 서버 파일은 **별도 디렉터리**에 쓴다.
 
 ### 2.4 매니페스트
 
@@ -211,7 +245,7 @@ int32 Reward[3] = {};
 ## 3. CLI
 
 ```
-tablegen build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt] [--stamp <ISO8601>]
+tablegen build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt] [--stamp <ISO8601>] [--asset-base UPrimaryDataAsset]
 tablegen check  --input <xlsx 파일 또는 폴더>        # 파일을 쓰지 않고 검증만
 tablegen --version
 ```

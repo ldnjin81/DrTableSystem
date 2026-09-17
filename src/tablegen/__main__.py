@@ -1,4 +1,4 @@
-"""python -m datagen 진입점."""
+"""python -m tablegen 진입점."""
 
 from .cli import main
 

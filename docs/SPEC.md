@@ -1,9 +1,9 @@
-# datagen 명세 (v0.1)
+# TableGen 명세 (v0.1)
 
 엑셀 한 벌에서 **서버 JSON · 클라이언트 JSON · C++ 코드**를 뽑는 생성기. 대규모 개발에서 재사용하는 것이 목표라 프로젝트 고유 규칙을 넣지 않는다.
 
 - 언어: Python(순수). PC는 포터블 `C:\tools\_portable\uv`와 python 3.12를 쓴다.
-- 설치 위치: PC `C:\tools\datagen`, 원격 `ssh://git@192.168.0.24:2222/ldnjin/datagen.git`
+- 설치 위치: PC `C:\tools\tablegen`, 원격 `ssh://git@192.168.0.24:2222/ldnjin/tablegen.git`
 - 엑셀 읽기: `openpyxl`(xlsx 전용). 매크로·수식 결과값은 `data_only=True`로 읽는다.
 
 ---
@@ -146,7 +146,7 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 
 ## 2. 산출물
 
-`datagen build`가 세 종류를 만든다. 모두 **결정적**이어야 한다 — 같은 입력이면 바이트가 같아야 하고, 줄바꿈은 LF, JSON 키 순서는 시트 열 순서를 따른다.
+`tablegen build`가 세 종류를 만든다. 모두 **결정적**이어야 한다 — 같은 입력이면 바이트가 같아야 하고, 줄바꿈은 LF, JSON 키 순서는 시트 열 순서를 따른다.
 
 ### 2.1 C++ (클라이언트)
 
@@ -211,9 +211,9 @@ int32 Reward[3] = {};
 ## 3. CLI
 
 ```
-datagen build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt] [--stamp <ISO8601>]
-datagen check  --input <xlsx 파일 또는 폴더>        # 파일을 쓰지 않고 검증만
-datagen --version
+tablegen build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt] [--stamp <ISO8601>]
+tablegen check  --input <xlsx 파일 또는 폴더>        # 파일을 쓰지 않고 검증만
+tablegen --version
 ```
 
 - 종료 코드: 0 성공, 1 검증 실패, 2 사용 오류.
@@ -244,6 +244,6 @@ datagen --version
 - 테이블 간 참조 무결성 검증(CI/CD로 분리)
 - 지역화 처리(정책 미정)
 - 바이너리 페이로드(JSON으로 시작, 필요해지면 교체)
-- `.uasset` 생성 — **생성기는 하지 않는다.** UE 에디터 커밋릿이 이 생성기의 클라 JSON을 읽어 `UPrimaryDataAsset`을 굽는다(2026-09-17 확정). 엔진이 직렬화를 책임져야 UE 버전이 포맷을 바꿔도 깨지지 않기 때문이다. 파이프라인은 `Tables.xlsx → datagen(C++ 헤더 + JSON) → 에디터 커밋릿 → DA_*.uasset → 쿠킹`이다.
+- `.uasset` 생성 — **생성기는 하지 않는다.** UE 에디터 커밋릿이 이 생성기의 클라 JSON을 읽어 `UPrimaryDataAsset`을 굽는다(2026-09-17 확정). 엔진이 직렬화를 책임져야 UE 버전이 포맷을 바꿔도 깨지지 않기 때문이다. 파이프라인은 `Tables.xlsx → tablegen(C++ 헤더 + JSON) → 에디터 커밋릿 → DA_*.uasset → 쿠킹`이다.
 - 인앱 패치 적용 로직(설계만 열어 둠). 패치도 같은 클라 JSON을 CDN으로 받아 안전 시점에 테이블 통째로 덮는 방식이다.
 - 중첩 구조체 필드(배열은 1.2.1로 지원한다)

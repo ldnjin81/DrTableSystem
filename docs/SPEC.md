@@ -191,6 +191,7 @@ public:
 
 - **인덱스는 생성기가 빌드 타임에 계산한다.** 런타임 구축 비용을 0으로 만드는 것이 DataAsset을 고른 이유다.
 - 기반 클래스는 `--asset-base`로 받으며 기본값은 `UPrimaryDataAsset`이다. **프로젝트 고유 타입을 박지 않는다**(이 생성기는 프로젝트에 종속되지 않는다).
+- **기반 클래스를 바꾸면 헤더도 함께 줘야 한다.** 기본값이면 `#include "Engine/DataAsset.h"`를 자동으로 넣지만, `--asset-base`를 다른 클래스로 바꾸면서 `--asset-base-header`를 빠뜨리면 **사용 오류(종료코드 2)로 멈춘다**. 컴파일되지 않는 코드를 조용히 내보내지 않기 위해서다. 헤더 값은 해석·검증 없이 그대로 include 문에 들어간다(`--asset-base-header "TableData/DtTableAsset.h"` → `#include "TableData/DtTableAsset.h"`).
 - 클래스 이름은 `U<접두사><테이블>Table`, 파일은 `<접두사><테이블>Table.h`.
 - 행 구조체와 마찬가지로 **클라 범위(`C`,`B`) 필드만** 들어간다.
 - **모든 필드는 선언과 함께 초기화한다.** UE의 `USTRUCT`는 멤버를 자동으로 0으로 채우지 않으므로, 초기화자가 없으면 쓰레기 값이 남는다. 숫자는 `= 0`, `bool`은 `= false`, 열거형은 첫 항목, 고정 배열은 `{}`를 쓴다. `FName`·`FString`은 자체 기본 생성자가 있어 그대로 둔다.
@@ -245,12 +246,12 @@ int32 Reward[3] = {};
 ## 3. CLI
 
 ```
-tablegen build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt] [--stamp <ISO8601>] [--asset-base UPrimaryDataAsset]
+tablegen build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt] [--stamp <ISO8601>] [--asset-base UPrimaryDataAsset] [--asset-base-header <경로>]
 tablegen check  --input <xlsx 파일 또는 폴더>        # 파일을 쓰지 않고 검증만
 tablegen --version
 ```
 
-- 종료 코드: 0 성공, 1 검증 실패, 2 사용 오류.
+- 종료 코드: 0 성공, 1 검증 실패, 2 사용 오류(`--asset-base`를 바꾸고 `--asset-base-header`를 빠뜨린 경우 포함).
 - 오류는 **시트 이름과 셀 주소**(`Effects!C7`)를 반드시 포함한다.
 - 출력 디렉터리는 생성 전에 기존 산출물을 지우고 새로 쓴다(삭제된 테이블이 남지 않도록).
 

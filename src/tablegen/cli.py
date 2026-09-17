@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import __version__
-from .emit_cpp import emit_cpp
+from .emit_cpp import DEFAULT_ASSET_BASE, emit_cpp
 from .emit_json import emit_json
 from .errors import ValidationErrors
 from .excel import load_model
@@ -28,6 +28,15 @@ def create_parser() -> argparse.ArgumentParser:
     build.add_argument("--out-server", required=True, type=Path)
     build.add_argument("--prefix", default="Dt")
     build.add_argument("--stamp", type=_iso8601, help="매니페스트에 넣을 ISO 8601 식별자")
+    build.add_argument(
+        "--asset-base",
+        default=DEFAULT_ASSET_BASE,
+        help="테이블 에셋 클래스의 기반 클래스(기본 UPrimaryDataAsset)",
+    )
+    build.add_argument(
+        "--asset-base-header",
+        help="기반 클래스를 바꿀 때 include할 헤더 경로",
+    )
 
     check = subparsers.add_parser("check", help="파일을 쓰지 않고 xlsx를 검증합니다")
     check.add_argument("--input", required=True, type=Path)
@@ -46,9 +55,13 @@ def main(argv: list[str] | None = None) -> int:
         outputs = (args.out_cpp, args.out_client, args.out_server)
         if len({path.resolve() for path in outputs}) != len(outputs):
             parser.error("출력 디렉터리는 서로 달라야 합니다")
+        if args.asset_base != DEFAULT_ASSET_BASE and not args.asset_base_header:
+            # 헤더 없이 기반 클래스만 바꾸면 컴파일되지 않는 코드가 나온다.
+            # 조용히 내보내는 대신 생성 단계에서 멈춘다.
+            parser.error("--asset-base를 바꾸면 --asset-base-header도 필요합니다")
         for output in outputs:
             _clear_output(output)
-        emit_cpp(model, args.out_cpp, args.prefix)
+        emit_cpp(model, args.out_cpp, args.prefix, args.asset_base, args.asset_base_header)
         emit_json(model, args.out_client, args.out_server, args.stamp)
         return 0
     except ValidationErrors as exc:

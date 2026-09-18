@@ -40,8 +40,8 @@ int32             일반 필드
 FName             일반 필드
 EElement          일반 필드(열거형)
 ID<int32>         기본키. 테이블마다 정확히 1개 필요
-ID<FName>         기본키를 문자열로 쓸 때
-SubKey<FName>     서브키. 인덱스 이름은 그 열의 필드명을 쓴다
+ID<name>          기본키를 문자열로 쓸 때
+SubKey<name>      서브키. 인덱스 이름은 그 열의 필드명을 쓴다
 SubKey<EElement>  열거형 서브키
 ```
 
@@ -97,14 +97,22 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 
 ### 1.3 지원 자료형
 
-| 표기 | C++ | JSON |
-|---|---|---|
-| `int32`, `int64` | `int32`, `int64` | number |
-| `float`, `double` | `float`, `double` | number |
-| `bool` | `bool` | true/false |
-| `FName` | `FName` | string |
-| `FString` | `FString` | string |
-| `E<이름>` | `EDt<이름>`(생성된 열거형) | string (열거자 이름) |
+| 표기 | C++ (클라) | 클라 JSON | 서버 JSON |
+|---|---|---|---|
+| `int32`, `int64` | `int32`, `int64` | number | number |
+| `float`, `double` | `float`, `double` | number | number |
+| `bool` | `bool` | true/false | true/false |
+| `name` | `FName` | string | string |
+| `string` | `FString` | string | string |
+| `text` | `FText` | string | string |
+| `tag` | `FGameplayTag` | string | string |
+| `path` | `FSoftObjectPath` | string | string |
+| `path<타입>` | `TSoftObjectPtr<타입>` | string | string |
+| `E<이름>` | `EDt<이름>`(생성된 열거형) | string (열거자 이름) | string |
+
+**서버는 언리얼이 아니므로** `name`·`string`·`text`·`tag`·`path`는 서버 JSON에서 전부 **문자열**로 나간다. 숫자·불리언은 그대로 둔다.
+
+**옛 표기 `FName`·`FString`은 받지 않는다.** 만나면 "이제 `name`/`string`을 쓰세요" 안내와 함께 검증 오류로 멈춘다. 키 표기도 `ID<name>` 형태를 쓴다.
 
 - 셀이 비어 있으면 자료형 기본값(0, false, 빈 문자열, 열거형의 첫 항목)을 쓴다.
 - **열별 기본값은 지정할 수 없다(v0.1 한계).** 생성 구조체의 초기화자도 자료형 기본값으로 고정된다. 배수처럼 **의미상 기본값이 1인 필드**는 `= 0.0f`로 초기화되어 뜻이 뒤집히므로, 그런 필드는 모든 행에 값을 채워야 한다. 필요해지면 헤더에 기본값 행을 더하는 식으로 확장한다.
@@ -118,12 +126,12 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 | | A | B | C |
 |---|---|---|---|
 | **1** | `Id` | `Value` | `Comment` |
-| **2** | `ID<FName>` | `int32` | `FString` |
+| **2** | `ID<name>` | `int32` | `string` |
 | **3** | `B` | `B` | `#` |
 | **4** | `Weapon` | `0` | `무기류` |
 | **5** | `Armor` | `1` | `방어구` |
 
-- 기본키(`ID<FName>`) 열의 값이 **열거자 이름**이다. C++ 식별자 규칙을 따라야 하고 중복은 오류다.
+- 기본키(`ID<name>`) 열의 값이 **열거자 이름**이다. C++ 식별자 규칙을 따라야 하고 중복은 오류다.
 - `Value` 열은 열거자 값이다. 열이 없거나 셀이 비면 위에서부터 0, 1, 2…를 매긴다. 값 중복은 오류다.
 - 범위가 `#`이고 이름이 `Comment`인 열은 **생성 코드의 주석**으로 들어간다. 그 밖의 `#` 열은 테이블과 똑같이 무시한다.
 

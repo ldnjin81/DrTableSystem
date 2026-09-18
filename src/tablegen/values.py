@@ -54,7 +54,7 @@ def convert_value(
                 if normalized in {"false", "0"}:
                     return False
             raise ValueError
-        if type_name in {"FName", "FString"}:
+        if type_name in {"name", "string", "text", "tag", "path"}:
             if not isinstance(value, str):
                 raise ValueError
             return value
@@ -79,7 +79,7 @@ def default_value(type_name: str, enums: dict[str, EnumSchema]) -> object:
         return 0
     if type_name == "bool":
         return False
-    if type_name in {"FName", "FString"}:
+    if type_name in {"name", "string", "text", "tag", "path"}:
         return ""
     match = ENUM_RE.fullmatch(type_name)
     if match and match.group("name") in enums and enums[match.group("name")].values:

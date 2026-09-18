@@ -26,6 +26,7 @@ PRIMITIVES = {
     "path",
 }
 LEGACY_TYPES = {"FName", "FString"}
+KEY_PRIMITIVES = {"int32", "int64", "name"}
 SCOPES = {"B", "C", "S", "#"}
 
 
@@ -96,8 +97,13 @@ def parse_type(value: object, sheet: str, cell: str, errors: ErrorCollector) -> 
     if text not in PRIMITIVES and not ENUM_RE.fullmatch(text):
         errors.add(sheet, cell, f"알 수 없는 자료형 '{text}'")
         return None
-    if role is not None and text == "text":
-        errors.add(sheet, cell, "text 자료형은 기본키나 서브키로 사용할 수 없습니다")
+    if role is not None and text not in KEY_PRIMITIVES and not ENUM_RE.fullmatch(text):
+        errors.add(
+            sheet,
+            cell,
+            f"{text} 자료형은 기본키나 서브키로 사용할 수 없습니다. "
+            "키에는 int32, int64, name, 열거형(E*)만 사용할 수 있습니다",
+        )
         return None
     return ParsedType(text, role)
 

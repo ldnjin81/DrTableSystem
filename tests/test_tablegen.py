@@ -293,6 +293,55 @@ def test_legacy_types_are_rejected_with_migration_message(
     assert "이제 name/string을 쓰세요" in stderr
 
 
+@pytest.mark.parametrize("value_type", ["string", "tag", "path", "float", "double", "bool"])
+@pytest.mark.parametrize("role", ["ID", "SubKey"])
+def test_unsupported_key_types_are_rejected_without_outputs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    value_type: str,
+    role: str,
+) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "InvalidKey"
+    sheet.append(["Id", "Value"])
+    sheet.append(
+        [f"ID<{value_type}>", "string"]
+        if role == "ID"
+        else ["ID<int32>", f"SubKey<{value_type}>"]
+    )
+    sheet.append(["B", "B"])
+    sheet.append(["Key" if role == "ID" else 1, "Value"])
+    source = tmp_path / f"invalid-{role.lower()}-{value_type}.xlsx"
+    workbook.save(source)
+
+    assert _build(source, tmp_path / "output") == 1
+    stderr = capsys.readouterr().err
+    expected_cell = "A2" if role == "ID" else "B2"
+    assert f"InvalidKey!{expected_cell}" in stderr
+    assert f"{value_type} 자료형은 기본키나 서브키" in stderr
+    assert "int32, int64, name, 열거형(E*)" in stderr
+    assert not (tmp_path / "output" / "cpp").exists()
+    assert not (tmp_path / "output" / "client").exists()
+    assert not (tmp_path / "output" / "server").exists()
+
+
+def test_supported_key_types_remain_available(tmp_path: Path) -> None:
+    workbook = Workbook()
+    add_enum(workbook)
+    sheet = workbook.create_sheet("SupportedKeys")
+    sheet.append(["Id", "Numeric", "Name", "Element"])
+    sheet.append(
+        ["ID<int64>", "SubKey<int32>", "SubKey<name>", "SubKey<EElement>"]
+    )
+    sheet.append(["B", "B", "B", "B"])
+    sheet.append([9_000_000_001, 7, "Burn", "Fire"])
+    source = tmp_path / "supported-keys.xlsx"
+    workbook.save(source)
+
+    assert _build(source, tmp_path / "output") == 0
+
+
 @pytest.mark.parametrize("key_type", ["ID<text>", "SubKey<text>"])
 def test_text_cannot_be_used_as_key(
     tmp_path: Path,
@@ -313,6 +362,7 @@ def test_text_cannot_be_used_as_key(
     stderr = capsys.readouterr().err
     assert "TextKey!B2" in stderr
     assert "text 자료형은 기본키나 서브키" in stderr
+    assert "int32, int64, name, 열거형(E*)" in stderr
 
 
 def test_typed_path_syntax_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

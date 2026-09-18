@@ -13,7 +13,19 @@ IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 ARRAY_RE = re.compile(r"^(?P<name>[A-Za-z][A-Za-z0-9_]*)\[(?P<index>\d+)]$")
 ROLE_RE = re.compile(r"^(?P<role>id|subkey)\s*<\s*(?P<type>[^<>]+)\s*>$", re.IGNORECASE)
 ENUM_RE = re.compile(r"^E(?P<name>[A-Za-z][A-Za-z0-9_]*)$")
-PRIMITIVES = {"int32", "int64", "float", "double", "bool", "FName", "FString"}
+PRIMITIVES = {
+    "int32",
+    "int64",
+    "float",
+    "double",
+    "bool",
+    "name",
+    "string",
+    "text",
+    "tag",
+    "path",
+}
+LEGACY_TYPES = {"FName", "FString"}
 SCOPES = {"B", "C", "S", "#"}
 
 
@@ -78,8 +90,14 @@ def parse_type(value: object, sheet: str, cell: str, errors: ErrorCollector) -> 
     if match:
         role = match.group("role").lower()
         text = match.group("type").strip()
+    if text in LEGACY_TYPES:
+        errors.add(sheet, cell, f"옛 자료형 '{text}'은 지원하지 않습니다. 이제 name/string을 쓰세요")
+        return None
     if text not in PRIMITIVES and not ENUM_RE.fullmatch(text):
         errors.add(sheet, cell, f"알 수 없는 자료형 '{text}'")
+        return None
+    if role is not None and text == "text":
+        errors.add(sheet, cell, "text 자료형은 기본키나 서브키로 사용할 수 없습니다")
         return None
     return ParsedType(text, role)
 

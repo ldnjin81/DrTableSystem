@@ -37,7 +37,7 @@
 
 ```
 int32             일반 필드
-FName             일반 필드
+name              일반 필드
 EElement          일반 필드(열거형)
 ID<int32>         기본키. 테이블마다 정확히 1개 필요
 ID<name>          기본키를 문자열로 쓸 때
@@ -45,7 +45,7 @@ SubKey<name>      서브키. 인덱스 이름은 그 열의 필드명을 쓴다
 SubKey<EElement>  열거형 서브키
 ```
 
-- 역할 표기는 대소문자를 가리지 않는다(`id<int32>`, `subkey<FName>` 모두 허용).
+- 역할 표기는 대소문자를 가리지 않는다(`id<int32>`, `subkey<name>` 모두 허용).
 - 서브키는 0개 이상, 개수 제한 없다. **선언하지 않으면 인덱스를 만들지 않는다.**
 - **기본키의 범위는 반드시 `B`여야 한다.** 클라와 서버 양쪽 산출물이 모두 키로 행을 찾기 때문이다. `C`나 `S`로 두면 한쪽 JSON에 키가 빠져 깨진다.
 - 서브키 인덱스 이름은 필드명이므로, 필드명이 중복되지 않는 한 충돌하지 않는다.
@@ -59,7 +59,7 @@ SubKey<EElement>  열거형 서브키
 | | A | B | C | D |
 |---|---|---|---|---|
 | **1** | `Id` | `Name` | `Element` | `Damage` |
-| **2** | `ID<int32>` | `SubKey<FName>` | `SubKey<EElement>` | `float` |
+| **2** | `ID<int32>` | `SubKey<name>` | `SubKey<EElement>` | `float` |
 | **3** | `B` | `B` | `B` | `C` |
 | **4** | `1001` | `Burn` | `Fire` | `12.5` |
 | **5** | `1002` | `Freeze` | `Water` | `0` |
@@ -203,7 +203,7 @@ public:
 - **기반 클래스를 바꾸면 헤더도 함께 줘야 한다.** 기본값이면 `#include "Engine/DataAsset.h"`를 자동으로 넣지만, `--asset-base`를 다른 클래스로 바꾸면서 `--asset-base-header`를 빠뜨리면 **사용 오류(종료코드 2)로 멈춘다**. 컴파일되지 않는 코드를 조용히 내보내지 않기 위해서다. 헤더 값은 해석·검증 없이 그대로 include 문에 들어간다(`--asset-base-header "TableData/DtTableAsset.h"` → `#include "TableData/DtTableAsset.h"`).
 - 클래스 이름은 `U<접두사><테이블>Table`, 파일은 `<접두사><테이블>Table.h`.
 - 행 구조체와 마찬가지로 **클라 범위(`C`,`B`) 필드만** 들어간다.
-- **모든 필드는 선언과 함께 초기화한다.** UE의 `USTRUCT`는 멤버를 자동으로 0으로 채우지 않으므로, 초기화자가 없으면 쓰레기 값이 남는다. 숫자는 `= 0`, `bool`은 `= false`, 열거형은 첫 항목, 고정 배열은 `{}`를 쓴다. `FName`·`FString`은 자체 기본 생성자가 있어 그대로 둔다.
+- **모든 필드는 선언과 함께 초기화한다.** UE의 `USTRUCT`는 멤버를 자동으로 0으로 채우지 않으므로, 초기화자가 없으면 쓰레기 값이 남는다. 숫자는 `= 0`, `bool`은 `= false`, 열거형은 첫 항목, 고정 배열은 `{}`를 쓴다. `FName`·`FString`·`FText`·`FGameplayTag`·`FSoftObjectPath`는 자체 기본 생성자가 있어 그대로 둔다.
 
 ```cpp
 int32 Id = 0;

@@ -13,7 +13,7 @@ def add_enum(workbook: Workbook) -> None:
     sheet = workbook.active
     sheet.title = "<enum>Element"
     sheet.append(["Id", "Value", "Comment"])
-    sheet.append(["ID<FName>", "int32", "FString"])
+    sheet.append(["ID<name>", "int32", "string"])
     sheet.append(["B", "B", "#"])
     sheet.append(["Fire", 0, "불"])
     sheet.append(["Water", None, "물"])
@@ -36,7 +36,7 @@ def add_table(workbook: Workbook, title: str = "Effects") -> object:
     sheet.append(
         [
             "ID<int32>",
-            "SubKey<FName>",
+            "SubKey<name>",
             "SubKey<EElement>",
             "float",
             "int64",
@@ -142,7 +142,7 @@ def test_enum_info_table_and_stamp(tmp_path: Path) -> None:
     sheet = workbook.active
     sheet.title = "<enum>ItemType"
     sheet.append(["Id", "Value", "Comment", "DisplayName", "MaxStack"])
-    sheet.append(["ID<FName>", "int32", "FString", "FString", "int32"])
+    sheet.append(["ID<name>", "int32", "string", "string", "int32"])
     sheet.append(["B", "B", "#", "C", "S"])
     sheet.append(["Weapon", 0, "무기류", "무기", 1])
     source = tmp_path / "enum-info.xlsx"
@@ -180,7 +180,7 @@ def test_cpp_scalar_initializers(tmp_path: Path) -> None:
     sheet = workbook.active
     sheet.title = "Numbers"
     sheet.append(["Id", "Big", "Ratio", "Precise", "Enabled", "Label"])
-    sheet.append(["ID<int32>", "int64", "float", "double", "bool", "FString"])
+    sheet.append(["ID<int32>", "int64", "float", "double", "bool", "string"])
     sheet.append(["B", "B", "B", "B", "B", "B"])
     sheet.append([1, 2, 3.5, 4.5, True, "값"])
     source = tmp_path / "initializers.xlsx"
@@ -196,6 +196,142 @@ def test_cpp_scalar_initializers(tmp_path: Path) -> None:
     assert "FString Label;" in header
 
 
+def test_semantic_string_types_generate_cpp_json_and_conditional_includes(
+    tmp_path: Path,
+) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Types"
+    sheet.append(
+        ["Id", "Label", "DisplayName", "StateTag", "Icon", "Count", "Enabled"]
+    )
+    sheet.append(
+        ["ID<name>", "string", "text", "tag", "path", "int32", "bool"]
+    )
+    sheet.append(["B", "B", "B", "B", "B", "B", "B"])
+    sheet.append(
+        [
+            "Effect.Burn",
+            "Burn",
+            "화상",
+            "State.Debuff.Burn",
+            "/Game/UI/T_Burn.T_Burn",
+            3,
+            True,
+        ]
+    )
+    source = tmp_path / "types.xlsx"
+    workbook.save(source)
+
+    assert _build(source, tmp_path) == 0
+    first = output_bytes(tmp_path)
+    header = (tmp_path / "cpp" / "DtTypesRow.h").read_text(encoding="utf-8")
+    assert "FName Id;" in header
+    assert "FString Label;" in header
+    assert "FText DisplayName;" in header
+    assert "FGameplayTag StateTag;" in header
+    assert "FSoftObjectPath Icon;" in header
+    assert '#include "Internationalization/Text.h"' in header
+    assert '#include "GameplayTagContainer.h"' in header
+    assert '#include "UObject/SoftObjectPath.h"' in header
+
+    client = json.loads((tmp_path / "client" / "Types.json").read_text(encoding="utf-8"))
+    server = json.loads((tmp_path / "server" / "Types.json").read_text(encoding="utf-8"))
+    expected = {
+        "Id": "Effect.Burn",
+        "Label": "Burn",
+        "DisplayName": "화상",
+        "StateTag": "State.Debuff.Burn",
+        "Icon": "/Game/UI/T_Burn.T_Burn",
+        "Count": 3,
+        "Enabled": True,
+    }
+    assert client["rows"] == [expected]
+    assert server["rows"] == [expected]
+
+    assert _build(source, tmp_path) == 0
+    assert output_bytes(tmp_path) == first
+
+
+def test_type_specific_includes_are_omitted_when_unused(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Plain"
+    sheet.append(["Id", "Label"])
+    sheet.append(["ID<int32>", "string"])
+    sheet.append(["B", "B"])
+    sheet.append([1, "값"])
+    source = tmp_path / "plain.xlsx"
+    workbook.save(source)
+
+    assert _build(source, tmp_path) == 0
+    header = (tmp_path / "cpp" / "DtPlainRow.h").read_text(encoding="utf-8")
+    assert "Internationalization/Text.h" not in header
+    assert "GameplayTagContainer.h" not in header
+    assert "UObject/SoftObjectPath.h" not in header
+
+
+@pytest.mark.parametrize("legacy_type", ["FName", "FString"])
+def test_legacy_types_are_rejected_with_migration_message(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    legacy_type: str,
+) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Legacy"
+    sheet.append(["Id", "OldValue"])
+    sheet.append(["ID<int32>", legacy_type])
+    sheet.append(["B", "B"])
+    sheet.append([1, "값"])
+    source = tmp_path / f"legacy-{legacy_type}.xlsx"
+    workbook.save(source)
+
+    assert main(["check", "--input", str(source)]) == 1
+    stderr = capsys.readouterr().err
+    assert "Legacy!B2" in stderr
+    assert "이제 name/string을 쓰세요" in stderr
+
+
+@pytest.mark.parametrize("key_type", ["ID<text>", "SubKey<text>"])
+def test_text_cannot_be_used_as_key(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    key_type: str,
+) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "TextKey"
+    sheet.append(["Id", "Localized"])
+    sheet.append(["ID<int32>", key_type])
+    sheet.append(["B", "B"])
+    sheet.append([1, "지역화 값"])
+    source = tmp_path / "text-key.xlsx"
+    workbook.save(source)
+
+    assert main(["check", "--input", str(source)]) == 1
+    stderr = capsys.readouterr().err
+    assert "TextKey!B2" in stderr
+    assert "text 자료형은 기본키나 서브키" in stderr
+
+
+def test_typed_path_syntax_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "TypedPath"
+    sheet.append(["Id", "Icon"])
+    sheet.append(["ID<int32>", "path<UTexture2D>"])
+    sheet.append(["B", "B"])
+    sheet.append([1, "/Game/UI/T_Icon.T_Icon"])
+    source = tmp_path / "typed-path.xlsx"
+    workbook.save(source)
+
+    assert main(["check", "--input", str(source)]) == 1
+    stderr = capsys.readouterr().err
+    assert "TypedPath!B2" in stderr
+    assert "알 수 없는 자료형" in stderr
+
+
 def test_manifest_has_no_stamp_by_default(tmp_path: Path) -> None:
     source = tmp_path / "Tables.xlsx"
     save_valid(source)
@@ -209,7 +345,7 @@ def test_manifest_has_no_stamp_by_default(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("mutate", "location", "message"),
     [
-        (lambda sheet: sheet.__setitem__("A2", "FName"), "<enum>Element!A2", "기본키"),
+        (lambda sheet: sheet.__setitem__("A2", "name"), "<enum>Element!A2", "기본키"),
         (
             lambda sheet: sheet.__setitem__("B2", "ID<int32>"),
             "<enum>Element!A2",
@@ -242,7 +378,7 @@ def test_enum_info_name_collision(tmp_path: Path, capsys: pytest.CaptureFixture[
     add_enum(workbook)
     enum_sheet = workbook.active
     enum_sheet["D1"] = "Label"
-    enum_sheet["D2"] = "FString"
+    enum_sheet["D2"] = "string"
     enum_sheet["D3"] = "B"
     enum_sheet["D4"] = "불"
     enum_sheet["D5"] = "물"
@@ -264,7 +400,7 @@ def test_sub_keys_can_be_empty(tmp_path: Path) -> None:
     sheet = workbook.active
     sheet.title = "Items"
     sheet.append(["Id", "Name"])
-    sheet.append(["ID<FName>", "FString"])
+    sheet.append(["ID<name>", "string"])
     sheet.append(["B", "B"])
     sheet.append(["Sword", "검"])
     source = tmp_path / "input.xlsx"
@@ -303,7 +439,7 @@ def test_check_does_not_write_files(tmp_path: Path) -> None:
     ("mutate", "location", "message"),
     [
         (lambda sheet: sheet.__setitem__("A2", "int32"), "Effects!A2", "기본키"),
-        (lambda sheet: sheet.__setitem__("B2", "ID<FName>"), "Effects!A2", "기본키"),
+        (lambda sheet: sheet.__setitem__("B2", "ID<name>"), "Effects!A2", "기본키"),
         (lambda sheet: sheet.__setitem__("A5", 1001), "Effects!A5", "중복"),
         (lambda sheet: sheet.__setitem__("A5", None), "Effects!A5", "비어"),
         (lambda sheet: sheet.__setitem__("C2", "EMissing"), "Effects!C2", "정의되지 않은"),
@@ -382,7 +518,7 @@ def add_unsorted_table(workbook: Workbook) -> None:
     """
     sheet = workbook.create_sheet("Effects")
     sheet.append(["Id", "Name", "Element", "ServerOnly"])
-    sheet.append(["ID<int32>", "SubKey<FName>", "SubKey<EElement>", "int32"])
+    sheet.append(["ID<int32>", "SubKey<name>", "SubKey<EElement>", "int32"])
     sheet.append(["B", "B", "B", "S"])
     sheet.append([1003, "Curse", "Water", 3])
     sheet.append([1001, "Burn", "Zeta", 1])
@@ -394,7 +530,7 @@ def save_unsorted(path: Path) -> None:
     sheet = workbook.active
     sheet.title = "<enum>Element"
     sheet.append(["Id", "Value", "Comment"])
-    sheet.append(["ID<FName>", "int32", "FString"])
+    sheet.append(["ID<name>", "int32", "string"])
     sheet.append(["B", "B", "#"])
     sheet.append(["Zeta", 0, "이름은 뒤지만 값이 앞"])
     sheet.append(["Water", 1, "물"])
@@ -424,7 +560,7 @@ def test_asset_class_without_sub_keys_has_no_index_arrays(tmp_path: Path) -> Non
     sheet = workbook.active
     sheet.title = "Items"
     sheet.append(["Id", "Name"])
-    sheet.append(["ID<FName>", "FString"])
+    sheet.append(["ID<name>", "string"])
     sheet.append(["B", "B"])
     sheet.append(["Sword", "검"])
     source = tmp_path / "items.xlsx"

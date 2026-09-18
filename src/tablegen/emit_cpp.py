@@ -9,6 +9,18 @@ from .schema import ColumnSchema, EnumSchema, TableSchema
 
 DEFAULT_ASSET_BASE = "UPrimaryDataAsset"
 DEFAULT_ASSET_BASE_HEADER = "Engine/DataAsset.h"
+CPP_TYPES = {
+    "name": "FName",
+    "string": "FString",
+    "text": "FText",
+    "tag": "FGameplayTag",
+    "path": "FSoftObjectPath",
+}
+TYPE_INCLUDES = {
+    "text": "Internationalization/Text.h",
+    "tag": "GameplayTagContainer.h",
+    "path": "UObject/SoftObjectPath.h",
+}
 
 
 def emit_cpp(
@@ -63,8 +75,12 @@ def _table_header(
     prefix: str,
     enums: dict[str, EnumSchema],
 ) -> str:
+    client_columns = [column for column in table.columns if column.scope in {"B", "C"}]
     enum_includes = sorted(
-        {column.type_name[1:] for column in table.columns if column.type_name.startswith("E")}
+        {column.type_name[1:] for column in client_columns if column.type_name.startswith("E")}
+    )
+    type_includes = sorted(
+        {TYPE_INCLUDES[column.type_name] for column in client_columns if column.type_name in TYPE_INCLUDES}
     )
     lines = [
         _source_line(table.source_name, table.sheet).rstrip("\n"),
@@ -73,6 +89,7 @@ def _table_header(
         '#include "CoreMinimal.h"',
         '#include "Engine/DataTable.h"',
     ]
+    lines.extend(f'#include "{header}"' for header in type_includes)
     lines.extend(f'#include "E{prefix}{name}.h"' for name in enum_includes)
     lines.extend(
         [
@@ -198,7 +215,7 @@ def _tables_header(model: DataModel, prefix: str) -> str:
 def _cpp_type(column: ColumnSchema, prefix: str) -> str:
     if column.type_name.startswith("E"):
         return f"E{prefix}{column.type_name[1:]}"
-    return column.type_name
+    return CPP_TYPES.get(column.type_name, column.type_name)
 
 
 def _cpp_initializer(

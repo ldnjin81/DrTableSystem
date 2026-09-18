@@ -154,8 +154,8 @@ def _parse_enum(
     if len(ids) != 1:
         return None, columns
     primary = ids[0]
-    if primary.type_name != "FName" or primary.is_array:
-        errors.add(sheet.title, _cell_for(primary, 2), "열거형 기본키는 ID<FName>이어야 합니다")
+    if primary.type_name != "name" or primary.is_array:
+        errors.add(sheet.title, _cell_for(primary, 2), "열거형 기본키는 ID<name>이어야 합니다")
     value_columns = [column for column in columns if column.name == "Value"]
     value_column = value_columns[0] if value_columns else None
     if value_column and (

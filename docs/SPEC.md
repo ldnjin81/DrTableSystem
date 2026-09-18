@@ -107,10 +107,11 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 | `text` | `FText` | string | string |
 | `tag` | `FGameplayTag` | string | string |
 | `path` | `FSoftObjectPath` | string | string |
-| `path<타입>` | `TSoftObjectPtr<타입>` | string | string |
 | `E<이름>` | `EDt<이름>`(생성된 열거형) | string (열거자 이름) | string |
 
 **서버는 언리얼이 아니므로** `name`·`string`·`text`·`tag`·`path`는 서버 JSON에서 전부 **문자열**로 나간다. 숫자·불리언은 그대로 둔다.
+
+`path`는 **언제나 타입 무관 경로**다. `TSoftObjectPtr<타입>`은 대상 타입마다 전방 선언이 필요해 생성기가 다루기에 취약하므로 쓰지 않는다 — 필요하면 런타임에 `TryLoad()`나 `TSoftObjectPtr<T>(Path)`로 바꾼다. `path<타입>` 같은 꺾쇠 표기는 받지 않는다.
 
 **옛 표기 `FName`·`FString`은 받지 않는다.** 만나면 "이제 `name`/`string`을 쓰세요" 안내와 함께 검증 오류로 멈춘다. 키 표기도 `ID<name>` 형태를 쓴다.
 

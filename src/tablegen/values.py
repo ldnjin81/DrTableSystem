@@ -19,8 +19,10 @@ def convert_value(
     sheet: str,
     cell: str,
     errors: ErrorCollector,
+    *,
+    use_default_for_empty: bool = True,
 ) -> object:
-    if value is None or value == "":
+    if use_default_for_empty and (value is None or value == ""):
         return default_value(type_name, enums)
     try:
         if type_name in INTEGER_TYPES:

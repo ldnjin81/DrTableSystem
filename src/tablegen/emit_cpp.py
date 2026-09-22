@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from .excel import DataModel
 from .schema import ColumnSchema, EnumSchema, TableSchema
+from .values import default_value
 
 DEFAULT_ASSET_BASE = "UPrimaryDataAsset"
 DEFAULT_ASSET_BASE_HEADER = "Engine/DataAsset.h"
@@ -115,7 +117,18 @@ def _table_header(
         )
         declaration = f"{_cpp_type(column, prefix)} {column.name}"
         if column.is_array:
-            declaration += f"[{column.array_size}] = {{}}"
+            declaration += f"[{column.array_size}]"
+            if any(value is not None for value in column.default_values):
+                values = [
+                    value if value is not None else default_value(column.type_name, enums)
+                    for value in column.default_values
+                ]
+                initializer = ", ".join(
+                    _cpp_value(column.type_name, value, prefix) for value in values
+                )
+                declaration += f" = {{{initializer}}}"
+            else:
+                declaration += " = {}"
         else:
             declaration += _cpp_initializer(column, prefix, enums)
         lines.extend([f"    {declaration};", ""])
@@ -223,6 +236,8 @@ def _cpp_initializer(
     prefix: str,
     enums: dict[str, EnumSchema],
 ) -> str:
+    if column.default_values and column.default_values[0] is not None:
+        return f" = {_cpp_value(column.type_name, column.default_values[0], prefix)}"
     initializers = {
         "int32": " = 0",
         "int64": " = 0",
@@ -237,6 +252,33 @@ def _cpp_initializer(
         first_value = enums[enum_name].values[0].name
         return f" = E{prefix}{enum_name}::{first_value}"
     return ""
+
+
+def _cpp_value(type_name: str, value: object, prefix: str) -> str:
+    if type_name in {"int32", "int64"}:
+        return str(value)
+    if type_name == "float":
+        text = repr(float(value))
+        return f"{text if '.' in text or 'e' in text else text + '.0'}f"
+    if type_name == "double":
+        text = repr(float(value))
+        return text if "." in text or "e" in text else text + ".0"
+    if type_name == "bool":
+        return "true" if value else "false"
+    literal = json.dumps(str(value), ensure_ascii=False)
+    if type_name == "name":
+        return f"FName(TEXT({literal}))"
+    if type_name == "string":
+        return f"FString(TEXT({literal}))"
+    if type_name == "text":
+        return f"FText::FromString(TEXT({literal}))"
+    if type_name == "tag":
+        return f"FGameplayTag::RequestGameplayTag(FName(TEXT({literal})))"
+    if type_name == "path":
+        return f"FSoftObjectPath(TEXT({literal}))"
+    if type_name.startswith("E"):
+        return f"E{prefix}{type_name[1:]}::{value}"
+    raise ValueError(f"지원하지 않는 C++ 기본값 자료형: {type_name}")
 
 
 def _cpp_comment(value: str) -> str:

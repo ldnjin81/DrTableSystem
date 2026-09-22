@@ -110,6 +110,7 @@ def load_model(input_path: Path) -> DataModel:
                 column.source_columns,
                 column.header_cells,
                 column.array_size,
+                column.default_values,
             )
             for column in info_columns
         ]
@@ -202,7 +203,10 @@ def _parse_enum(
             )
         used_names.add(item_name)
         if raw_value in (None, ""):
-            value = next_value
+            if value_column and value_column.default_values[0] is not None:
+                value = int(value_column.default_values[0])
+            else:
+                value = next_value
         else:
             try:
                 value = int(raw_value)
@@ -262,14 +266,17 @@ def _read_table_rows(
             if column.is_array:
                 converted[column.name] = [
                     convert_value(
-                        sheet.cell(row, source_column).value,
+                        _value_with_default(
+                            sheet.cell(row, source_column).value,
+                            column.default_values[position],
+                        ),
                         column.type_name,
                         enums,
                         sheet.title,
                         f"{get_column_letter(source_column)}{row}",
                         errors,
                     )
-                    for source_column in column.source_columns
+                    for position, source_column in enumerate(column.source_columns)
                 ]
             else:
                 source_column = column.source_columns[0]
@@ -281,7 +288,7 @@ def _read_table_rows(
                         "기본키 값이 비어 있습니다",
                     )
                 converted[column.name] = convert_value(
-                    raw_value,
+                    _value_with_default(raw_value, column.default_values[0]),
                     column.type_name,
                     enums,
                     sheet.title,
@@ -297,6 +304,12 @@ def _read_table_rows(
         table.rows.append(converted)
     table.schema_hash = calculate_schema_hash(columns)
     return table
+
+
+def _value_with_default(value: object, declared_default: object | None) -> object:
+    if value in (None, "") and declared_default is not None:
+        return declared_default
+    return value
 
 
 def _raw_columns(sheet: object) -> list[tuple[int, object, object, object]]:

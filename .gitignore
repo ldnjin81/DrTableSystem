@@ -2,6 +2,9 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.tmp/
+.uv-cache-local/
 
 # 산출물
 Generated/

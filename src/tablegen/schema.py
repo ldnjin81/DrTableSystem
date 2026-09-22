@@ -54,6 +54,7 @@ class ColumnSchema:
     source_columns: tuple[int, ...]
     header_cells: tuple[str, ...]
     array_size: int | None = None
+    default_values: tuple[object | None, ...] = ()
 
     @property
     def is_array(self) -> bool:
@@ -82,10 +83,16 @@ class TableSchema:
 class ParsedType:
     type_name: str
     role: str | None
+    default_text: str | None
 
 
 def parse_type(value: object, sheet: str, cell: str, errors: ErrorCollector) -> ParsedType | None:
     text = "" if value is None else str(value).strip()
+    default_text: str | None = None
+    if "=" in text:
+        text, default_text = text.split("=", 1)
+        text = text.strip()
+        default_text = default_text.strip()
     role: str | None = None
     match = ROLE_RE.fullmatch(text)
     if match:
@@ -105,7 +112,10 @@ def parse_type(value: object, sheet: str, cell: str, errors: ErrorCollector) -> 
             "키에는 int32, int64, name, 열거형(E*)만 사용할 수 있습니다",
         )
         return None
-    return ParsedType(text, role)
+    if role is not None and default_text is not None:
+        errors.add(sheet, cell, "기본키와 서브키에는 기본값을 지정할 수 없습니다")
+        default_text = None
+    return ParsedType(text, role, default_text)
 
 
 def validate_enum_type(
@@ -158,10 +168,19 @@ def build_columns(
                 (column_index, index, parsed, scope, header_cell)
             )
         elif parsed:
+            default_value = _convert_default(parsed, enums, sheet, type_cell, errors)
             scalars.append(
                 (
                     column_index,
-                    ColumnSchema(name, parsed.type_name, parsed.role, scope, (column_index,), (header_cell,)),
+                    ColumnSchema(
+                        name,
+                        parsed.type_name,
+                        parsed.role,
+                        scope,
+                        (column_index,),
+                        (header_cell,),
+                        default_values=(default_value,),
+                    ),
                 )
             )
 
@@ -209,6 +228,14 @@ def build_columns(
                         tuple(item[0] for item in parts_by_index),
                         tuple(item[4] for item in parts_by_index),
                         len(seen),
+                        tuple(
+                            _convert_default(
+                                item[2], enums, sheet, _cell(item[0], 2), errors
+                            )
+                            if item[2] is not None
+                            else None
+                            for item in parts_by_index
+                        ),
                     ),
                 )
             )
@@ -226,17 +253,45 @@ def build_columns(
     return columns
 
 
+def _convert_default(
+    parsed: ParsedType,
+    enums: dict[str, EnumSchema],
+    sheet: str,
+    cell: str,
+    errors: ErrorCollector,
+) -> object | None:
+    if parsed.default_text is None:
+        return None
+    # 순환 import를 피하면서 자료 셀과 완전히 같은 변환 규칙을 사용한다.
+    from .values import convert_value
+
+    return convert_value(
+        parsed.default_text,
+        parsed.type_name,
+        enums,
+        sheet,
+        cell,
+        errors,
+        use_default_for_empty=False,
+    )
+
+
 def calculate_schema_hash(columns: list[ColumnSchema]) -> str:
-    payload = [
-        {
+    payload = []
+    for column in columns:
+        entry = {
             "name": column.name,
             "type": column.type_name,
             "role": column.role,
             "scope": column.scope,
             "array_size": column.array_size,
         }
-        for column in columns
-    ]
+        if any(value is not None for value in column.default_values):
+            entry["defaults"] = [
+                {"declared": value is not None, "value": value}
+                for value in column.default_values
+            ]
+        payload.append(entry)
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 

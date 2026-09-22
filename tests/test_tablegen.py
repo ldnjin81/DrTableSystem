@@ -196,6 +196,160 @@ def test_cpp_scalar_initializers(tmp_path: Path) -> None:
     assert "FString Label;" in header
 
 
+def test_column_defaults_apply_to_cpp_and_empty_cells_deterministically(
+    tmp_path: Path,
+) -> None:
+    workbook = Workbook()
+    add_enum(workbook)
+    sheet = workbook.create_sheet("Defaults")
+    sheet.append(
+        [
+            "Id",
+            "Multiplier",
+            "Count",
+            "Enabled",
+            "Label",
+            "Name",
+            "DisplayName",
+            "StateTag",
+            "Icon",
+            "Element",
+            "Reward[0]",
+            "Reward[1]",
+        ]
+    )
+    sheet.append(
+        [
+            "ID<int32>",
+            "float=1.0",
+            "int32=7",
+            "bool=true",
+            "string=기본값",
+            "name=Fallback",
+            "text=표시값",
+            "tag=State.Default",
+            "path=/Game/UI/T_Default.T_Default",
+            "EElement=Water",
+            "int32=10",
+            "int32=20",
+        ]
+    )
+    sheet.append(["B"] * 12)
+    sheet.append([1] + [None] * 11)
+    sheet.append(
+        [
+            2,
+            2.5,
+            3,
+            False,
+            "직접값",
+            "Direct",
+            "직접 표시",
+            "State.Direct",
+            "/Game/UI/T_Direct.T_Direct",
+            "Fire",
+            30,
+            40,
+        ]
+    )
+    source = tmp_path / "defaults.xlsx"
+    workbook.save(source)
+
+    output = tmp_path / "output"
+    assert _build(source, output) == 0
+    first = output_bytes(output)
+
+    header = (output / "cpp" / "DtDefaultsRow.h").read_text(encoding="utf-8")
+    assert "float Multiplier = 1.0f;" in header
+    assert "int32 Count = 7;" in header
+    assert "bool Enabled = true;" in header
+    assert 'FString Label = FString(TEXT("기본값"));' in header
+    assert 'FName Name = FName(TEXT("Fallback"));' in header
+    assert 'FText DisplayName = FText::FromString(TEXT("표시값"));' in header
+    assert (
+        'FGameplayTag StateTag = FGameplayTag::RequestGameplayTag('
+        'FName(TEXT("State.Default")));'
+    ) in header
+    assert (
+        'FSoftObjectPath Icon = FSoftObjectPath('
+        'TEXT("/Game/UI/T_Default.T_Default"));'
+    ) in header
+    assert "EDtElement Element = EDtElement::Water;" in header
+    assert "int32 Reward[2] = {10, 20};" in header
+
+    expected = {
+        "Id": 1,
+        "Multiplier": 1.0,
+        "Count": 7,
+        "Enabled": True,
+        "Label": "기본값",
+        "Name": "Fallback",
+        "DisplayName": "표시값",
+        "StateTag": "State.Default",
+        "Icon": "/Game/UI/T_Default.T_Default",
+        "Element": "Water",
+        "Reward": [10, 20],
+    }
+    client = json.loads((output / "client" / "Defaults.json").read_text(encoding="utf-8"))
+    server = json.loads((output / "server" / "Defaults.json").read_text(encoding="utf-8"))
+    assert client["rows"][0] == expected
+    assert server["rows"][0] == expected
+
+    assert _build(source, output) == 0
+    assert output_bytes(output) == first
+
+
+@pytest.mark.parametrize("key_type", ["ID<int32>=1", "SubKey<name>=Fallback"])
+def test_key_defaults_are_rejected_without_outputs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    key_type: str,
+) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "KeyDefault"
+    sheet.append(["Id", "Lookup"])
+    sheet.append([key_type, "string"] if key_type.startswith("ID") else ["ID<int32>", key_type])
+    sheet.append(["B", "B"])
+    sheet.append([1, "값"])
+    source = tmp_path / "key-default.xlsx"
+    workbook.save(source)
+
+    output = tmp_path / "output"
+    assert _build(source, output) == 1
+    stderr = capsys.readouterr().err
+    expected_cell = "A2" if key_type.startswith("ID") else "B2"
+    assert f"KeyDefault!{expected_cell}" in stderr
+    assert "기본키와 서브키에는 기본값을 지정할 수 없습니다" in stderr
+    assert not (output / "cpp").exists()
+    assert not (output / "client").exists()
+    assert not (output / "server").exists()
+
+
+def test_invalid_column_default_is_rejected_without_outputs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "InvalidDefault"
+    sheet.append(["Id", "Multiplier"])
+    sheet.append(["ID<int32>", "float=not-a-number"])
+    sheet.append(["B", "B"])
+    sheet.append([1, None])
+    source = tmp_path / "invalid-default.xlsx"
+    workbook.save(source)
+
+    output = tmp_path / "output"
+    assert _build(source, output) == 1
+    stderr = capsys.readouterr().err
+    assert "InvalidDefault!B2" in stderr
+    assert "float 자료형으로 변환할 수 없습니다" in stderr
+    assert not (output / "cpp").exists()
+    assert not (output / "client").exists()
+    assert not (output / "server").exists()
+
+
 def test_semantic_string_types_generate_cpp_json_and_conditional_includes(
     tmp_path: Path,
 ) -> None:

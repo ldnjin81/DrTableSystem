@@ -273,7 +273,9 @@ def _cpp_value(type_name: str, value: object, prefix: str) -> str:
     if type_name == "text":
         return f"FText::FromString(TEXT({literal}))"
     if type_name == "tag":
-        return f"FGameplayTag::RequestGameplayTag(FName(TEXT({literal})))"
+        # 멤버 기본 초기화자는 태그 테이블이 올라오기 전(CDO 생성 등)에도 실행될 수 있다.
+        # ErrorIfNotFound 기본값 true는 그때 ensureAlwaysMsgf를 발동시키므로 false를 명시한다.
+        return f"FGameplayTag::RequestGameplayTag(FName(TEXT({literal})), false)"
     if type_name == "path":
         return f"FSoftObjectPath(TEXT({literal}))"
     if type_name.startswith("E"):

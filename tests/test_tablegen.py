@@ -268,7 +268,7 @@ def test_column_defaults_apply_to_cpp_and_empty_cells_deterministically(
     assert 'FText DisplayName = FText::FromString(TEXT("표시값"));' in header
     assert (
         'FGameplayTag StateTag = FGameplayTag::RequestGameplayTag('
-        'FName(TEXT("State.Default")));'
+        'FName(TEXT("State.Default")), false);'
     ) in header
     assert (
         'FSoftObjectPath Icon = FSoftObjectPath('

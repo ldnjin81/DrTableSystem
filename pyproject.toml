@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "drtablesystem"
+name = "DrTableSystem"
 version = "0.2.0"
 description = "DrTableSystem (DesignToRuntime Table System): Excel tables to Unreal C++, baked DataAssets and server/client JSON"
 requires-python = ">=3.12"

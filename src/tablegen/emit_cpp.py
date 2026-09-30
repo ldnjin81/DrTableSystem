@@ -11,6 +11,8 @@ from .values import default_value
 
 DEFAULT_ASSET_BASE = "UPrimaryDataAsset"
 DEFAULT_ASSET_BASE_HEADER = "Engine/DataAsset.h"
+DEFAULT_ASSET_NAME = "DA_{table}"
+CLIENT_SCOPES = {"B", "C"}
 CPP_TYPES = {
     "name": "FName",
     "string": "FString",
@@ -31,7 +33,14 @@ def emit_cpp(
     prefix: str,
     asset_base: str = DEFAULT_ASSET_BASE,
     asset_base_header: str | None = None,
+    runtime_header: str | None = None,
+    asset_name: str = DEFAULT_ASSET_NAME,
 ) -> None:
+    """C++ 헤더를 쓴다.
+
+    runtime_header가 있으면 런타임 연동 산출물(행 조회·참조 함수, 테이블별 .cpp,
+    등록 헤더)도 함께 쓴다. 없으면 산출물은 이전 버전과 바이트까지 같다.
+    """
     output.mkdir(parents=True, exist_ok=True)
     header = asset_base_header or DEFAULT_ASSET_BASE_HEADER
     for enum in model.enums:
@@ -40,13 +49,23 @@ def emit_cpp(
     for table in model.tables:
         _write(
             output / f"{prefix}{table.name}Row.h",
-            _table_header(table, prefix, enums),
+            _table_header(table, prefix, enums, runtime_header is not None),
         )
         _write(
             output / f"{prefix}{table.name}Table.h",
             _asset_header(table, prefix, asset_base, header),
         )
+        if runtime_header:
+            _write(
+                output / f"{prefix}{table.name}Row.cpp",
+                _row_source(table, prefix, runtime_header),
+            )
     _write(output / f"{prefix}GeneratedTables.h", _tables_header(model, prefix))
+    if runtime_header:
+        _write(
+            output / f"{prefix}TableRegistration.h",
+            _registration_header(model, prefix, asset_name),
+        )
 
 
 def _source_line(source_name: str, sheet: str) -> str:
@@ -76,6 +95,7 @@ def _table_header(
     table: TableSchema,
     prefix: str,
     enums: dict[str, EnumSchema],
+    accessors: bool = False,
 ) -> str:
     client_columns = [column for column in table.columns if column.scope in {"B", "C"}]
     enum_includes = sorted(
@@ -93,9 +113,15 @@ def _table_header(
     ]
     lines.extend(f'#include "{header}"' for header in type_includes)
     lines.extend(f'#include "E{prefix}{name}.h"' for name in enum_includes)
+    lines.append(f'#include "{prefix}{table.name}Row.generated.h"')
+    if accessors:
+        # 테이블끼리 서로 참조할 수 있으므로 대상 행은 전방 선언만 하고 정의는 .cpp에서 include한다.
+        targets = _ref_targets(table)
+        if targets:
+            lines.append("")
+            lines.extend(f"struct F{prefix}{target}Row;" for target in targets)
     lines.extend(
         [
-            f'#include "{prefix}{table.name}Row.generated.h"',
             "",
             "USTRUCT(BlueprintType)",
             f"struct F{prefix}{table.name}Row : public FTableRowBase",
@@ -138,7 +164,172 @@ def _table_header(
         else:
             declaration += _cpp_initializer(column, prefix, enums)
         lines.extend([f"    {declaration};", ""])
+    if accessors:
+        lines.extend(_accessor_declarations(table, prefix))
     lines.extend(["};", ""])
+    return "\n".join(lines)
+
+
+def _client_refs(table: TableSchema) -> list[ColumnSchema]:
+    return [
+        column
+        for column in table.columns
+        if column.ref_target and column.scope in CLIENT_SCOPES
+    ]
+
+
+def _client_sub_keys(table: TableSchema) -> list[ColumnSchema]:
+    return [column for column in table.sub_keys if column.scope in CLIENT_SCOPES]
+
+
+def _ref_targets(table: TableSchema) -> list[str]:
+    """이 행이 참조하는 다른 테이블(자기 자신 제외), 이름 순."""
+    return sorted(
+        {column.ref_target for column in _client_refs(table) if column.ref_target != table.name}
+    )
+
+
+def _ref_return(column: ColumnSchema, prefix: str) -> str:
+    row = f"F{prefix}{column.ref_target}Row"
+    return f"TArray<const {row}*>" if column.ref_key else f"const {row}*"
+
+
+def _accessor_declarations(table: TableSchema, prefix: str) -> list[str]:
+    row = f"F{prefix}{table.name}Row"
+    lines = [
+        "    // 조회(생성됨) — 런타임 계약 TableGenRuntime을 통해 찾는다.",
+        f"    static const {row}* Find({_cpp_type(table.primary_key, prefix)} Key);",
+    ]
+    for column in _client_sub_keys(table):
+        lines.append(
+            f"    static TArray<const {row}*> FindBy{column.name}({_cpp_type(column, prefix)} Key);"
+        )
+    lines.append(f"    static TConstArrayView<{row}> GetAll();")
+    refs = _client_refs(table)
+    if refs:
+        lines.extend(["", "    // 참조 접근(생성됨) — 없음 값(0·NAME_None)이면 조회하지 않는다."])
+    for column in refs:
+        argument = "int32 Index" if column.is_array else ""
+        lines.append(f"    {_ref_return(column, prefix)} Get{column.name}({argument}) const;")
+    lines.append("")
+    return lines
+
+
+def generated_member_names(table: TableSchema) -> list[tuple[str, str]]:
+    """런타임 연동 때 행 구조체에 생길 함수 이름과, 그 이름을 만든 헤더 셀."""
+    primary_cell = table.primary_key.header_cells[0]
+    names = [("Find", primary_cell), ("GetAll", primary_cell)]
+    names.extend(
+        (f"FindBy{column.name}", column.header_cells[0]) for column in _client_sub_keys(table)
+    )
+    names.extend((f"Get{column.name}", column.header_cells[0]) for column in _client_refs(table))
+    return names
+
+
+def _absent_check(column: ColumnSchema, expression: str) -> str | None:
+    """참조 없음 값 검사식. 열거형 대상은 빈 셀이 금지라 없음 값이 없다."""
+    if column.type_name in {"int32", "int64"}:
+        return f"{expression} == 0"
+    if column.type_name == "name":
+        return f"{expression}.IsNone()"
+    return None
+
+
+def _row_source(table: TableSchema, prefix: str, runtime_header: str) -> str:
+    row = f"F{prefix}{table.name}Row"
+    lines = [
+        _source_line(table.source_name, table.sheet).rstrip("\n"),
+        f'#include "{prefix}{table.name}Row.h"',
+    ]
+    lines.extend(f'#include "{prefix}{target}Row.h"' for target in _ref_targets(table))
+    lines.extend([f'#include "{runtime_header}"', ""])
+    lines.extend(
+        [
+            f"const {row}* {row}::Find({_cpp_type(table.primary_key, prefix)} Key)",
+            "{",
+            f"    return TableGenRuntime::FindByKey<{row}>(Key);",
+            "}",
+            "",
+        ]
+    )
+    for column in _client_sub_keys(table):
+        lines.extend(
+            [
+                f"TArray<const {row}*> {row}::FindBy{column.name}({_cpp_type(column, prefix)} Key)",
+                "{",
+                f'    return TableGenRuntime::FindAllBySubKey<{row}>(FName(TEXT("{column.name}")), Key);',
+                "}",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            f"TConstArrayView<{row}> {row}::GetAll()",
+            "{",
+            f"    return TableGenRuntime::GetAll<{row}>();",
+            "}",
+            "",
+        ]
+    )
+    for column in _client_refs(table):
+        target_row = f"F{prefix}{column.ref_target}Row"
+        empty = "{}" if column.ref_key else "nullptr"
+        lookup = f"FindBy{column.ref_key}" if column.ref_key else "Find"
+        value = f"{column.name}[Index]" if column.is_array else column.name
+        guards = []
+        if column.is_array:
+            guards.append(f"Index < 0 || Index >= {column.array_size}")
+        absent = _absent_check(column, value)
+        if absent:
+            guards.append(absent)
+        argument = "int32 Index" if column.is_array else ""
+        lines.extend([f"{_ref_return(column, prefix)} {row}::Get{column.name}({argument}) const", "{"])
+        if guards:
+            lines.extend(
+                [f"    if ({' || '.join(guards)})", "    {", f"        return {empty};", "    }"]
+            )
+        lines.extend([f"    return {target_row}::{lookup}({value});", "}", ""])
+    return "\n".join(lines)
+
+
+def _registration_header(model: DataModel, prefix: str, asset_name: str) -> str:
+    source_names = ", ".join(model.source_files)
+    lines = [
+        f"// 자동 생성됨 — 직접 수정하지 말 것. 출처: {source_names} / 전체",
+        "#pragma once",
+        "",
+        '#include "CoreMinimal.h"',
+        f'#include "{prefix}GeneratedTables.h"',
+    ]
+    lines.extend(f'#include "{prefix}{table.name}Table.h"' for table in model.tables)
+    lines.extend(
+        [
+            "",
+            f"namespace {prefix}GeneratedTables",
+            "{",
+            "    // 레지스트리는 Register<행, 에셋>(이름, 행 배열, 기본키 배열)을 제공하고, 그 반환값은",
+            "    // WithSchemaHash(해시)와 WithSubKey(이름, 키, 오프셋, 인덱스)를 이어 부를 수 있어야 한다.",
+            "    template <typename TRegistry>",
+            "    void RegisterAll(TRegistry& Registry)",
+            "    {",
+        ]
+    )
+    for table in model.tables:
+        row = f"F{prefix}{table.name}Row"
+        asset = f"U{prefix}{table.name}Table"
+        name = asset_name.replace("{table}", table.name)
+        lines.append(
+            f"        Registry.template Register<{row}, {asset}>("
+            f'TEXT("{name}"), &{asset}::Rows, &{asset}::PrimaryKeys)'
+        )
+        lines.append(f"            .WithSchemaHash({table.name}SchemaHash)")
+        for column in _client_sub_keys(table):
+            lines.append(
+                f'            .WithSubKey(TEXT("{column.name}"), &{asset}::{column.name}_Keys, '
+                f"&{asset}::{column.name}_Offsets, &{asset}::{column.name}_Indices)"
+            )
+        lines[-1] += ";"
+    lines.extend(["    }", "}", ""])
     return "\n".join(lines)
 
 

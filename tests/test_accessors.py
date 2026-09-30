@@ -137,9 +137,11 @@ def test_registration_header(tmp_path: Path) -> None:
     assert ('Registry.template Register<FDtQuestsRow, UDtQuestsTable>(TEXT("BT_Quests"), '
             "&UDtQuestsTable::Rows, &UDtQuestsTable::PrimaryKeys)") in text
     assert ('            .WithSchemaHash(QuestsSchemaHash)\n'
+            '            .WithContentHash(QuestsContentHash)\n'
             '            .WithSubKey(TEXT("Reward"), &UDtQuestsTable::Reward_Keys, '
             "&UDtQuestsTable::Reward_Offsets, &UDtQuestsTable::Reward_Indices);") in text
-    assert '            .WithSchemaHash(MonstersSchemaHash);' in text
+    assert ('            .WithSchemaHash(MonstersSchemaHash)\n'
+            '            .WithContentHash(MonstersContentHash);') in text
     # 테이블 이름 순서(결정성)
     order = [text.index(f"Register<FDt{name}Row") for name in
              ("DropTable", "Items", "KindInfo", "Monsters", "Quests") if f"Register<FDt{name}Row" in text]

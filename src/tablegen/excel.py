@@ -294,6 +294,9 @@ def _read_table_rows(
     table = TableSchema(source_name=source_name, name=table_name, sheet=sheet.title, columns=columns)
     primary = table.primary_key
     used_keys: dict[object, str] = {}
+    # (필드, 소문자 값) → (처음 본 철자, 셀). UE FName은 대소문자를 구분하지 않으므로
+    # 'Sword'와 'sword'가 한 키·한 서브키 값으로 합쳐져 정렬 계약이 깨진다.
+    name_spellings: dict[tuple[str, str], tuple[str, str]] = {}
     data_source_columns = {
         source_column for column in columns for source_column in column.source_columns
     }
@@ -354,9 +357,39 @@ def _read_table_rows(
             errors.add(sheet.title, key_cell, f"기본키 값 '{key}'이 중복되었습니다")
         else:
             used_keys[key] = key_cell
+            if primary.type_name == "name":
+                _check_name_case(sheet.title, primary.name, key, key_cell, name_spellings, errors)
+        for column in table.sub_keys:
+            if column.type_name == "name" and column.name != primary.name:
+                cell = f"{get_column_letter(column.source_columns[0])}{row}"
+                _check_name_case(sheet.title, column.name, converted[column.name], cell, name_spellings, errors)
         table.rows.append(converted)
-    table.schema_hash = calculate_schema_hash(columns)
+    table.schema_hash = calculate_schema_hash(columns, enums)
     return table
+
+
+def _check_name_case(
+    sheet: str,
+    field: str,
+    value: object,
+    cell: str,
+    spellings: dict[tuple[str, str], tuple[str, str]],
+    errors: ErrorCollector,
+) -> None:
+    """name 키 값이 대소문자만 다른 다른 값과 겹치면 오류로 낸다."""
+    if not isinstance(value, str) or value == "":
+        return
+    folded = (field, value.lower())
+    seen = spellings.get(folded)
+    if seen is None:
+        spellings[folded] = (value, cell)
+    elif seen[0] != value:
+        errors.add(
+            sheet,
+            cell,
+            f"name 키 '{value}'이 {seen[1]}의 '{seen[0]}'과 대소문자만 다릅니다. "
+            "언리얼 FName은 대소문자를 구분하지 않아 같은 값이 됩니다",
+        )
 
 
 def _value_with_default(value: object, declared_default: object | None) -> object:

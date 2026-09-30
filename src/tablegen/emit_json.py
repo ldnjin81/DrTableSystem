@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 from .excel import DataModel
 from .schema import ColumnSchema, EnumSchema, TableSchema
+
+CLIENT_SCOPES = {"B", "C"}
+SERVER_SCOPES = {"B", "S"}
 
 
 def emit_json(
@@ -14,21 +18,26 @@ def emit_json(
     client_output: Path,
     server_output: Path,
     stamp: str | None = None,
+    prefix: str = "Dt",
+    asset_name: str = "DA_{table}",
 ) -> None:
     client_output.mkdir(parents=True, exist_ok=True)
     server_output.mkdir(parents=True, exist_ok=True)
     enums = {enum.name: enum for enum in model.enums}
+    content_hashes: dict[tuple[str, str], str] = {}
     for table in model.tables:
         rows = _sorted_rows(table, enums)
-        _write_json(
-            client_output / f"{table.name}.json",
-            _table_payload(table, rows, {"B", "C"}, enums, with_index=True),
-        )
-        _write_json(
-            server_output / f"{table.name}.json",
-            _table_payload(table, rows, {"B", "S"}, enums, with_index=False),
-        )
-    for scopes, output in (({"B", "C"}, client_output), ({"B", "S"}, server_output)):
+        for side, scopes, output, with_index in (
+            ("client", CLIENT_SCOPES, client_output, True),
+            ("server", SERVER_SCOPES, server_output, False),
+        ):
+            payload = _table_payload(table, rows, scopes, enums, with_index)
+            content_hashes[(side, table.name)] = payload["content_hash"]
+            _write_json(output / f"{table.name}.json", payload)
+    for side, scopes, output in (
+        ("client", CLIENT_SCOPES, client_output),
+        ("server", SERVER_SCOPES, server_output),
+    ):
         references = []
         for table in model.tables:
             for column in table.columns:
@@ -47,8 +56,16 @@ def emit_json(
         references.sort(key=lambda item: (item["table"], item["field"]))
         manifest: dict[str, object] = {
             "source_files": list(model.source_files),
+            # 굽기 도구가 C++ 클래스 이름(U<prefix><Table>Table)과 에셋 이름을 같은 규칙으로 만들게 한다.
+            "cpp_prefix": prefix,
+            "asset_name": asset_name,
             "tables": [
-                {"name": table.name, "rows": len(table.rows), "schema_hash": table.schema_hash}
+                {
+                    "name": table.name,
+                    "rows": len(table.rows),
+                    "schema_hash": table.schema_hash,
+                    "content_hash": content_hashes[(side, table.name)],
+                }
                 for table in model.tables
             ],
             "enums": [{"name": enum.name, "values": len(enum.values)} for enum in model.enums],
@@ -133,7 +150,23 @@ def _table_payload(
     payload["rows"] = [
         {column.name: row[column.name] for column in included} for row in rows
     ]
-    return payload
+    # 내용 해시: 이 산출물에 실제로 실린 데이터(행·인덱스)만으로 계산한다. 값만 바꾸고
+    # 다시 굽지 않은 경우를 잡는 데 쓴다. 스키마 해시와 달리 값이 바뀌면 바뀐다.
+    content = {key: value for key, value in payload.items() if key not in {"table", "schema_hash"}}
+    digest = hashlib.sha256(
+        json.dumps(content, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    ordered = {"table": payload["table"], "schema_hash": payload["schema_hash"],
+               "content_hash": f"sha256:{digest}"}
+    ordered.update(content)
+    return ordered
+
+
+def content_hash(table: TableSchema, enums: dict[str, EnumSchema], scopes: set[str] | None = None) -> str:
+    """클라(기본) 또는 지정 범위 산출물의 내용 해시. C++ 기대값 상수에 쓴다."""
+    target = scopes or CLIENT_SCOPES
+    rows = _sorted_rows(table, enums)
+    return _table_payload(table, rows, target, enums, target == CLIENT_SCOPES)["content_hash"]
 
 
 def _write_json(path: Path, payload: object) -> None:

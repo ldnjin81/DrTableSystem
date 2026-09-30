@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "drtablesystem"
 version = "0.1.0"
-description = "DrTableSystem (Design-to-Runtime Table System): Excel tables to Unreal C++, baked DataAssets and server/client JSON"
+description = "DrTableSystem (DesignToRuntime Table System): Excel tables to Unreal C++, baked DataAssets and server/client JSON"
 requires-python = ">=3.12"
 dependencies = ["openpyxl>=3.1,<4"]
 

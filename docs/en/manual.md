@@ -1,6 +1,6 @@
 # DrTableSystem manual
 
-DrTableSystem (Design-to-Runtime Table System) carries the data designers write in spreadsheets all the way to the game runtime. It turns spreadsheet tables into:
+DrTableSystem (DesignToRuntime Table System) carries the data designers write in spreadsheets all the way to the game runtime. It turns spreadsheet tables into:
 
 - **Unreal C++**: `USTRUCT` row types, `UENUM` enums, one DataAsset class per table, and optionally typed lookup functions and a registration header.
 - **Client JSON**: the rows a game client needs, plus prebuilt key indices, ready to be baked into DataAssets.

@@ -1,7 +1,7 @@
 """Converts old workbooks, whose sheets carried the field name, type and scope in rows 1-3.
 
-* Each table sheet's header becomes ``<Table>.schema.xlsx`` (or ``.schema.yaml``).
-* Each ``<enum>Name`` sheet becomes ``<Enum>.enum.xlsx`` (or ``.enum.yaml``) in the enum folder,
+* Each table sheet's header becomes ``<Table>.schema.xlsx``.
+* Each ``<enum>Name`` sheet becomes ``<Enum>.enum.xlsx`` in the enum folder,
   its rows becoming the enum values. Extra columns (other than Id, Value and Comment) become a
   ``<Enum>Info`` table: a schema keyed by the enum and a new data workbook holding its rows.
 
@@ -15,7 +15,7 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
 from .schema import DATA_ROW, IDENTIFIER_RE, NAME_ROW, SCOPE_ROW
-from .schemafile import SCHEMA_SUFFIXES, Schema, dump_yaml, render_xlsx
+from .schemafile import SCHEMA_SUFFIXES, Schema, render_xlsx
 from .sources import ENUM_SHEET_RE, find_files, strip_sheet_comment, table_name_of
 
 
@@ -24,7 +24,6 @@ def extract_schemas(
     schema_dir: Path,
     enum_dir: Path,
     overwrite: bool = False,
-    fmt: str = "xlsx",
 ) -> list[Path]:
     """Writes schema files (and <Enum>Info data workbooks) for the old sheets under input_path.
 
@@ -49,10 +48,10 @@ def extract_schemas(
                 if not header:
                     continue
                 if match:
-                    written += _convert_enum(sheet, name, header, schema_dir, enum_dir, path.parent, overwrite, fmt)
+                    written += _convert_enum(sheet, name, header, schema_dir, enum_dir, path.parent, overwrite)
                 else:
                     rows = [(0, n, t, s, None) for _, n, t, s in header]
-                    written += _write(Schema("", name, rows), schema_dir, overwrite, fmt)
+                    written += _write(Schema("", name, rows), schema_dir, overwrite)
         finally:
             workbook.close()
     return written
@@ -66,7 +65,6 @@ def _convert_enum(
     enum_dir: Path,
     data_dir: Path,
     overwrite: bool,
-    fmt: str,
 ) -> list[Path]:
     key_column = next((index for index, _, type_, _ in header if str(type_).strip().lower().startswith("id<")), 0)
     by_name = {str(field_name).strip(): index for index, field_name, _, _ in header}
@@ -84,11 +82,11 @@ def _convert_enum(
         return row[index] if index is not None and index < len(row) else None
 
     values = [(0, cell(row, key_column), cell(row, value_column), None, cell(row, comment_column)) for row in data]
-    written = _write(Schema("", name, values, is_enum=True), enum_dir, overwrite, fmt)
+    written = _write(Schema("", name, values, is_enum=True), enum_dir, overwrite)
     if extras:
         info = f"{name}Info"
         fields = [(0, "Id", f"ID<E{name}>", "all", None)] + [(0, n, t, s, None) for _, n, t, s in extras]
-        written += _write(Schema("", info, fields), schema_dir, overwrite, fmt)
+        written += _write(Schema("", info, fields), schema_dir, overwrite)
         target = data_dir / f"{info}.xlsx"
         if overwrite or not target.exists():
             workbook = Workbook()
@@ -104,16 +102,13 @@ def _convert_enum(
     return written
 
 
-def _write(schema: Schema, folder: Path, overwrite: bool, fmt: str) -> list[Path]:
+def _write(schema: Schema, folder: Path, overwrite: bool) -> list[Path]:
     kind = "enum" if schema.is_enum else "schema"
-    target = folder / f"{schema.name}.{kind}.{fmt}"
+    target = folder / f"{schema.name}.{kind}.xlsx"
     if target.exists() and not overwrite:
         return []
     folder.mkdir(parents=True, exist_ok=True)
-    if fmt == "yaml":
-        target.write_text(dump_yaml(schema), encoding="utf-8")
-    else:
-        target.write_bytes(render_xlsx(schema))
+    target.write_bytes(render_xlsx(schema))
     return [target]
 
 

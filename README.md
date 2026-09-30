@@ -4,7 +4,7 @@
 
 [한국어](README.ko.md)
 
-- **Schemas apart from data.** Tables and enums are defined in schema files (`.schema.xlsx` or `.schema.yaml`) owned by programmers. Designers edit data workbooks. Generated code depends on the schemas only, so data edits never change code.
+- **Schemas apart from data.** Tables and enums are defined in schema workbooks (`.schema.xlsx`, `.enum.xlsx`) owned by programmers. Designers edit data workbooks. Generated code depends on the schemas only, so data edits never change code.
 - **Unreal C++**: `USTRUCT` rows, `UENUM` enums, a DataAsset class per table, typed lookups (`Find`, `FindBy<SubKey>`, `Get<Ref>`).
 - **Client and server JSON** from the same data, split by field scope.
 - **Unreal plugin**: bakes client JSON into DataAssets with prebuilt key indices, loads them without copying, and rejects stale assets.
@@ -12,8 +12,8 @@
 - Split a table over sheets and files, deterministic output, messages in English or Korean.
 
 ```
-Schemas/*.schema.xlsx|yaml ─┐                 ┌─▶ C++ headers ─▶ compile
-Schemas/Enums/*.enum.*     ─┼▶ drtable build ─┼─▶ client JSON ─▶ DrTableBake ─▶ DataAssets ─▶ runtime lookups
+Schemas/*.schema.xlsx      ─┐                 ┌─▶ C++ headers ─▶ compile
+Schemas/Enums/*.enum.xlsx  ─┼▶ drtable build ─┼─▶ client JSON ─▶ DrTableBake ─▶ DataAssets ─▶ runtime lookups
 Data workbooks (*.xlsx)    ─┘                 └─▶ server JSON ─▶ your server
 ```
 
@@ -27,15 +27,13 @@ uv run drtable check --client Intermediate/DrTable/client --server Build/ServerD
 uv run drtable headers --input Design/Tables --schema Design/Tables/Schemas   # show the schema in rows 2-3
 ```
 
-A table schema (`Design/Tables/Schemas/Items.schema.yaml`):
+A table schema (`Design/Tables/Schemas/Items.schema.xlsx`, one field per row from row 2):
 
-```yaml
-table: Items
-fields:
-  - {name: Id,     type: ID<int32>,     scope: all}
-  - {name: Kind,   type: SubKey<EItemType>, scope: all}
-  - {name: Price,  type: int32=0,       scope: server}
-```
+| Field | Type | Scope | Comment |
+|---|---|---|---|
+| Id | `ID<int32>` | all | |
+| Kind | `SubKey<EItemType>` | all | |
+| Price | `int32=0` | server | sell price |
 
 A data workbook has the field names in row 1 (any column order) and data from row 4; the sheet name is the table name.
 
@@ -44,4 +42,4 @@ A data workbook has the field names in row 1 (any column order) and data from ro
 - Manual: [English](docs/en/manual.md) · [한국어](docs/ko/manual.md)
 - Unreal plugin: `unreal/DrTableSystem` (Unreal Engine 5.8)
 
-Requirements: Python 3.12+, `openpyxl`, `pyyaml`.
+Requirements: Python 3.12+, `openpyxl`.

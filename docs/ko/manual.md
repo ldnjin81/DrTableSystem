@@ -9,7 +9,7 @@ DrTableSystem(DesignToRuntime Table System)은 기획자가 엑셀에 적은 데
 **DrTableSystem 언리얼 플러그인**은 클라 JSON을 DataAsset으로 굽고, 런타임에 복사나 인덱스 구축 없이 그대로 읽으며, 오래된 에셋을 잡아냅니다.
 
 ```
-스키마(Schemas/*.schema.xlsx|yaml, Enums/*.enum.*) ─┐        ┌─▶ C++ 헤더 ─────────────▶ 컴파일
+스키마(Schemas/*.schema.xlsx, Enums/*.enum.xlsx) ─┐        ┌─▶ C++ 헤더 ─────────────▶ 컴파일
                                                     ├▶ drtable build ─┼─▶ 클라 JSON ─▶ DrTableBake ─▶ DA_*.uasset ─▶ 런타임 조회
 데이터 엑셀(*.xlsx, 1행 필드명 + 4행부터 데이터) ─────┘        └─▶ 서버 JSON ─▶ 서버
                  drtable check  ◀─ 클라·서버 JSON   (참조 무결성 검사, CI)
@@ -43,7 +43,7 @@ DrTableSystem(DesignToRuntime Table System)은 기획자가 엑셀에 적은 데
 
 ## 1. 설치
 
-필요한 것: Python 3.12 이상, [uv](https://docs.astral.sh/uv/)(권장). 실행 의존성은 `openpyxl`과 `pyyaml`입니다.
+필요한 것: Python 3.12 이상, [uv](https://docs.astral.sh/uv/)(권장). 실행 의존성은 `openpyxl` 하나입니다.
 
 ```sh
 git clone <이 저장소> DrTableSystem
@@ -66,19 +66,19 @@ Design/Tables/                    ← --input (데이터)
   Monsters.xlsx
   event/Summer.xlsx               ← 하위 폴더도 읽습니다
   Schemas/                        ← --schema (테이블 스키마)
-    Items.schema.xlsx             (또는 Items.schema.yaml)
+    Items.schema.xlsx
     Monsters.schema.xlsx
     Enums/                        ← --enums (열거형 스키마, 기본값 <스키마>/Enums)
-      ItemType.enum.xlsx          (또는 ItemType.enum.yaml)
+      ItemType.enum.xlsx
 ```
 
 - 스키마는 테이블마다 파일 하나, 열거형은 열거형 폴더에 열거형마다 파일 하나입니다. 파일 이름은 정의한 이름과 같아야 합니다(`Items.schema.xlsx` ↔ 테이블 `Items`).
-- `--schema`를 주지 않으면 입력 폴더 전체에서 `*.schema.*`를 찾습니다. 데이터를 읽을 때 스키마 파일은 건너뜁니다.
+- `--schema`를 주지 않으면 입력 폴더 전체에서 `*.schema.xlsx`를 찾습니다. 데이터를 읽을 때 스키마 파일은 건너뜁니다.
 - 엑셀이 열어 둔 파일의 잠금 파일(`~$…`)과 `.`으로 시작하는 숨김 폴더는 건너뜁니다.
 
 ### 스키마 파일
 
-**엑셀(`Items.schema.xlsx`).** 시트 하나에 테이블 이름을 붙이고, 1행은 제목, 2행부터 필드를 한 행에 하나씩 적습니다.
+`Items.schema.xlsx`: 시트 하나에 테이블 이름을 붙이고, 1행은 제목, 2행부터 필드를 한 행에 하나씩 적습니다.
 
 | | A 필드명 | B 자료형 | C 범위 | D 설명 |
 |---|---|---|---|---|
@@ -91,31 +91,6 @@ Design/Tables/                    ← --input (데이터)
 - **자료형**에는 키 역할이나 기본값을 붙일 수 있습니다: `int32`, `ID<int32>`, `SubKey<name>`, `float=1.0`(3·4절).
 - **범위**: `all` 둘 다, `client` 클라만, `server` 서버만, `#` 주석(어디에도 나가지 않음). 대소문자는 가리지 않습니다.
 - 필드 순서가 곧 C++ 구조체의 멤버 순서입니다.
-
-**YAML(`Items.schema.yaml`).** 같은 내용을 텍스트로 씁니다. 리뷰할 때 diff로 바로 보입니다.
-
-```yaml
-table: Items
-fields:
-  - name: Id
-    type: ID<int32>
-    scope: all
-  - name: Damage
-    type: float=0
-    scope: client
-    comment: 초당 피해
-```
-
-YAML에서 `#`은 주석 기호라서 범위를 `#`으로 쓸 때는 `scope: "#"`처럼 따옴표로 감쌉니다(빠뜨리면 빌드가 알려 줍니다).
-
-**두 방식 고르기.** 팀에 맞게 테이블마다 고를 수 있습니다.
-
-| 방식 | 원본 | 엑셀 스키마 파일 |
-|---|---|---|
-| 엑셀 스키마 | `*.schema.xlsx` | 원본 그 자체 |
-| YAML 스키마 | `*.schema.yaml` | `drtable schema-export`가 만드는 보기 파일(CI에서 생성하거나 `--check`로 검사) |
-
-같은 이름의 YAML과 엑셀이 함께 있으면 **YAML이 원본**입니다. 엑셀 보기 파일이 YAML과 다르면 빌드는 경고만 하고 YAML을 씁니다.
 
 ### 데이터 엑셀
 
@@ -140,7 +115,6 @@ YAML에서 `#`은 주석 기호라서 범위를 `#`으로 쓸 때는 `scope: "#"
 ```
 
 - 새 열을 추가하면 옆 칸 수식을 끌어 채우면 됩니다. 스키마에 없는 이름은 `(스키마에 없음)`으로 보입니다.
-- YAML 스키마라면 먼저 `drtable schema-export`로 보기 파일을 만듭니다.
 - 이 명령은 데이터 파일을 다시 저장합니다. 그림·차트·피벗이 있는 파일은 openpyxl이 보존하지 못하므로 건드리지 않고 알려 줍니다(수식은 손으로 복사).
 - 처음 열 때 엑셀이 외부 링크 경고를 띄우면 "콘텐츠 사용"을 누르거나, 데이터 폴더를 엑셀의 **신뢰할 수 있는 위치**에 등록하세요.
 
@@ -162,10 +136,7 @@ Design/Tables/
 
 ### 위치 표기
 
-모든 오류 메시지는 위치로 시작합니다.
-
-- 엑셀: `[파일]시트!셀` — 예: `[Items.xlsx]Items!A7`, `[Items.schema.xlsx]Items!B4`
-- YAML: `파일:줄` — 예: `Items.schema.yaml:10`
+모든 오류 메시지는 `[파일]시트!셀` 위치로 시작합니다. 예: `[Items.xlsx]Items!A7`, `[Items.schema.xlsx]Items!B4`.
 
 파일 경로는 입력 폴더(데이터)나 스키마 폴더 기준 상대 경로입니다.
 
@@ -217,25 +188,13 @@ Design/Tables/
 
 열거형의 값(열거자 목록)은 C++ `UENUM`이 되므로 **스키마에 둡니다**. 열거형 폴더(기본 `<스키마>/Enums`)에 열거형마다 파일 하나입니다.
 
-**엑셀(`Enums/ItemType.enum.xlsx`)**, 시트 이름 `ItemType`:
+`Enums/ItemType.enum.xlsx`, 시트 이름 `ItemType`:
 
 | | A 이름 | B 값 | C 설명 |
 |---|---|---|---|
 | **1** | `Name` | `Value` | `Comment` |
 | **2** | `Weapon` | `0` | 검, 활 |
 | **3** | `Armor` | | 투구, 갑옷 |
-
-**YAML(`Enums/ItemType.enum.yaml`)**:
-
-```yaml
-enum: ItemType
-values:
-  - name: Weapon
-    value: 0
-    comment: 검, 활
-  - name: Armor          # 값을 생략하면 앞 값 + 1
-    comment: 투구, 갑옷
-```
 
 - 값은 생략할 수 있습니다(첫 항목은 0, 그다음은 앞 값 + 1). uint8 범위이고 중복되면 안 됩니다.
 - 설명은 생성 코드의 주석이 됩니다.
@@ -351,8 +310,7 @@ drtable graph --input <xlsx|폴더> --out references.md [--schema …] [--enums 
 drtable check --client <클라 JSON 폴더> [--server <서버 JSON 폴더>]
 drtable check --input <xlsx|폴더> [--schema …] [--enums …]   # 검사만 하고 아무것도 쓰지 않음
 drtable headers --input <xlsx|폴더> [--schema …] [--enums …]  # 데이터 2·3행에 참고 수식
-drtable schema-export --schema <폴더> [--check]               # YAML → 엑셀 보기 파일
-drtable migrate --input <xlsx|폴더> [--schema …] [--enums …] [--format xlsx|yaml] [--overwrite]
+drtable migrate --input <xlsx|폴더> [--schema …] [--enums …] [--overwrite]
 drtable [--lang en|ko] …
 ```
 
@@ -369,10 +327,9 @@ drtable [--lang en|ko] …
 
 - `graph`는 GitHub에서 바로 그려지는 Mermaid `flowchart`를 씁니다. 테이블마다 노드(키 자료형 표시), 참조마다 화살표를 그립니다. 화살표 라벨에는 필드명과 배열이면 `[N]`을 붙입니다. 참조 필드가 서브키면 `(SubKey)`, 서브키를 참조하면 `→ 키 1:N`도 붙습니다.
 - `check --client/--server`는 생성된 JSON만 읽으므로 CI에서 돌릴 수 있습니다. 끊긴 참조를 전부 출력합니다(예: `Quests.Next[2002](0) = 9999 → Quests 테이블에 없음`). 빈 참조는 건너뛰고, 대상에 "참조 없음" 값(0이나 빈 이름)과 같은 키가 있으면 경고합니다.
-- `schema-export`는 폴더 아래 모든 `*.schema.yaml`·`*.enum.yaml` 옆에 엑셀 보기 파일을 씁니다. 결과는 결정적이고 바뀌지 않은 파일은 다시 쓰지 않습니다. `--check`는 아무것도 쓰지 않고, 보기 파일이 없거나 오래됐으면 실패합니다.
 - 경고(`경고: …`)는 표준 오류로 나가고 종료 코드에 영향을 주지 않습니다.
 
-종료 코드: `build`·`graph`·`check --input`·`headers`·`migrate`는 0 성공, 1 검증 오류, 2 사용 오류. `check --client`는 0 통과, 1 끊긴 참조, 2 입력 오류. `schema-export --check`는 0 최신, 1 갱신 필요.
+종료 코드: `build`·`graph`·`check --input`·`headers`·`migrate`는 0 성공, 1 검증 오류, 2 사용 오류. `check --client`는 0 통과, 1 끊긴 참조, 2 입력 오류.
 
 ## 10. 언리얼 플러그인
 
@@ -468,13 +425,10 @@ drtable [--lang en|ko] …
 전형적인 파이프라인:
 
 ```sh
-drtable schema-export --schema Design/Tables/Schemas --check   # YAML 방식: 보기 파일이 최신인지
 drtable build … --ue-plugin
 drtable check --client … --server …                     # 끊긴 참조가 있으면 실패
 UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # 빠졌거나 오래된 에셋이 있으면 실패
 ```
-
-YAML 방식에서 보기 파일을 CI가 만들게 하려면 `--check` 대신 `drtable schema-export --schema …`로 생성해 올리면 됩니다.
 
 `.github/workflows/ci.yml`이 push마다 파이썬 테스트와 린트를 돌립니다.
 
@@ -483,13 +437,12 @@ YAML 방식에서 보기 파일을 CI가 만들게 하려면 `--check` 대신 `d
 예전 형식은 데이터 시트의 1~3행에 필드명·자료형·범위를 적고, 열거형을 `<enum>이름` 시트에 두었습니다. `drtable migrate`가 새 형식으로 옮깁니다.
 
 ```sh
-drtable migrate --input Design/Tables --schema Design/Tables/Schemas            # 엑셀 스키마
-drtable migrate --input Design/Tables --schema Design/Tables/Schemas --format yaml
+drtable migrate --input Design/Tables --schema Design/Tables/Schemas
 drtable headers --input Design/Tables --schema Design/Tables/Schemas            # 2·3행을 참고 수식으로
 ```
 
-- 테이블 시트의 헤더 → `<테이블>.schema.xlsx`(또는 `.yaml`). 같은 테이블이 여러 시트에 있으면 첫 시트(파일 경로 순, 파일 안에서는 시트 순)를 씁니다.
-- `<enum>이름` 시트 → 열거형 폴더의 `<이름>.enum.xlsx`(또는 `.yaml`). `Id`·`Value`·`Comment` 말고 다른 열이 있으면 `<이름>Info` 테이블의 스키마와 **새 데이터 파일** `<이름>Info.xlsx`를 만듭니다.
+- 테이블 시트의 헤더 → `<테이블>.schema.xlsx`. 같은 테이블이 여러 시트에 있으면 첫 시트(파일 경로 순, 파일 안에서는 시트 순)를 씁니다.
+- `<enum>이름` 시트 → 열거형 폴더의 `<이름>.enum.xlsx`. `Id`·`Value`·`Comment` 말고 다른 열이 있으면 `<이름>Info` 테이블의 스키마와 **새 데이터 파일** `<이름>Info.xlsx`를 만듭니다.
 - **기존 데이터 파일은 고치지 않습니다.** 옛 `<enum>` 시트는 빌드가 읽지 않고 경고만 하니 확인한 뒤 지우세요. 옛 2·3행은 빌드가 읽지 않으니 그대로 두거나 `drtable headers`로 참고 수식으로 바꿉니다.
 - 이미 있는 스키마 파일은 건너뜁니다(`--overwrite`로 덮어쓰기).
 
@@ -497,14 +450,12 @@ drtable headers --input Design/Tables --schema Design/Tables/Schemas            
 
 | 메시지 | 원인과 조치 |
 |---|---|
-| `스키마가 없습니다. 'X.schema.xlsx' 또는 'X.schema.yaml'에…` | 데이터 시트 이름에 맞는 스키마가 없습니다. 스키마를 만들거나(예전 형식이면 `drtable migrate`) `--schema` 경로를 확인하세요. |
+| `스키마가 없습니다. 'X.schema.xlsx'에…` | 데이터 시트 이름에 맞는 스키마가 없습니다. 스키마를 만들거나(예전 형식이면 `drtable migrate`) `--schema` 경로를 확인하세요. |
 | `필드 'X'이 스키마 …에 없습니다` | 데이터 1행에 스키마에 없는 이름이 있습니다. 오타를 고치거나 스키마에 필드를 추가하세요(프로그래머). 메모 열이면 이름을 `#`으로 시작하세요. |
 | `필드 'X'의 열이 없습니다` | 스키마의 필드가 데이터 시트에 없습니다. 열을 추가하세요. |
 | `열거형 값은 이제 열거형 스키마…에 정의합니다` (경고) | 옛 `<enum>` 시트입니다. 값은 열거형 폴더의 스키마에서 읽으니 시트를 지우세요. |
-| `…와 내용이 다릅니다. drtable schema-export로 다시 만드세요` (경고) | YAML 원본과 엑셀 보기 파일이 다릅니다. `schema-export`로 다시 만드세요. 빌드는 YAML을 씁니다. |
 | `참고 헤더가 이 PC에 없는 경로를 가리킵니다` (경고) | 다른 경로에서 저장된 링크입니다. `drtable headers`로 다시 연결하세요(2절 링크 경로 주의). |
-| `scope가 비어 있습니다. '#'은 YAML 주석 기호라…` | YAML에서 `scope: "#"`처럼 따옴표로 감싸세요. |
-| `열거형 스키마는 열거형 폴더(…)에 두어야 합니다` | `*.enum.*` 파일을 열거형 폴더로 옮기세요. |
+| `열거형 스키마는 열거형 폴더(…)에 두어야 합니다` | `*.enum.xlsx` 파일을 열거형 폴더로 옮기세요. |
 | `Schema mismatch, re-bake required` | 옛 구조로 구운 에셋입니다. 생성 → 빌드 → 굽기. |
 | `Class U…Table is not compiled into the editor` | `drtable build` 뒤에 에디터를 빌드하고 굽습니다. |
 | `Table asset not found` | 등록은 됐지만 굽지 않았거나, 굽기와 로드의 `AssetRoot`·`--asset-name`이 다릅니다. |

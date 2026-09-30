@@ -38,7 +38,7 @@ def write_headers(
 ) -> list[Path]:
     """Writes the reference formulas into rows 2-3 of every table sheet under input_path.
 
-    Needs each table's xlsx schema (for a YAML source, its view from schema-export).
+    Needs each table's schema file.
     Returns the workbooks changed.
     """
     changed: list[Path] = []
@@ -61,13 +61,7 @@ def write_headers(
             schema = schemas.tables.get(name) if name else None
             if schema is None:
                 continue
-            view = schema if schema.kind == "xlsx" else schema.view
-            if view is None:
-                errors.add(f"[{relative}]{sheet.title}", "A2", tr(
-                    f"{schema.file}의 보기 파일이 없습니다. 먼저 drtable schema-export를 실행하세요",
-                    f"{schema.file} has no xlsx view; run drtable schema-export first",
-                ))
-                continue
+            view = schema
             target = Path(os.path.relpath(base / view.file, path.parent)).as_posix()
             index = _link_index(workbook, target, view.title or view.name)
             reference = f"'[{index}]{view.title or view.name}'"

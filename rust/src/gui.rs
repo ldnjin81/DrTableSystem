@@ -379,6 +379,17 @@ impl eframe::App for App {
                     ui.selectable_value(&mut self.tab, tab, label);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button(tr("설정 초기화", "Reset settings"))
+                        .on_hover_text(tr("저장된 폴더·접두사 설정을 지우고 기본값으로 돌립니다", "Forget the saved folders and prefix and use the defaults"))
+                        .clicked()
+                    {
+                        let korean = self.settings.korean;
+                        self.settings = Settings { korean, ..Settings::default() };
+                        self.tables_for_new.clear();
+                        self.schema_list_tried = false;
+                    }
+                    ui.separator();
                     if ui.selectable_label(!self.settings.korean, "English").clicked() {
                         self.settings.korean = false;
                     }

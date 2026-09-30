@@ -19,11 +19,11 @@ use rust_xlsxwriter::Workbook;
 use crate::errors::ErrorCollector;
 use crate::i18n::tr;
 use crate::schema::{column_letter, NAME_ROW, SCOPE_ROW, TYPE_ROW};
-use crate::schemafile::{folder_of, Schemas, SCHEMA_SUFFIXES};
+use crate::schemafile::{Schemas, SCHEMA_SUFFIXES};
 
 /// Creates a data workbook for `table`: field names in row 1, reference formulas in rows
 /// 2-3. Refuses to touch an existing file. Returns true when the workbook was written.
-pub fn new_workbook(target: &Path, table: &str, schema_root: &Path, schemas: &Schemas, errors: &mut ErrorCollector) -> bool {
+pub fn new_workbook(target: &Path, table: &str, schemas: &Schemas, errors: &mut ErrorCollector) -> bool {
     let label = format!("[{}]", target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
     let Some(schema) = schemas.tables.get(table) else {
         errors.add(&label, "A1", tr(format!("테이블 '{table}'의 스키마가 없습니다"), format!("table '{table}' has no schema")));
@@ -41,7 +41,7 @@ pub fn new_workbook(target: &Path, table: &str, schema_root: &Path, schemas: &Sc
         errors.add(&label, "A1", tr("폴더를 만들 수 없습니다", "cannot create the folder"));
         return false;
     }
-    let schema_path = canonical(&folder_of(schema_root).join(&schema.file));
+    let schema_path = schema.path.clone();
     let link_target = relative_path(&schema_path, &canonical(&parent));
     let sheet_name = if schema.title.is_empty() { schema.name.clone() } else { schema.title.clone() };
     let reference = format!("'[1]{sheet_name}'");

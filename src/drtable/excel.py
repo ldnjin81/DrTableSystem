@@ -95,7 +95,8 @@ def load_model(
     schema_root = schema_path or (input_path.parent if input_path.is_file() else input_path)
     errors = ErrorCollector()
     warnings: list[str] = []
-    schemas = load_schemas(schema_root, enum_folder(schema_root, enum_path), errors)
+    # Enums sit next to an explicit schema folder, or inside the data folder when that is the schema folder.
+    schemas = load_schemas(schema_root, enum_folder(schema_root, enum_path, beside=schema_path is not None), errors)
     files = [
         item for item in find_files(input_path, allow_empty=True)
         if not item[0].name.lower().endswith(SCHEMA_SUFFIXES)
@@ -109,10 +110,7 @@ def load_model(
     errors.raise_if_any()
 
     # Reference headers that point at a schema path missing on this machine stop updating.
-    base = schema_root.parent if schema_root.is_file() else schema_root
-    schema_files = {
-        (base / schema.file).resolve() for schema in schemas.all()
-    }
+    schema_files = {schema.path for schema in schemas.all() if schema.path is not None}
     for path, relative in files:
         warnings.extend(link_warnings(path, relative, schema_files))
 

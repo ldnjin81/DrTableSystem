@@ -1,7 +1,7 @@
 //! Schema files: where tables and enums are defined, apart from the data.
 //!
 //! * Table schemas: `<Table>.schema.xlsx` in the schema folder.
-//! * Enum schemas: `<Enum>.enum.xlsx` in the enum folder (default `<schema folder>/Enums`).
+//! * Enum schemas: `<Enum>.enum.xlsx` in the enum folder (default: `Enums` next to the schema folder).
 //!
 //! Table schema: one sheet named after the table; row 1 labels, from row 2 one field per row
 //! (A name, B type, C scope, D comment). Enum schema: one sheet named after the enum; from
@@ -33,6 +33,8 @@ pub struct Schema {
     pub is_enum: bool,
     /// Sheet name as written.
     pub title: String,
+    /// The file on disk.
+    pub path: PathBuf,
 }
 
 impl Schema {
@@ -79,10 +81,17 @@ pub fn folder_of(path: &Path) -> PathBuf {
     }
 }
 
-pub fn enum_folder(schema_root: &Path, enum_root: Option<&Path>) -> PathBuf {
+/// The enum folder: `enum_root` when given, otherwise "Enums" next to the schema folder
+/// (Table/Schema -> Table/Enums). When the schema folder is the data folder itself
+/// (`beside` false), "Enums" inside it (Table -> Table/Enums).
+pub fn enum_folder(schema_root: &Path, enum_root: Option<&Path>, beside: bool) -> PathBuf {
     match enum_root {
         Some(root) => root.to_path_buf(),
-        None => folder_of(schema_root).join(DEFAULT_ENUM_FOLDER),
+        None => {
+            let folder = folder_of(schema_root);
+            let base = if beside { absolute(&folder).parent().map(Path::to_path_buf).unwrap_or(folder) } else { folder };
+            base.join(DEFAULT_ENUM_FOLDER)
+        }
     }
 }
 
@@ -125,7 +134,8 @@ pub fn load_schemas(
     }
     let mut enum_files = Vec::new();
     if enum_root.exists() {
-        let base = canonical(&folder_of(schema_root));
+        // Enum files are named relative to the folder that holds the enum folder ("Enums/Kind.enum.xlsx").
+        let base = canonical(&absolute(enum_root).parent().map(Path::to_path_buf).unwrap_or_default());
         for (path, _) in find_files(enum_root, &SCHEMA_SUFFIXES, true)? {
             let relative = match canonical(&path).strip_prefix(&base) {
                 Ok(rel) => rel.components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect::<Vec<_>>().join("/"),
@@ -196,7 +206,7 @@ fn read_schema(path: &Path, relative: &str, is_enum: bool, errors: &mut ErrorCol
     }
     let sheet = definitions.into_iter().next()?;
     let name = sheet.title.split('#').next().unwrap_or("").trim().to_string();
-    let mut schema = Schema { file: relative.to_string(), name, rows: Vec::new(), is_enum, title: sheet.title.clone() };
+    let mut schema = Schema { file: relative.to_string(), name, rows: Vec::new(), is_enum, title: sheet.title.clone(), path: canonical(path) };
     if !is_identifier(&schema.name) {
         errors.add(&schema.where_(), "A1", tr(
             format!("올바르지 않은 이름 '{}'", schema.name),

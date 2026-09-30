@@ -221,14 +221,14 @@ fn run(args: Args) -> ExitCode {
         let schema_dir = args.path("schema").unwrap();
         let out = args.path("out").unwrap();
         let mut errors = ErrorCollector::default();
-        let schemas = match schemafile::load_schemas(&schema_dir, &schemafile::enum_folder(&schema_dir, args.path("enums").as_deref()), &mut errors) {
+        let schemas = match schemafile::load_schemas(&schema_dir, &schemafile::enum_folder(&schema_dir, args.path("enums").as_deref(), true), &mut errors) {
             Ok(schemas) => schemas,
             Err(ValidationErrors(messages)) => {
                 print_errors(&messages);
                 return ExitCode::from(1);
             }
         };
-        if errors.messages.is_empty() && headers::new_workbook(&out, args.get("table").unwrap(), &schema_dir, &schemas, &mut errors) {
+        if errors.messages.is_empty() && headers::new_workbook(&out, args.get("table").unwrap(), &schemas, &mut errors) {
             println!("{}", out.display());
         }
         print_errors(&errors.messages);

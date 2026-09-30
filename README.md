@@ -13,21 +13,21 @@
 - Split a table over sheets and files, deterministic output, messages in English or Korean.
 
 ```
-Schemas/*.schema.xlsx      ─┐                 ┌─▶ C++ headers ─▶ compile
-Schemas/Enums/*.enum.xlsx  ─┼▶ drtable build ─┼─▶ client JSON ─▶ DrTableBake ─▶ DataAssets ─▶ runtime lookups
+Schema/*.schema.xlsx       ─┐                 ┌─▶ C++ headers ─▶ compile
+Enums/*.enum.xlsx          ─┼▶ drtable build ─┼─▶ client JSON ─▶ DrTableBake ─▶ DataAssets ─▶ runtime lookups
 Data workbooks (*.xlsx)    ─┘                 └─▶ server JSON ─▶ your server
 ```
 
 ## Quick start
 
 ```sh
-drtable build --input Design/Tables --schema Design/Tables/Schemas --ue-plugin --prefix Gm \
+drtable build --input Design/Tables --schema Design/Tables/Schema --ue-plugin --prefix Gm \
   --out-cpp Source/MyGame/TableData/Generated --out-client Intermediate/DrTable/client --out-server Build/ServerData
 drtable check --client Intermediate/DrTable/client --server Build/ServerData
-drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schemas   # new data workbook
+drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schema   # new data workbook
 ```
 
-A table schema (`Design/Tables/Schemas/Items.schema.xlsx`, one field per row from row 2):
+A table schema (`Design/Tables/Schema/Items.schema.xlsx`, one field per row from row 2):
 
 | Field | Type | Scope | Comment |
 |---|---|---|---|

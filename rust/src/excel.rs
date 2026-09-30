@@ -51,7 +51,8 @@ struct RowState {
 }
 
 /// Tables and enums from their schema files, rows from the data workbooks under `input`.
-/// The schema folder defaults to the input folder and the enum folder to `<schema>/Enums`.
+/// The schema folder defaults to the input folder; the enum folder to `Enums` next to the schema
+/// folder (inside the input folder when no schema folder is given).
 pub fn load_model(input: &Path, schema_path: Option<&Path>, enum_path: Option<&Path>) -> Result<DataModel, ValidationErrors> {
     let schema_root = match schema_path {
         Some(path) => path.to_path_buf(),
@@ -59,7 +60,8 @@ pub fn load_model(input: &Path, schema_path: Option<&Path>, enum_path: Option<&P
     };
     let mut errors = ErrorCollector::default();
     let mut warnings: Vec<String> = Vec::new();
-    let schemas = load_schemas(&schema_root, &enum_folder(&schema_root, enum_path), &mut errors)?;
+    // Enums sit next to an explicit schema folder, or inside the data folder when that is the schema folder.
+    let schemas = load_schemas(&schema_root, &enum_folder(&schema_root, enum_path, schema_path.is_some()), &mut errors)?;
     let files: Vec<(PathBuf, String)> = find_files(input, &[".xlsx"], true)?
         .into_iter()
         .filter(|(path, _)| {
@@ -84,9 +86,7 @@ pub fn load_model(input: &Path, schema_path: Option<&Path>, enum_path: Option<&P
     errors.raise_if_any()?;
 
     // Reference headers that point at a schema path missing on this machine stop updating.
-    let base = folder_of(&schema_root);
-    let schema_files: HashSet<PathBuf> =
-        schemas.all().filter_map(|s| std::fs::canonicalize(base.join(&s.file)).ok()).collect();
+    let schema_files: HashSet<PathBuf> = schemas.all().map(|s| s.path.clone()).collect();
     for (path, relative) in &files {
         warnings.extend(link_warnings(path, relative, &schema_files));
     }

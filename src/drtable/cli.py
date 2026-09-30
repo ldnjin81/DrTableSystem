@@ -1,4 +1,4 @@
-"""Command line interface: ``drtable build | graph | check``."""
+"""Command line interface: ``drtable build | graph | check | migrate | schema-export``."""
 
 from __future__ import annotations
 
@@ -16,7 +16,9 @@ from .errors import ErrorCollector, ValidationErrors
 from .excel import load_model
 from .graph import emit_graph
 from .i18n import SUPPORTED, set_language, tr
+from .migrate import extract_schemas
 from .schema import CLIENT_SCOPES, IDENTIFIER_RE
+from .schemafile import export_views
 
 PLUGIN_ASSET_BASE = "UDrTableAssetBase"
 PLUGIN_ASSET_BASE_HEADER = "DrTableAssetBase.h"
@@ -37,6 +39,7 @@ def create_parser() -> argparse.ArgumentParser:
 
     build = subparsers.add_parser("build", help="generate C++, client JSON and server JSON")
     build.add_argument("--input", required=True, type=Path, help="an .xlsx file or a folder of them")
+    build.add_argument("--schema", type=Path, help="folder of *.schema.xlsx files (default: the input folder)")
     build.add_argument("--out-cpp", required=True, type=Path, help="output folder for C++ headers")
     build.add_argument("--out-client", required=True, type=Path, help="output folder for client JSON")
     build.add_argument("--out-server", required=True, type=Path, help="output folder for server JSON")
@@ -68,6 +71,7 @@ def create_parser() -> argparse.ArgumentParser:
 
     graph = subparsers.add_parser("graph", help="write the table reference graph as Mermaid Markdown")
     graph.add_argument("--input", required=True, type=Path)
+    graph.add_argument("--schema", type=Path, help="folder of *.schema.xlsx files (default: the input folder)")
     graph.add_argument("--out", required=True, type=Path)
 
     check = subparsers.add_parser(
@@ -76,6 +80,23 @@ def create_parser() -> argparse.ArgumentParser:
     check.add_argument("--client", type=Path, help="client JSON folder written by build")
     check.add_argument("--server", type=Path, help="server JSON folder written by build")
     check.add_argument("--input", type=Path, help="validate a spreadsheet without writing anything")
+    check.add_argument("--schema", type=Path, help="folder of *.schema.xlsx files (default: the input folder)")
+
+    migrate = subparsers.add_parser(
+        "migrate", help="move the header rows of old workbooks into schema files (data files are not changed)"
+    )
+    migrate.add_argument("--input", required=True, type=Path, help="an .xlsx file or a folder of them")
+    migrate.add_argument("--schema", type=Path, help="folder to write the schema files to (default: the input folder)")
+    migrate.add_argument("--format", choices=("xlsx", "yaml"), default="xlsx",
+                         help="xlsx: <Name>.schema.xlsx is the source; yaml: <Name>.schema.yaml is the source")
+    migrate.add_argument("--overwrite", action="store_true", help="replace existing schema files")
+
+    export = subparsers.add_parser(
+        "schema-export", help="write <Name>.schema.xlsx views next to every <Name>.schema.yaml"
+    )
+    export.add_argument("--schema", required=True, type=Path, help="folder of *.schema.yaml files")
+    export.add_argument("--check", action="store_true",
+                        help="write nothing; fail if a view is missing or out of date (for CI)")
     return parser
 
 
@@ -100,11 +121,35 @@ def main(argv: list[str] | None = None) -> int:
         except CheckInputError as exc:
             print(exc, file=sys.stderr)
             return 2
+    if args.command == "migrate":
+        root = args.input if args.input.is_dir() else args.input.parent
+        try:
+            written = extract_schemas(args.input, args.schema or root, args.overwrite, args.format)
+        except ValidationErrors as exc:
+            for message in exc.messages:
+                print(message, file=sys.stderr)
+            return 1
+        for path in written:
+            print(path)
+        return 0
+    if args.command == "schema-export":
+        changed, errors = export_views(args.schema, check=args.check)
+        for message in errors:
+            print(message, file=sys.stderr)
+        for path in changed:
+            if args.check:
+                print(tr(f"{path}: 스키마 보기 파일이 최신이 아닙니다", f"{path}: schema view is out of date"),
+                      file=sys.stderr)
+            else:
+                print(path)
+        return 1 if errors or (args.check and changed) else 0
     if args.command == "check" and (args.server is not None or args.input is None):
         parser.error(tr("check에는 --client 또는 --input이 필요합니다",
                         "check needs --client or --input"))
     try:
-        model = load_model(args.input)
+        model = load_model(args.input, args.schema)
+        for warning in model.warnings:
+            print(f"{tr('경고', 'warning')}: {warning}", file=sys.stderr)
         if args.command == "check":
             return 0
         if args.command == "graph":
@@ -160,12 +205,12 @@ def _check_member_names(model) -> None:
         seen: dict[str, str] = {}
         for name, cell in generated_member_names(table):
             if name in fields:
-                errors.add(table.location, cell, tr(
+                errors.add(table.header_location, cell, tr(
                     f"생성할 함수 '{name}'이 같은 이름의 필드와 겹칩니다",
                     f"generated function '{name}' clashes with a field of the same name",
                 ))
             elif name in seen:
-                errors.add(table.location, cell, tr(
+                errors.add(table.header_location, cell, tr(
                     f"생성할 함수 '{name}'이 {seen[name]}에서 만든 함수와 겹칩니다",
                     f"generated function '{name}' clashes with the one generated for {seen[name]}",
                 ))

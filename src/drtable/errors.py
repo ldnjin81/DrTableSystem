@@ -12,13 +12,18 @@ class ValidationErrors(Exception):
 
 
 class ErrorCollector:
-    """Collects as many errors as possible before failing, each prefixed with Sheet!Cell."""
+    """Collects as many errors as possible before failing.
+
+    Each message starts with its location: [File.xlsx]Sheet!Cell for spreadsheets and
+    File.yaml:Line for YAML schema files.
+    """
 
     def __init__(self) -> None:
         self.messages: list[str] = []
 
     def add(self, sheet: str, cell: str, message: str) -> None:
-        self.messages.append(f"{sheet}!{cell}: {message}")
+        separator = ":" if sheet.endswith((".yaml", ".yml")) else "!"
+        self.messages.append(f"{sheet}{separator}{cell}: {message}")
 
     def extend(self, messages: list[str]) -> None:
         self.messages.extend(messages)

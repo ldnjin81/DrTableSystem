@@ -106,11 +106,11 @@ def test_check_reports_all_broken_refs_and_input_errors(
 
 
 @pytest.mark.parametrize(("decl", "sheet", "cell"), [
-    ("Ref<Missing>", "Quests", "B2"),
-    ("Ref<<enum>Kind>", "Quests", "B2"),
-    ("Ref<#Notes>", "Quests", "B2"),
-    ("ID<Ref<Items>>", "Quests", "A2"),
-    ("Ref<Items>=1001", "Quests", "B2"),
+    ("Ref<Missing>", "Quests", "B3"),
+    ("Ref<<enum>Kind>", "Quests", "B3"),
+    ("Ref<#Notes>", "Quests", "B3"),
+    ("ID<Ref<Items>>", "Quests", "B2"),
+    ("Ref<Items>=1001", "Quests", "B3"),
 ])
 def test_ref_schema_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str],
                            decl: str, sheet: str, cell: str) -> None:
@@ -126,7 +126,7 @@ def test_ref_schema_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str],
     source = tmp_path / "bad.xlsx"
     workbook.save(source)
     assert _build(source, tmp_path) == 1
-    assert f"{sheet}!{cell}" in capsys.readouterr().err
+    assert f"[{sheet}.schema.xlsx]{sheet}!{cell}" in capsys.readouterr().err
 
 
 def test_enum_ref_empty_is_error_and_info_is_target(
@@ -246,7 +246,7 @@ def test_subkey_ref_schema_errors(
     workbook.save(source)
     assert _build(source, tmp_path) == 1
     output = capsys.readouterr().err
-    assert "Monsters!B2" in output
+    assert "[Monsters.schema.xlsx]Monsters!B3" in output
     assert message in output
 
 
@@ -309,5 +309,5 @@ def test_chained_subkey_type_cycle_reports_path(
     assert _build(source, tmp_path) == 1
     output = capsys.readouterr().err
     assert "자료형 순환: Second.Key → First.Key → Second.Key" in output
-    assert "First!B2" in output
+    assert "[First.schema.xlsx]First!B3" in output
 

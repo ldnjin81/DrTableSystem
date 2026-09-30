@@ -94,7 +94,8 @@ def test_content_hash_tracks_values_and_manifest_records_naming(tmp_path: Path) 
         assert manifest["asset_name"] == "BT_{table}"
         assert manifest["tables"][0]["content_hash"] == payload["content_hash"]
         header = (tmp_path / run / "cpp" / "GmGeneratedTables.h").read_text(encoding="utf-8")
-        assert f'TContentHash[] = TEXT("{payload["content_hash"]}")' in header
+        # 내용 해시는 코드에 넣지 않는다(데이터 수정이 코드를 바꾸지 않게).
+        assert "ContentHash" not in header
         hashes.append((payload["schema_hash"], payload["content_hash"]))
     assert hashes[0][0] == hashes[1][0]  # 구조는 같다
     assert hashes[0][1] != hashes[1][1]  # 값이 바뀌면 내용 해시가 바뀐다

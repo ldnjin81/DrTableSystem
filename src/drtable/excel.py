@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from xml.etree.ElementTree import ParseError
 from zipfile import BadZipFile
@@ -12,13 +12,12 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.exceptions import InvalidFileException
 
-from .errors import ErrorCollector, ValidationErrors
+from .errors import ErrorCollector
 from .i18n import tr
 from .schema import (
     DATA_ROW,
     IDENTIFIER_RE,
     NAME_ROW,
-    SCOPE_ROW,
     TYPE_ROW,
     ColumnSchema,
     EnumSchema,
@@ -29,9 +28,9 @@ from .schema import (
     calculate_schema_hash,
     parse_type,
 )
+from .schemafile import SCHEMA_SUFFIXES, Schema, load_schemas, stale_views
+from .sources import ENUM_SHEET_RE, find_files, strip_sheet_comment, table_name_of
 from .values import convert_value
-
-ENUM_SHEET_RE = re.compile(r"^<enum>(?P<name>[A-Za-z][A-Za-z0-9_]*)$")
 
 
 @dataclass(frozen=True)
@@ -39,6 +38,7 @@ class DataModel:
     source_files: tuple[str, ...]
     enums: tuple[EnumSchema, ...]
     tables: tuple[TableSchema, ...]
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -62,30 +62,14 @@ class _RowState:
     name_spellings: dict[tuple[str, str], tuple[str, str]] = field(default_factory=dict)
 
 
-# '#' starts a comment everywhere: a sheet named "#Notes" is skipped, and in "Items#Weapons"
-# the text from '#' on is a comment, so the sheet is part of table Items.
-SHEET_COMMENT = "#"
-
-
-def strip_sheet_comment(sheet_title: str) -> str:
-    """The sheet name without its #comment and surrounding spaces."""
-    return sheet_title.split(SHEET_COMMENT, 1)[0].strip()
-
-
-def table_name_of(sheet_title: str) -> str | None:
-    """Table name for a table sheet, or None for notes and enums.
-
-    The sheet name without its #comment is the table name. Sheets with the same table name,
-    in one file or in several, are parts of one table.
-    """
-    if sheet_title.startswith("#") or sheet_title.startswith("<enum>"):
-        return None
-    return strip_sheet_comment(sheet_title)
-
-
-def load_model(input_path: Path) -> DataModel:
-    files = _find_files(input_path)
+def load_model(input_path: Path, schema_path: Path | None = None) -> DataModel:
+    schema_root = schema_path or (input_path if input_path.is_dir() else input_path.parent)
     errors = ErrorCollector()
+    schemas = load_schemas(schema_root, errors)
+    files = [
+        item for item in find_files(input_path, allow_empty=True)
+        if not item[0].name.lower().endswith(SCHEMA_SUFFIXES)
+    ]
     workbooks: list[tuple[str, object]] = []
     for path, relative in files:
         try:
@@ -115,6 +99,8 @@ def load_model(input_path: Path) -> DataModel:
                         f"열거형 '{name}'이 {enum_sheets[name].where}에도 정의되어 있습니다 (열거형은 나눌 수 없습니다)",
                         f"enum '{name}' is also defined in {enum_sheets[name].where} (enums cannot be split)",
                     ))
+                elif f"<enum>{name}" not in schemas:
+                    errors.add(ref.where, "A1", _no_schema_message(f"<enum>{name}", name))
                 else:
                     enum_sheets[name] = ref
                 continue
@@ -125,9 +111,21 @@ def load_model(input_path: Path) -> DataModel:
                     f"invalid table name '{sheet.title}'",
                 ))
                 continue
+            if name not in schemas:
+                errors.add(ref.where, "A1", _no_schema_message(name, name))
+                continue
             table_parts.setdefault(name, []).append(ref)
 
-    # Register every enum name first so that enum sheets can reference each other.
+    enum_schemas = {key[len("<enum>"):]: schema for key, schema in schemas.items() if key.startswith("<enum>")}
+    table_schemas = {key: schema for key, schema in schemas.items() if not key.startswith("<enum>")}
+    for name, schema in enum_schemas.items():
+        if name not in enum_sheets:
+            errors.add(schema.where, "A1", tr(
+                f"열거형 '{name}'의 값을 적을 데이터 시트 '<enum>{name}'가 없습니다",
+                f"enum '{name}' has no data sheet '<enum>{name}' with its values",
+            ))
+
+    # Register every enum name first so that enum definitions can reference each other.
     enum_names = {
         name: EnumSchema(name, ref.sheet.title, ref.file, ())
         for name, ref in enum_sheets.items()
@@ -135,17 +133,15 @@ def load_model(input_path: Path) -> DataModel:
     enums: dict[str, EnumSchema] = {}
     enum_columns: dict[str, list[ColumnSchema]] = {}
     for name, ref in enum_sheets.items():
-        enum, columns = _parse_enum(ref, name, enum_names, errors)
+        enum, columns = _parse_enum(enum_schemas[name], ref, name, enum_names, errors)
         if enum:
             enums[name] = enum
             enum_columns[name] = columns
 
     # Resolve every table's primary key type before reading rows (Ref<T> needs them).
-    # The first part of a table defines its header; the other parts are checked against it.
     table_keys: dict[str, tuple[str, str, str]] = {}
-    for name, parts in table_parts.items():
-        first = parts[0]
-        for index, raw_name, raw_type, raw_scope in _raw_columns(first.sheet):
+    for name, schema in table_schemas.items():
+        for row, raw_name, raw_type, raw_scope in schema.raw_columns():
             scope = str(raw_scope).strip().lower()
             if scope == "#":
                 continue
@@ -153,7 +149,7 @@ def load_model(input_path: Path) -> DataModel:
                 if IDENTIFIER_RE.fullmatch(str(raw_name)):
                     table_keys[f"{name}.{raw_name}"] = (str(raw_type), "field", scope)
                 continue
-            parsed = parse_type(raw_type, first.where, f"{get_column_letter(index)}{TYPE_ROW}", errors)
+            parsed = parse_type(raw_type, schema.where, schema.cell(row, TYPE_ROW), errors)
             if parsed and parsed.role == "id":
                 table_keys[name] = (parsed.type_name, "id", scope)
                 table_keys[f"{name}.{raw_name}"] = (parsed.type_name, "id", scope)
@@ -172,44 +168,38 @@ def load_model(input_path: Path) -> DataModel:
                     )
 
     tables: list[TableSchema] = []
-    for name, parts in table_parts.items():
-        table = _parse_table(name, parts, enums, table_keys, errors)
+    for name, schema in sorted(table_schemas.items()):
+        table = _parse_table(name, schema, table_parts.get(name, []), enums, table_keys, errors)
         if table:
             tables.append(table)
 
-    table_names = set(table_parts)
+    table_names = set(table_schemas)
     for name, ref in enum_sheets.items():
-        enum = enums.get(name)
-        if enum is None or name not in enum_columns:
+        if name not in enum_columns:
             continue
-        columns = build_columns(_raw_columns(ref.sheet), ref.where, enums, errors, table_keys)
+        schema = enum_schemas[name]
+        columns = build_columns(schema.raw_columns(), schema.where, enums, errors, table_keys, schema.cell)
         info_columns = [column for column in columns if column.name != "Value"]
         extras = [column for column in info_columns if column.role != "id"]
         if not extras:
             continue
         info_name = f"{name}Info"
         if info_name in table_names:
-            errors.add(ref.where, "A1", tr(f"Info 테이블 이름 '{info_name}'이 중복되었습니다", f"Info table name '{info_name}' is already used"))
+            errors.add(schema.where, "A1", tr(f"Info 테이블 이름 '{info_name}'이 중복되었습니다", f"Info table name '{info_name}' is already used"))
             continue
         table_names.add(info_name)
         transformed = [
-            ColumnSchema(
-                column.name,
-                f"E{name}" if column.role == "id" else column.type_name,
-                column.role,
-                column.scope,
-                column.source_columns,
-                column.header_cells,
-                column.array_size,
-                column.default_values,
-                column.ref_target,
-                column.ref_key,
-            )
+            replace(column, type_name=f"E{name}") if column.role == "id" else column
             for column in info_columns
         ]
-        info_table = TableSchema(name=info_name, sheet=ref.sheet.title, source_name=ref.file, columns=transformed)
-        rows = _read_rows(info_table, ref, transformed, enums, errors, _RowState())
-        info_table.sources.append(TableSource(ref.file, ref.sheet.title, rows))
+        info_table = TableSchema(
+            name=info_name, sheet=ref.sheet.title, source_name=ref.file, columns=transformed,
+            schema_location=schema.where, schema_file=schema.file,
+        )
+        bound = _bind(schema, transformed, ref, errors)
+        if bound is not None:
+            rows = _read_rows(info_table, ref, bound, enums, errors, _RowState())
+            info_table.sources.append(TableSource(ref.file, ref.sheet.title, rows))
         info_table.schema_hash = calculate_schema_hash(transformed, enums)
         tables.append(info_table)
 
@@ -220,66 +210,111 @@ def load_model(input_path: Path) -> DataModel:
         tuple(relative for relative, _ in workbooks),
         tuple(sorted(enums.values(), key=lambda item: item.name)),
         tuple(sorted(tables, key=lambda item: item.name)),
+        tuple(stale_views(schemas)),
     )
 
 
-def _find_files(input_path: Path) -> list[tuple[Path, str]]:
-    """The .xlsx files to read, with their paths relative to the input folder (sorted)."""
-    if input_path.is_file() and input_path.suffix.lower() == ".xlsx":
-        return [(input_path, input_path.name)]
-    if input_path.is_dir():
-        found = []
-        for path in input_path.rglob("*"):
-            relative = path.relative_to(input_path)
-            if (
-                path.is_file()
-                and path.suffix.lower() == ".xlsx"
-                # Skip Excel lock files (~$Book.xlsx) and hidden folders such as .git.
-                and not path.name.startswith("~$")
-                and not any(part.startswith(".") for part in relative.parts)
-            ):
-                found.append((path, relative.as_posix()))
-        if found:
-            return sorted(found, key=lambda item: item[1])
-    raise ValidationErrors([tr(f"입력!A1: xlsx 파일을 찾을 수 없습니다: {input_path}", f"input!A1: no xlsx file found: {input_path}")])
+def _no_schema_message(key: str, name: str) -> str:
+    return tr(
+        f"스키마가 없습니다. '{name}.schema.xlsx'('{key}' 시트) 또는 '{name}.schema.yaml'에 필드를 정의하세요",
+        f"no schema. Define the fields in '{name}.schema.xlsx' (sheet '{key}') or '{name}.schema.yaml'",
+    )
+
+
+def _bind(
+    schema: Schema,
+    columns: list[ColumnSchema],
+    ref: SheetRef,
+    errors: ErrorCollector,
+) -> list[ColumnSchema] | None:
+    """Points the schema's fields at this sheet's columns, found by the names in row 1.
+
+    Rows 2 and 3 of a data sheet are only a view of the schema (formulas) and are never read.
+    Columns whose name starts with '#' are notes. Returns None when the header does not match.
+    """
+    ok = True
+    header: dict[str, int] = {}
+    for index, raw_name in _header_names(ref.sheet):
+        name = str(raw_name).strip()
+        cell = f"{get_column_letter(index)}{NAME_ROW}"
+        if name.startswith("#"):
+            continue
+        if name in header:
+            errors.add(ref.where, cell, tr(f"필드명 '{name}'이 중복되었습니다", f"duplicate field name '{name}'"))
+            ok = False
+            continue
+        header[name] = index
+    defined = {
+        str(raw_name).strip(): (row, str(raw_scope).strip().lower())
+        for row, raw_name, _, raw_scope in schema.raw_columns()
+    }
+    for name, index in header.items():
+        if name not in defined:
+            errors.add(ref.where, f"{get_column_letter(index)}{NAME_ROW}", tr(
+                f"필드 '{name}'이 스키마 {schema.where}에 없습니다. 필드 추가는 스키마에서 합니다",
+                f"field '{name}' is not in the schema {schema.where}; fields are added in the schema",
+            ))
+            ok = False
+    for name, (row, scope) in defined.items():
+        if scope != "#" and name not in header:
+            errors.add(ref.where, "A1", tr(
+                f"필드 '{name}'의 열이 없습니다 (스키마 {schema.at(row)})",
+                f"no column for field '{name}' (schema {schema.at(row)})",
+            ))
+            ok = False
+    if not ok:
+        return None
+    by_row = {row: header[name] for name, (row, _) in defined.items() if name in header}
+    return [
+        replace(column, source_columns=tuple(by_row[row] for row in column.source_columns))
+        for column in columns
+    ]
+
+
+def _comment_column(schema: Schema, ref: SheetRef) -> int | None:
+    """The data column of an enum's 'Comment' field (scope '#'), if the sheet has one."""
+    if not any(
+        str(raw_name).strip() == "Comment" and str(raw_scope).strip() == "#"
+        for _, raw_name, _, raw_scope in schema.raw_columns()
+    ):
+        return None
+    return next(
+        (index for index, raw_name in _header_names(ref.sheet) if str(raw_name).strip() == "Comment"),
+        None,
+    )
 
 
 def _parse_enum(
+    schema: Schema,
     ref: SheetRef,
     name: str,
     enum_names: dict[str, EnumSchema],
     errors: ErrorCollector,
 ) -> tuple[EnumSchema | None, list[ColumnSchema]]:
-    sheet = ref.sheet
-    where = ref.where
-    raw_columns = _raw_columns(sheet)
-    columns = build_columns(raw_columns, where, enum_names, errors)
+    columns = build_columns(schema.raw_columns(), schema.where, enum_names, errors, None, schema.cell)
     ids = [column for column in columns if column.role == "id"]
     if len(ids) != 1:
         return None, columns
-    primary = ids[0]
-    if primary.type_name != "name" or primary.is_array:
-        errors.add(where, _cell_for(primary, TYPE_ROW), tr("열거형 기본키는 ID<name>이어야 합니다", "an enum sheet key must be ID<name>"))
-    value_columns = [column for column in columns if column.name == "Value"]
-    value_column = value_columns[0] if value_columns else None
-    if value_column and (
-        value_column.type_name != "int32" or value_column.role is not None or value_column.is_array
+    if ids[0].type_name != "name" or ids[0].is_array:
+        errors.add(schema.where, schema.cell(ids[0].source_columns[0], TYPE_ROW), tr("열거형 기본키는 ID<name>이어야 합니다", "an enum sheet key must be ID<name>"))
+    value_definition = next((column for column in columns if column.name == "Value"), None)
+    if value_definition and (
+        value_definition.type_name != "int32" or value_definition.role is not None or value_definition.is_array
     ):
-        errors.add(where, _cell_for(value_column, TYPE_ROW), tr("Value 열은 int32 일반 필드여야 합니다", "the Value column must be a plain int32 field"))
-    comment_column = next(
-        (
-            column_index
-            for column_index, raw_name, _, raw_scope in raw_columns
-            if str(raw_name).strip() == "Comment"
-            and str(raw_scope).strip().upper() == "#"
-        ),
-        None,
-    )
+        errors.add(schema.where, schema.cell(value_definition.source_columns[0], TYPE_ROW), tr("Value 열은 int32 일반 필드여야 합니다", "the Value column must be a plain int32 field"))
+    bound = _bind(schema, columns, ref, errors)
+    if bound is None:
+        return None, columns
+    sheet = ref.sheet
+    where = ref.where
+    primary = next(column for column in bound if column.role == "id")
+    value_column = next((column for column in bound if column.name == "Value"), None)
+    comment_column = _comment_column(schema, ref)
     values: list[EnumValue] = []
     used_names: set[str] = set()
     used_values: set[int] = set()
     next_value = 0
-    active_columns = {source for column in columns for source in column.source_columns}
+    active_columns = {source for column in bound for source in column.source_columns}
     if comment_column:
         active_columns.add(comment_column)
     for row in range(DATA_ROW, sheet.max_row + 1):
@@ -336,67 +371,30 @@ def _parse_enum(
 
 def _parse_table(
     name: str,
+    schema: Schema,
     parts: list[SheetRef],
     enums: dict[str, EnumSchema],
     table_keys: dict[str, tuple[str, str, str]],
     errors: ErrorCollector,
 ) -> TableSchema | None:
-    first = parts[0]
-    columns = build_columns(_raw_columns(first.sheet), first.where, enums, errors, table_keys)
+    """A table's fields come from its schema file; its rows from every data sheet of that name."""
+    columns = build_columns(schema.raw_columns(), schema.where, enums, errors, table_keys, schema.cell)
     if not columns or not any(column.role == "id" for column in columns):
         return None
-    table = TableSchema(name=name, sheet=first.sheet.title, source_name=first.file, columns=columns)
+    first_file, first_sheet = (parts[0].file, parts[0].sheet.title) if parts else (schema.file, schema.title)
+    table = TableSchema(
+        name=name, sheet=first_sheet, source_name=first_file, columns=columns,
+        schema_location=schema.where, schema_file=schema.file,
+    )
     state = _RowState()
-    expected = {column.name: _field_signature(column) for column in columns}
     for part in parts:
-        part_columns = columns
-        if part is not first:
-            part_columns = build_columns(_raw_columns(part.sheet), part.where, enums, errors, table_keys)
-            if not _same_fields(part, part_columns, first, expected, errors):
-                continue
-        rows = _read_rows(table, part, part_columns, enums, errors, state)
+        bound = _bind(schema, columns, part, errors)
+        if bound is None:
+            continue
+        rows = _read_rows(table, part, bound, enums, errors, state)
         table.sources.append(TableSource(part.file, part.sheet.title, rows))
     table.schema_hash = calculate_schema_hash(columns, enums)
     return table
-
-
-def _field_signature(column: ColumnSchema) -> tuple[object, ...]:
-    return (
-        column.type_name, column.role, column.scope, column.array_size,
-        column.default_values, column.ref_target, column.ref_key,
-    )
-
-
-def _same_fields(
-    part: SheetRef,
-    columns: list[ColumnSchema],
-    first: SheetRef,
-    expected: dict[str, tuple[object, ...]],
-    errors: ErrorCollector,
-) -> bool:
-    """Every part of a split table must declare the same fields; column order may differ."""
-    actual = {column.name: column for column in columns}
-    ok = True
-    for field_name in expected.keys() - actual.keys():
-        errors.add(part.where, "A1", tr(
-            f"필드 '{field_name}'이 없습니다. 같은 테이블의 시트는 모두 {first.where}와 같은 필드를 가져야 합니다",
-            f"field '{field_name}' is missing. Every sheet of a split table needs the same fields as {first.where}",
-        ))
-        ok = False
-    for field_name, column in actual.items():
-        if field_name not in expected:
-            errors.add(part.where, column.header_cells[0], tr(
-                f"필드 '{field_name}'이 {first.where}에 없습니다. 같은 테이블의 시트는 모두 같은 필드를 가져야 합니다",
-                f"field '{field_name}' is not in {first.where}. Every sheet of a split table needs the same fields",
-            ))
-            ok = False
-        elif _field_signature(column) != expected[field_name]:
-            errors.add(part.where, column.header_cells[0], tr(
-                f"필드 '{field_name}'의 타입·범위·배열 크기·기본값이 {first.where}와 다릅니다",
-                f"field '{field_name}' differs from {first.where} in type, scope, array size or default",
-            ))
-            ok = False
-    return ok
 
 
 def _read_rows(
@@ -527,16 +525,15 @@ def _value_with_default(value: object, declared_default: object | None) -> objec
     return value
 
 
-def _raw_columns(sheet: object) -> list[tuple[int, object, object, object]]:
-    columns: list[tuple[int, object, object, object]] = []
+def _header_names(sheet: object) -> list[tuple[int, object]]:
+    """(column, field name) from row 1, up to the first empty cell."""
+    names: list[tuple[int, object]] = []
     for column in range(1, sheet.max_column + 1):
         name = sheet.cell(NAME_ROW, column).value
         if name in (None, ""):
             break
-        columns.append(
-            (column, name, sheet.cell(TYPE_ROW, column).value, sheet.cell(SCOPE_ROW, column).value)
-        )
-    return columns
+        names.append((column, name))
+    return names
 
 
 def _cell_for(column: ColumnSchema | None, row: int) -> str:

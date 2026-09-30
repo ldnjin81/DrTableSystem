@@ -9,8 +9,6 @@ Tests that build schema files themselves save with ``plain_save``.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import contextlib
 import io
 import os
@@ -18,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 import pytest
 from openpyxl import Workbook
@@ -110,7 +109,7 @@ def _rust_main(argv: list[str] | None = None) -> int:
         # These only create files; the Python run would create them first. The tests check
         # the Rust output themselves.
         env = dict(os.environ, DRTABLE_LANG=lang)
-        result = subprocess.run([os.environ["DRTABLE_BIN"], *argv], capture_output=True, text=True, env=env)
+        result = subprocess.run([os.environ["DRTABLE_BIN"], *argv], capture_output=True, text=True, env=env, check=False)
         sys.stdout.write(result.stdout)
         sys.stderr.write(result.stderr)
         if result.returncode == 2 and "drtable: error:" in result.stderr:
@@ -128,7 +127,7 @@ def _rust_main(argv: list[str] | None = None) -> int:
     shutil.rmtree(scratch, ignore_errors=True)
 
     env = dict(os.environ, DRTABLE_LANG=lang)
-    result = subprocess.run([os.environ["DRTABLE_BIN"], *argv], capture_output=True, text=True, env=env)
+    result = subprocess.run([os.environ["DRTABLE_BIN"], *argv], capture_output=True, text=True, env=env, check=False)
     sys.stdout.write(result.stdout)
     sys.stderr.write(result.stderr)
     rust_exit: object = result.returncode

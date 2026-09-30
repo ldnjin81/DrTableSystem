@@ -42,12 +42,34 @@ class DataModel:
     warnings: tuple[str, ...] = ()
 
 
+class _Grid:
+    """A data sheet read once, top to bottom, into memory.
+
+    openpyxl's read-only cell(row, column) re-scans the sheet for every call, which grows with
+    the square of the row count, and sheets written in streaming mode carry no dimensions.
+    Reading the rows once in order avoids both.
+    """
+
+    def __init__(self, sheet: object) -> None:
+        self.title = sheet.title
+        self.rows = [tuple(row) for row in sheet.iter_rows(values_only=True)]
+        self.max_row = len(self.rows)
+        self.max_column = max((len(row) for row in self.rows), default=0)
+
+    def value(self, row: int, column: int) -> object:
+        """The value at 1-based (row, column); None outside the data."""
+        if row > self.max_row:
+            return None
+        values = self.rows[row - 1]
+        return values[column - 1] if column <= len(values) else None
+
+
 @dataclass(frozen=True)
 class SheetRef:
-    """A worksheet together with the file it came from (path relative to the input folder)."""
+    """A data sheet together with the file it came from (path relative to the input folder)."""
 
     file: str
-    sheet: object
+    sheet: _Grid
 
     @property
     def where(self) -> str:
@@ -109,6 +131,7 @@ def load_model(
                 ))
                 continue
             name = table_name_of(sheet.title)
+            ref = SheetRef(relative, _Grid(sheet))
             if not name or not IDENTIFIER_RE.fullmatch(name):
                 errors.add(ref.where, "A1", tr(
                     f"올바르지 않은 테이블 이름 '{sheet.title}'",
@@ -301,13 +324,13 @@ def _read_rows(
     }
     count = 0
     for row in range(DATA_ROW, sheet.max_row + 1):
-        if all(sheet.cell(row, index).value in (None, "") for index in data_source_columns):
+        if all(sheet.value(row, index) in (None, "") for index in data_source_columns):
             continue
         converted: dict[str, object] = {}
         for column in columns:
             if column.is_array:
                 for source_column in column.source_columns:
-                    raw_value = sheet.cell(row, source_column).value
+                    raw_value = sheet.value(row, source_column)
                     if column.ref_target and column.type_name.startswith("E") and raw_value in (None, ""):
                         errors.add(
                             where,
@@ -317,7 +340,7 @@ def _read_rows(
                 converted[column.name] = [
                     convert_value(
                         _value_with_default(
-                            sheet.cell(row, source_column).value,
+                            sheet.value(row, source_column),
                             column.default_values[position],
                         ),
                         column.type_name,
@@ -330,7 +353,7 @@ def _read_rows(
                 ]
             else:
                 source_column = column.source_columns[0]
-                raw_value = sheet.cell(row, source_column).value
+                raw_value = sheet.value(row, source_column)
                 if column.ref_target and column.type_name.startswith("E") and raw_value in (None, ""):
                     errors.add(
                         where,
@@ -411,7 +434,7 @@ def _header_names(sheet: object) -> list[tuple[int, object]]:
     """(column, field name) from row 1, up to the first empty cell."""
     names: list[tuple[int, object]] = []
     for column in range(1, sheet.max_column + 1):
-        name = sheet.cell(NAME_ROW, column).value
+        name = sheet.value(NAME_ROW, column)
         if name in (None, ""):
             break
         names.append((column, name))

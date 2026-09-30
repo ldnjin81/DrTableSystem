@@ -267,3 +267,15 @@ def test_migrate_into_a_new_schema_folder_puts_enums_below_it(tmp_path: Path) ->
     schemas = tmp_path / "Tables" / "Schemas"  # 아직 없는 폴더
     assert main(["migrate", "--input", str(tmp_path / "Tables"), "--schema", str(schemas)]) == 0
     assert (schemas / "Enums" / "Kind.enum.xlsx").exists()
+
+
+def test_workbooks_saved_without_dimensions(tmp_path: Path) -> None:
+    # 다른 도구가 스트리밍(write-only)으로 저장한 파일에는 시트 크기 정보가 없다.
+    _schema(tmp_path, "Items", FIELDS)
+    workbook = Workbook(write_only=True)
+    sheet = workbook.create_sheet("Items")
+    for row in (NAMES, [], [], [1, "Sword", 10], [2, "Axe", 12]):
+        sheet.append(row)
+    plain_save(workbook, tmp_path / "Items.xlsx")
+    assert _build(tmp_path, tmp_path / "out") == 0
+    assert [row["Id"] for row in _rows(tmp_path / "out", "server", "Items")] == [1, 2]

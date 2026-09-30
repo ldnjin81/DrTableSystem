@@ -9,6 +9,7 @@
 - **Client and server JSON** from the same data, split by field scope.
 - **Unreal plugin**: bakes client JSON into DataAssets with prebuilt key indices, loads them without copying, and rejects stale assets.
 - **References between tables** (`Ref<Items>`, `Ref<DropTable.GroupId>`), checked by `drtable check` and drawn as a Mermaid graph.
+- **GUI** (`drtable-gui`): build and check with clickable errors, browse tables, see the reference graph, create data workbooks.
 - Split a table over sheets and files, deterministic output, messages in English or Korean.
 
 ```
@@ -35,6 +36,8 @@ A table schema (`Design/Tables/Schemas/Items.schema.xlsx`, one field per row fro
 | Price | `int32=0` | server | sell price |
 
 A data workbook has the field names in row 1 (any column order) and data from row 4; the sheet name is the table name.
+
+![drtable-gui](docs/images/en/build.png)
 
 ## Documentation
 

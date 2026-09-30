@@ -8,6 +8,8 @@ pub mod emit_json;
 pub mod errors;
 pub mod excel;
 pub mod graph;
+#[cfg(feature = "gui")]
+pub mod gui;
 pub mod headers;
 pub mod i18n;
 pub mod migrate;

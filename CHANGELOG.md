@@ -12,3 +12,4 @@ First public version.
 - Unreal plugin `DrTableSystem`: baked DataAssets with prebuilt key indices, typed lookups, schema hash checks, `DrTableBake` commandlet with `-Verify`.
 - `drtable migrate` converts the old layout (headers in rows 1-3, `<enum>` sheets) into schema files without touching the data workbooks.
 - Messages in English or Korean (`--lang`, `DRTABLE_LANG`).
+- `drtable-gui`: build and check with an error list that opens the workbook, a table browser, the reference graph, and `new`/`migrate` in a window.

@@ -36,7 +36,8 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "Loading")
 	bool bLoadOnFirstUse = true;
 
-	/** Warn when a baked asset's content hash differs from the generated code (spreadsheet changed, asset not re-baked). */
+	/** Warn at load time when a baked asset's content hash differs from the one a registration passed to
+	 *  WithContentHash. Generated registrations do not pass one; stale data is caught by DrTableBake -Verify. */
 	UPROPERTY(EditAnywhere, config, Category = "Validation")
 	bool bWarnOnContentMismatch = true;
 

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from tablegen.cli import main
+from drtable.cli import main
 
 RUNTIME = "TableData/DtTableRuntime.h"
 
@@ -107,10 +107,10 @@ def test_row_source_definitions(tmp_path: Path) -> None:
         '#include "DtItemsRow.h"',
         f'#include "{RUNTIME}"',
     ]
-    assert "return TableGenRuntime::FindByKey<FDtQuestsRow>(Key);" in quests
-    assert ('return TableGenRuntime::FindAllBySubKey<FDtQuestsRow>'
+    assert "return DrTableRuntime::FindByKey<FDtQuestsRow>(Key);" in quests
+    assert ('return DrTableRuntime::FindAllBySubKey<FDtQuestsRow>'
             '(FName(TEXT("Reward")), Key);') in quests
-    assert "return TableGenRuntime::GetAll<FDtQuestsRow>();" in quests
+    assert "return DrTableRuntime::GetAll<FDtQuestsRow>();" in quests
     assert "    if (Index < 0 || Index >= 2 || Next[Index] == 0)" in quests
     assert "    return FDtQuestsRow::Find(Next[Index]);" in quests
 

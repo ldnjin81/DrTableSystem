@@ -1,9 +1,9 @@
-# TableGen 명세 (v0.1)
+# DrTableSystem 명세 (v0.1)
 
 엑셀 한 벌에서 **서버 JSON · 클라이언트 JSON · C++ 코드**를 뽑는 생성기. 대규모 개발에서 재사용하는 것이 목표라 프로젝트 고유 규칙을 넣지 않는다.
 
 - 언어: Python(순수). PC는 포터블 `C:\tools\_portable\uv`와 python 3.12를 쓴다.
-- 설치 위치: PC `C:\tools\tablegen`, 원격 `ssh://git@192.168.0.24:2222/ldnjin/tablegen.git`
+- 설치 위치: PC `C:\tools\drtable`, 원격 `ssh://git@192.168.0.24:2222/ldnjin/drtable.git`
 - 엑셀 읽기: `openpyxl`(xlsx 전용). 매크로·수식 결과값은 `data_only=True`로 읽는다.
 
 ---
@@ -133,7 +133,7 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 
 참조 필드의 실제 자료형은 대상 기본키의 자료형(`int32`·`int64`·`name`·열거형)이다. 대상 키 자료형을 바꾸면 참조 필드의 C++·JSON 자료형도 함께 바뀐다. 선언 표기 `Ref<Items>`는 `schema_hash`에 들어간다. 자기 참조와 순환 참조, 배열 열, `SubKey<Ref<T>>`를 허용한다. `ID<Ref<T>>`와 `Ref<T>=값`은 금지한다.
 
-빈 참조 셀은 없음으로 해석한다. 숫자 키 대상은 `0`, `name` 키 대상은 빈 이름(JSON의 `""`, C++의 `NAME_None`)을 쓴다. 열거형 키 대상 참조는 비울 수 없다. 생성 시 참조 값의 실제 존재 여부는 검사하지 않는다. 생성된 JSON을 `tablegen check --client`로 검사한다.
+빈 참조 셀은 없음으로 해석한다. 숫자 키 대상은 `0`, `name` 키 대상은 빈 이름(JSON의 `""`, C++의 `NAME_None`)을 쓴다. 열거형 키 대상 참조는 비울 수 없다. 생성 시 참조 값의 실제 존재 여부는 검사하지 않는다. 생성된 JSON을 `drtable check --client`로 검사한다.
 
 `Ref<DropTable.GroupId>`는 `DropTable`의 `SubKey<>` 필드 `GroupId`를 참조한다. 값 하나가 그 서브키를 공유하는 행 묶음(1:N)을 가리킨다. 일반 필드·기본키·없는 필드는 대상으로 쓸 수 없다. 기본키는 필드명을 쓰지 않는 `Ref<DropTable>` 형식만 쓴다. 참조 필드가 나가는 범위는 대상 서브키가 나가는 범위에 포함되어야 한다. 예를 들어 대상 서브키가 `C`이면 참조 필드는 `C`여야 한다. `SubKey<Ref<T.K>>`와 배열도 허용하며 빈 셀·기본값 금지 규칙은 기본키 참조와 같다. 대상 서브키 자체가 참조이면 최종 자료형까지 연쇄로 따라간다. 각 단계의 범위 규칙을 검사하며, 자료형을 결정할 수 없는 순환은 전체 경로를 보여 주는 스키마 오류다. 값의 자기 참조·순환은 허용한다. manifest와 검사기는 직접 대상으로 선언한 `T.K`를 사용한다.
 
@@ -172,7 +172,7 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 
 ## 2. 산출물
 
-`tablegen build`가 세 종류를 만든다. 모두 **결정적**이어야 한다 — 같은 입력이면 바이트가 같아야 하고, 줄바꿈은 LF, JSON 키 순서는 시트 열 순서를 따른다.
+`drtable build`가 세 종류를 만든다. 모두 **결정적**이어야 한다 — 같은 입력이면 바이트가 같아야 하고, 줄바꿈은 LF, JSON 키 순서는 시트 열 순서를 따른다.
 
 ### 2.1 C++ (클라이언트)
 
@@ -238,7 +238,7 @@ int32 StartValues[2] = {10, 20}; // 각 물리 열이 int32=10, int32=20
 **조회 계약.** 생성 코드는 테이블 저장소를 직접 알지 않고, 지정한 헤더가 제공하는 아래 세 함수만 부른다. 구현은 프로젝트의 몫이다.
 
 ```cpp
-namespace TableGenRuntime {
+namespace DrTableRuntime {
   template <typename TRow, typename TKey> const TRow* FindByKey(const TKey& Key);
   template <typename TRow, typename TKey> TArray<const TRow*> FindAllBySubKey(FName SubKeyName, const TKey& Key);
   template <typename TRow> TConstArrayView<TRow> GetAll();
@@ -321,11 +321,11 @@ namespace DtGeneratedTables {
 ## 3. CLI
 
 ```
-tablegen build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt] [--stamp <ISO8601>] [--asset-base UPrimaryDataAsset] [--asset-base-header <경로>] [--runtime-header <경로>] [--asset-name DA_{table}]
-tablegen graph --input <xlsx 파일 또는 폴더> --out <file.md>
-tablegen check --client <생성된 클라 JSON 디렉터리> [--server <생성된 서버 JSON 디렉터리>]
-tablegen check --input <xlsx 파일 또는 폴더>         # 기존 스키마 검사
-tablegen --version
+drtable build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt] [--stamp <ISO8601>] [--asset-base UPrimaryDataAsset] [--asset-base-header <경로>] [--runtime-header <경로>] [--asset-name DA_{table}]
+drtable graph --input <xlsx 파일 또는 폴더> --out <file.md>
+drtable check --client <생성된 클라 JSON 디렉터리> [--server <생성된 서버 JSON 디렉터리>]
+drtable check --input <xlsx 파일 또는 폴더>         # 기존 스키마 검사
+drtable --version
 ```
 
 - `graph`는 참조가 없는 테이블도 포함하는 Mermaid `flowchart LR` Markdown을 쓴다. 노드에 기본키 자료형, 화살표에 필드명·배열 길이·참조 필드의 서브키 여부를 표시한다. 대상 서브키를 참조하는 화살표에는 대상 키 이름과 `1:N`을 표시한다.
@@ -336,7 +336,7 @@ tablegen --version
 
 ## 4. v0.1 검증 범위
 
-생성기는 스키마 오류를 검사한다. 테이블 간 참조 값의 검증은 별도 명령 `tablegen check --client`가 맡는다.
+생성기는 스키마 오류를 검사한다. 테이블 간 참조 값의 검증은 별도 명령 `drtable check --client`가 맡는다.
 
 - 기본키 없음 / 2개 이상 / 기본키 범위가 `B`가 아님
 - 기본키 값 중복, 빈 값
@@ -358,6 +358,6 @@ tablegen --version
 
 - 지역화 처리(정책 미정)
 - 바이너리 페이로드(JSON으로 시작, 필요해지면 교체)
-- `.uasset` 생성 — **생성기는 하지 않는다.** UE 에디터 커밋릿이 이 생성기의 클라 JSON을 읽어 `UPrimaryDataAsset`을 굽는다(2026-09-17 확정). 엔진이 직렬화를 책임져야 UE 버전이 포맷을 바꿔도 깨지지 않기 때문이다. 파이프라인은 `Tables.xlsx → tablegen(C++ 헤더 + JSON) → 에디터 커밋릿 → DA_*.uasset → 쿠킹`이다.
+- `.uasset` 생성 — **생성기는 하지 않는다.** UE 에디터 커밋릿이 이 생성기의 클라 JSON을 읽어 `UPrimaryDataAsset`을 굽는다(2026-09-17 확정). 엔진이 직렬화를 책임져야 UE 버전이 포맷을 바꿔도 깨지지 않기 때문이다. 파이프라인은 `Tables.xlsx → drtable(C++ 헤더 + JSON) → 에디터 커밋릿 → DA_*.uasset → 쿠킹`이다.
 - 인앱 패치 적용 로직(설계만 열어 둠). 패치도 같은 클라 JSON을 CDN으로 받아 안전 시점에 테이블 통째로 덮는 방식이다.
 - 중첩 구조체 필드(배열은 1.2.1로 지원한다)

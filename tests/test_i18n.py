@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from tablegen.cli import main
-from tablegen.i18n import set_language
+from drtable.cli import main
+from drtable.i18n import set_language
 
 HANGUL = re.compile("[가-힣]")
 

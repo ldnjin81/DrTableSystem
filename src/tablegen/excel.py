@@ -62,15 +62,29 @@ class _RowState:
     name_spellings: dict[tuple[str, str], tuple[str, str]] = field(default_factory=dict)
 
 
+# Text in parentheses is a comment: "Items(Weapons)" and "Items (Armor)" are both table Items.
+SHEET_COMMENT_RE = re.compile(r"\([^()]*\)")
+
+
+def strip_sheet_comment(sheet_title: str) -> str:
+    """The sheet name without its (comments) and surrounding spaces.
+
+    Comments may come before or after the name but must not split it: 'Items(A)x' is kept
+    as-is so that it fails the name check instead of silently becoming table 'Itemsx'.
+    """
+    pieces = [piece.strip() for piece in SHEET_COMMENT_RE.split(sheet_title) if piece.strip()]
+    return pieces[0] if len(pieces) == 1 else sheet_title
+
+
 def table_name_of(sheet_title: str) -> str | None:
     """Table name for a table sheet, or None for notes and enums.
 
-    The sheet name is the table name. Sheets with the same name in different files are parts
-    of one table, so a large table can be split over several workbooks.
+    The sheet name without its (comment) is the table name. Sheets with the same table name,
+    in one file or in several, are parts of one table.
     """
     if sheet_title.startswith("#") or sheet_title.startswith("<enum>"):
         return None
-    return sheet_title
+    return strip_sheet_comment(sheet_title)
 
 
 def load_model(input_path: Path) -> DataModel:
@@ -92,7 +106,7 @@ def load_model(input_path: Path) -> DataModel:
             if sheet.title.startswith("#"):
                 continue
             if sheet.title.startswith("<enum>"):
-                match = ENUM_SHEET_RE.fullmatch(sheet.title)
+                match = ENUM_SHEET_RE.fullmatch(strip_sheet_comment(sheet.title))
                 if not match:
                     errors.add(ref.where, "A1", tr(
                         f"올바르지 않은 열거형 시트 이름 '{sheet.title}'",
@@ -369,14 +383,14 @@ def _same_fields(
     ok = True
     for field_name in expected.keys() - actual.keys():
         errors.add(part.where, "A1", tr(
-            f"필드 '{field_name}'이 없습니다. 같은 이름의 시트는 모두 {first.where}와 같은 필드를 가져야 합니다",
+            f"필드 '{field_name}'이 없습니다. 같은 테이블의 시트는 모두 {first.where}와 같은 필드를 가져야 합니다",
             f"field '{field_name}' is missing. Every sheet of a split table needs the same fields as {first.where}",
         ))
         ok = False
     for field_name, column in actual.items():
         if field_name not in expected:
             errors.add(part.where, column.header_cells[0], tr(
-                f"필드 '{field_name}'이 {first.where}에 없습니다. 같은 이름의 시트는 모두 같은 필드를 가져야 합니다",
+                f"필드 '{field_name}'이 {first.where}에 없습니다. 같은 테이블의 시트는 모두 같은 필드를 가져야 합니다",
                 f"field '{field_name}' is not in {first.where}. Every sheet of a split table needs the same fields",
             ))
             ok = False

@@ -1,4 +1,4 @@
-"""python -m tablegen 진입점."""
+"""Entry point for ``python -m tablegen``."""
 
 from .cli import main
 

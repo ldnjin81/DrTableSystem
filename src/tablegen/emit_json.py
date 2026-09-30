@@ -1,4 +1,4 @@
-"""클라이언트·서버 JSON 생성."""
+"""Client and server JSON output."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def emit_json(
         references.sort(key=lambda item: (item["table"], item["field"]))
         manifest: dict[str, object] = {
             "source_files": list(model.source_files),
-            # 굽기 도구가 C++ 클래스 이름(U<prefix><Table>Table)과 에셋 이름을 같은 규칙으로 만들게 한다.
+            # Lets the bake tool derive class names (U<prefix><Table>Table) and asset names with the same rules.
             "cpp_prefix": prefix,
             "asset_name": asset_name,
             "tables": [
@@ -81,7 +81,7 @@ def _sort_value(
     value: object,
     enums: dict[str, EnumSchema],
 ) -> object:
-    """정렬 기준값. 열거형은 이름이 아니라 **값**으로 정렬해야 C++ 비교와 일치한다."""
+    """Sort key. Enums sort by **value**, not name, to match the C++ comparison."""
     if column.type_name.startswith("E"):
         enum = enums.get(column.type_name[1:])
         if enum:
@@ -96,7 +96,7 @@ def _sorted_rows(
     table: TableSchema,
     enums: dict[str, EnumSchema],
 ) -> list[dict[str, object]]:
-    """행을 기본키 오름차순으로 정렬한다. 에셋의 PrimaryKeys도 이 순서를 따른다."""
+    """Rows sorted by primary key; the asset's PrimaryKeys array follows the same order."""
     primary = table.primary_key
     return sorted(
         table.rows,
@@ -109,7 +109,7 @@ def _sub_key_index(
     rows: list[dict[str, object]],
     enums: dict[str, EnumSchema],
 ) -> dict[str, object]:
-    """CSR 인덱스. 버킷 순서는 키 값으로 정렬해 고정한다(딕셔너리 순회에 기대지 않는다)."""
+    """CSR index. Buckets are sorted by key so the output never depends on dict order."""
     buckets: dict[object, list[int]] = {}
     for index, row in enumerate(rows):
         buckets.setdefault(row[column.name], []).append(index)
@@ -150,8 +150,8 @@ def _table_payload(
     payload["rows"] = [
         {column.name: row[column.name] for column in included} for row in rows
     ]
-    # 내용 해시: 이 산출물에 실제로 실린 데이터(행·인덱스)만으로 계산한다. 값만 바꾸고
-    # 다시 굽지 않은 경우를 잡는 데 쓴다. 스키마 해시와 달리 값이 바뀌면 바뀐다.
+    # Content hash: computed from the data this file actually carries (rows and indices).
+    # Unlike the schema hash it changes when values change, which catches un-baked edits.
     content = {key: value for key, value in payload.items() if key not in {"table", "schema_hash"}}
     digest = hashlib.sha256(
         json.dumps(content, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
@@ -163,7 +163,7 @@ def _table_payload(
 
 
 def content_hash(table: TableSchema, enums: dict[str, EnumSchema], scopes: set[str] | None = None) -> str:
-    """클라(기본) 또는 지정 범위 산출물의 내용 해시. C++ 기대값 상수에 쓴다."""
+    """Content hash of the client output (or the given scopes); compiled into C++ as the expected value."""
     target = scopes or CLIENT_SCOPES
     rows = _sorted_rows(table, enums)
     return _table_payload(table, rows, target, enums, target == CLIENT_SCOPES)["content_hash"]

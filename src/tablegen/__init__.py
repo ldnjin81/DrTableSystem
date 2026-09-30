@@ -1,3 +1,3 @@
-"""엑셀 데이터 생성기."""
+"""ue-tablegen: spreadsheet tables to C++, JSON and Unreal DataAssets."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

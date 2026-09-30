@@ -1,4 +1,4 @@
-"""셀 값을 스키마 자료형으로 변환한다."""
+"""Converts cell values to schema types."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import math
 import re
 
 from .errors import ErrorCollector
+from .i18n import tr
 from .schema import EnumSchema
 
 INTEGER_TYPES = {"int32": (-(2**31), 2**31 - 1), "int64": (-(2**63), 2**63 - 1)}
@@ -70,9 +71,12 @@ def convert_value(
                 raise ValueError
             return text
     except (TypeError, ValueError, OverflowError):
-        errors.add(sheet, cell, f"'{value}' 값을 {type_name} 자료형으로 변환할 수 없습니다")
+        errors.add(sheet, cell, tr(
+            f"'{value}' 값을 {type_name} 자료형으로 변환할 수 없습니다",
+            f"cannot convert '{value}' to {type_name}",
+        ))
         return default_value(type_name, enums)
-    errors.add(sheet, cell, f"지원하지 않는 자료형 '{type_name}'")
+    errors.add(sheet, cell, tr(f"지원하지 않는 자료형 '{type_name}'", f"unsupported type '{type_name}'"))
     return None
 
 

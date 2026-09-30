@@ -29,7 +29,7 @@ struct TABLEGENRUNTIME_API FTableGenAutoRegister
  *     TABLEGEN_AUTO_REGISTER(MyGeneratedTables::RegisterAll<UTableGenRegistry>);
  */
 #define TABLEGEN_AUTO_REGISTER(Function) \
-	static const FTableGenAutoRegister PREPROCESSOR_JOIN(GTableGenAutoRegister_, __LINE__)(&Function)
+	static const FTableGenAutoRegister UE_JOIN(GTableGenAutoRegister_, __LINE__)(&Function)
 
 /**
  * Owns the registered tables and loads their baked assets.

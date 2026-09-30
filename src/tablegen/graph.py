@@ -1,4 +1,4 @@
-﻿"""테이블 참조 관계를 Mermaid Markdown으로 출력한다."""
+"""Writes table references as a Mermaid diagram in Markdown."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from .excel import DataModel
 
 def emit_graph(model: DataModel, output: Path) -> None:
     fence = chr(96) * 3
-    lines = ["# 테이블 참조 그래프", "", fence + "mermaid", "flowchart LR"]
+    lines = ["# Table reference graph", "", fence + "mermaid", "flowchart LR"]
     for table in model.tables:
         key = table.primary_key.type_name
         lines.append(f'    {table.name}["{table.name} ({key})"]')

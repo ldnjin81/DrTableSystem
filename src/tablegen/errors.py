@@ -1,10 +1,10 @@
-"""검증 오류 수집 기능."""
+"""Validation error collection."""
 
 from __future__ import annotations
 
 
 class ValidationErrors(Exception):
-    """여러 검증 오류를 한 번에 전달한다."""
+    """Carries every validation error found in one run."""
 
     def __init__(self, messages: list[str]) -> None:
         self.messages = messages
@@ -12,7 +12,7 @@ class ValidationErrors(Exception):
 
 
 class ErrorCollector:
-    """가능한 오류를 모두 모은다."""
+    """Collects as many errors as possible before failing, each prefixed with Sheet!Cell."""
 
     def __init__(self) -> None:
         self.messages: list[str] = []

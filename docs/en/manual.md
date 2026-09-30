@@ -338,7 +338,7 @@ Exit codes: `build`, `graph`, `check --input` and `new` return 0 on success, 1 o
 
 ### GUI (`drtable-gui`)
 
-`drtable-gui` offers the same features in a window. It is a single executable with nothing to install, and it restores its settings (folders, prefix, language) on the next start.
+`drtable-gui` offers the same features in a window. It is a single executable with nothing to install, and it restores its settings (folders, prefix, language) on the next start; **Reset settings** (top right) returns to the defaults.
 
 | Tab | What it does |
 |---|---|

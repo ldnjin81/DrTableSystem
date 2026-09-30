@@ -1,4 +1,4 @@
-"""엑셀 스키마 자료형과 검증 규칙."""
+"""Spreadsheet schema types and validation rules."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass, field
 
 from .errors import ErrorCollector
+from .i18n import tr
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 ARRAY_RE = re.compile(r"^(?P<name>[A-Za-z][A-Za-z0-9_]*)\[(?P<index>\d+)]$")
@@ -116,26 +117,26 @@ def parse_type(
     ref_scope = None
     if ref_target:
         if role == "id":
-            errors.add(sheet, cell, "ID<Ref<T>>는 기본키로 사용할 수 없습니다")
+            errors.add(sheet, cell, tr("ID<Ref<T>>는 기본키로 사용할 수 없습니다", "ID<Ref<T>> cannot be a primary key"))
             return None
         if default_text is not None:
-            errors.add(sheet, cell, "Ref<T>에는 기본값을 지정할 수 없습니다")
+            errors.add(sheet, cell, tr("Ref<T>에는 기본값을 지정할 수 없습니다", "Ref<T> cannot have a default value"))
             return None
         if table_keys is not None:
             if ref_target not in table_keys:
-                errors.add(sheet, cell, f"참조 대상 테이블 '{ref_target}'이 없습니다")
+                errors.add(sheet, cell, tr(f"참조 대상 테이블 '{ref_target}'이 없습니다", f"referenced table '{ref_target}' does not exist"))
                 return None
             target_name = ref_spec
             if ref_key:
                 if target_name not in table_keys:
-                    errors.add(sheet, cell, f"참조 대상 필드 '{target_name}'이 없습니다")
+                    errors.add(sheet, cell, tr(f"참조 대상 필드 '{target_name}'이 없습니다", f"referenced field '{target_name}' does not exist"))
                     return None
                 _, target_role, ref_scope = table_keys[target_name]
                 if target_role == "id":
-                    errors.add(sheet, cell, f"기본키 '{target_name}'에는 Ref<{ref_target}>를 쓰세요")
+                    errors.add(sheet, cell, tr(f"기본키 '{target_name}'에는 Ref<{ref_target}>를 쓰세요", f"'{target_name}' is the primary key; use Ref<{ref_target}>"))
                     return None
                 if target_role != "subkey":
-                    errors.add(sheet, cell, f"'{target_name}'을 SubKey로 선언하세요")
+                    errors.add(sheet, cell, tr(f"'{target_name}'을 SubKey로 선언하세요", f"declare '{target_name}' as a SubKey to reference it"))
                     return None
             else:
                 _, _, ref_scope = table_keys[ref_target]
@@ -146,10 +147,10 @@ def parse_type(
                     return cache[spec]
                 if spec in path:
                     cycle = path[path.index(spec):] + [spec]
-                    errors.add(sheet, cell, f"자료형 순환: {' → '.join(cycle)}")
+                    errors.add(sheet, cell, tr(f"자료형 순환: {' → '.join(cycle)}", f"type cycle: {' → '.join(cycle)}"))
                     return None
                 if spec not in table_keys:
-                    errors.add(sheet, cell, f"참조 '{spec}'의 자료형을 결정할 수 없습니다")
+                    errors.add(sheet, cell, tr(f"참조 '{spec}'의 자료형을 결정할 수 없습니다", f"cannot resolve the type of reference '{spec}'"))
                     return None
                 candidate = table_keys[spec][0]
                 if candidate.startswith("Ref<") and candidate.endswith(">"):
@@ -165,21 +166,25 @@ def parse_type(
         else:
             text = f"Ref<{ref_spec}>"
     if text in LEGACY_TYPES:
-        errors.add(sheet, cell, f"옛 자료형 '{text}'은 지원하지 않습니다. 이제 name/string을 쓰세요")
+        errors.add(sheet, cell, tr(f"옛 자료형 '{text}'은 지원하지 않습니다. 이제 name/string을 쓰세요", f"legacy type '{text}' is no longer supported; use name/string"))
         return None
     if text not in PRIMITIVES and not ENUM_RE.fullmatch(text) and not ref_target:
-        errors.add(sheet, cell, f"알 수 없는 자료형 '{text}'")
+        errors.add(sheet, cell, tr(f"알 수 없는 자료형 '{text}'", f"unknown type '{text}'"))
         return None
     if role is not None and text not in KEY_PRIMITIVES and not ENUM_RE.fullmatch(text) and not ref_target:
         errors.add(
             sheet,
             cell,
-            f"{text} 자료형은 기본키나 서브키로 사용할 수 없습니다. "
-            "키에는 int32, int64, name, 열거형(E*)만 사용할 수 있습니다",
+            tr(
+                f"{text} 자료형은 기본키나 서브키로 사용할 수 없습니다. "
+                "키에는 int32, int64, name, 열거형(E*)만 사용할 수 있습니다",
+                f"{text} cannot be a primary key or sub key. "
+                "Keys must be int32, int64, name or an enum (E*)",
+            ),
         )
         return None
     if role is not None and default_text is not None:
-        errors.add(sheet, cell, "기본키와 서브키에는 기본값을 지정할 수 없습니다")
+        errors.add(sheet, cell, tr("기본키와 서브키에는 기본값을 지정할 수 없습니다", "primary keys and sub keys cannot have a default value"))
         default_text = None
     return ParsedType(text, role, default_text, ref_target, ref_key, ref_scope)
 
@@ -193,7 +198,7 @@ def validate_enum_type(
 ) -> None:
     match = ENUM_RE.fullmatch(type_name)
     if match and match.group("name") not in enums:
-        errors.add(sheet, cell, f"정의되지 않은 열거형 '{match.group('name')}'")
+        errors.add(sheet, cell, tr(f"정의되지 않은 열거형 '{match.group('name')}'", f"undefined enum '{match.group('name')}'"))
 
 
 def build_columns(
@@ -203,7 +208,7 @@ def build_columns(
     errors: ErrorCollector,
     table_keys: dict[str, tuple[str, str, str]] | None = None,
 ) -> list[ColumnSchema]:
-    """물리 열을 논리 필드로 바꾸고 배열 열을 묶는다."""
+    """Turns physical columns into logical fields, grouping Name[0], Name[1], ... into arrays."""
     scalars: list[tuple[int, ColumnSchema]] = []
     arrays: dict[str, list[tuple[int, int, ParsedType | None, str, str]]] = {}
     scalar_headers: dict[str, str] = {}
@@ -216,7 +221,7 @@ def build_columns(
         name = str(raw_name).strip()
         scope = "" if raw_scope is None else str(raw_scope).strip().upper()
         if scope not in SCOPES:
-            errors.add(sheet, scope_cell, f"범위는 B, C, S, # 중 하나여야 합니다: '{scope}'")
+            errors.add(sheet, scope_cell, tr(f"범위는 B, C, S, # 중 하나여야 합니다: '{scope}'", f"scope must be one of B, C, S, #: '{scope}'"))
             continue
         if scope == "#":
             continue
@@ -224,7 +229,7 @@ def build_columns(
         array_match = ARRAY_RE.fullmatch(name)
         base_name = array_match.group("name") if array_match else name
         if not array_match and not IDENTIFIER_RE.fullmatch(name):
-            errors.add(sheet, header_cell, f"올바르지 않은 필드명 '{name}'")
+            errors.add(sheet, header_cell, tr(f"올바르지 않은 필드명 '{name}'", f"invalid field name '{name}'"))
             continue
         parsed = parse_type(raw_type, sheet, type_cell, errors, table_keys, resolved_types)
         if parsed:
@@ -234,7 +239,7 @@ def build_columns(
                 if not output_scopes[scope].issubset(output_scopes[parsed.ref_scope]):
                     errors.add(
                         sheet, type_cell,
-                        f"참조 범위 {scope}가 대상 서브키 {parsed.ref_scope}보다 넓습니다",
+                        tr(f"참조 범위 {scope}가 대상 서브키 {parsed.ref_scope}보다 넓습니다", f"reference scope {scope} is wider than the target sub key scope {parsed.ref_scope}"),
                     )
 
         if array_match:
@@ -263,7 +268,7 @@ def build_columns(
 
         if not array_match:
             if base_name in scalar_headers:
-                errors.add(sheet, header_cell, f"필드명 '{base_name}'이 중복되었습니다")
+                errors.add(sheet, header_cell, tr(f"필드명 '{base_name}'이 중복되었습니다", f"duplicate field name '{base_name}'"))
             else:
                 scalar_headers[base_name] = header_cell
 
@@ -275,24 +280,24 @@ def build_columns(
         first_column, _, first_type, first_scope, first_cell = parts_by_index[0]
         group_cell = parts_by_position[0][4]
         if name in scalar_names:
-            errors.add(sheet, first_cell, f"필드명 '{name}'이 스칼라와 배열로 중복되었습니다")
+            errors.add(sheet, first_cell, tr(f"필드명 '{name}'이 스칼라와 배열로 중복되었습니다", f"field '{name}' is used both as a scalar and as an array"))
         seen: set[int] = set()
         for _, index, _, _, cell in parts_by_position:
             if index in seen:
-                errors.add(sheet, cell, f"배열 '{name}'의 인덱스 {index}가 중복되었습니다")
+                errors.add(sheet, cell, tr(f"배열 '{name}'의 인덱스 {index}가 중복되었습니다", f"array '{name}' has index {index} twice"))
             seen.add(index)
         expected = list(range(len(seen)))
         if sorted(seen) != expected:
-            errors.add(sheet, group_cell, f"배열 '{name}'의 인덱스는 0부터 연속이어야 합니다")
+            errors.add(sheet, group_cell, tr(f"배열 '{name}'의 인덱스는 0부터 연속이어야 합니다", f"array '{name}' indices must start at 0 without gaps"))
         if first_type and first_type.role:
-            errors.add(sheet, _cell(first_column, 2), f"배열 '{name}'은 키로 지정할 수 없습니다")
+            errors.add(sheet, _cell(first_column, 2), tr(f"배열 '{name}'은 키로 지정할 수 없습니다", f"array '{name}' cannot be a key"))
         for column_index, _, parsed, scope, _ in parts_by_index[1:]:
             if parsed and first_type and (parsed.type_name, parsed.ref_target, parsed.ref_key) != (first_type.type_name, first_type.ref_target, first_type.ref_key):
-                errors.add(sheet, _cell(column_index, 2), f"배열 '{name}'의 자료형이 일치하지 않습니다")
+                errors.add(sheet, _cell(column_index, 2), tr(f"배열 '{name}'의 자료형이 일치하지 않습니다", f"array '{name}' elements have different types"))
             if parsed and parsed.role:
-                errors.add(sheet, _cell(column_index, 2), f"배열 '{name}'은 키로 지정할 수 없습니다")
+                errors.add(sheet, _cell(column_index, 2), tr(f"배열 '{name}'은 키로 지정할 수 없습니다", f"array '{name}' cannot be a key"))
             if scope != first_scope:
-                errors.add(sheet, _cell(column_index, 3), f"배열 '{name}'의 범위가 일치하지 않습니다")
+                errors.add(sheet, _cell(column_index, 3), tr(f"배열 '{name}'의 범위가 일치하지 않습니다", f"array '{name}' elements have different scopes"))
         if first_type:
             grouped.append(
                 (
@@ -322,12 +327,12 @@ def build_columns(
     columns = [column for _, column in sorted(scalars + grouped, key=lambda item: item[0])]
     ids = [column for column in columns if column.role == "id"]
     if len(ids) != 1:
-        errors.add(sheet, "A2", f"기본키는 정확히 1개여야 합니다(현재 {len(ids)}개)")
+        errors.add(sheet, "A2", tr(f"기본키는 정확히 1개여야 합니다(현재 {len(ids)}개)", f"exactly one primary key is required (found {len(ids)})"))
     elif ids[0].scope != "B":
         errors.add(
             sheet,
             _cell(ids[0].source_columns[0], 3),
-            "기본키 범위는 B여야 합니다",
+            tr("기본키 범위는 B여야 합니다", "the primary key scope must be B"),
         )
     return columns
 
@@ -341,7 +346,7 @@ def _convert_default(
 ) -> object | None:
     if parsed.default_text is None:
         return None
-    # 순환 import를 피하면서 자료 셀과 완전히 같은 변환 규칙을 사용한다.
+    # Imported here to avoid a cycle; defaults use exactly the same conversion as data cells.
     from .values import convert_value
 
     return convert_value(
@@ -359,11 +364,12 @@ def calculate_schema_hash(
     columns: list[ColumnSchema],
     enums: dict[str, EnumSchema] | None = None,
 ) -> str:
-    """구조 해시. 필드 구성뿐 아니라 **쓰는 열거형의 (이름, 값) 목록**도 넣는다.
+    """Structure hash: fields, key roles, scopes, defaults **and the (name, value) list of
+    every enum the table uses**.
 
-    열거형 서브키·기본키의 구운 인덱스는 열거형 값 순서로 정렬돼 있어서, 값만 바꾸고
-    다시 굽지 않으면 런타임 이진 탐색이 조용히 빗나간다. 열거형 정의를 해시에 넣어
-    그런 경우도 스키마 불일치로 잡히게 한다(2026-09-30 검수).
+    Baked enum key indices are sorted by enum value, so changing enum values without
+    re-baking would make the runtime binary search miss silently. Including the enum
+    definitions turns that case into a schema mismatch.
     """
     payload = []
     for column in columns:

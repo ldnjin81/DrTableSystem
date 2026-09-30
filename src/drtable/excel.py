@@ -70,7 +70,7 @@ def load_model(
 
     The schema folder defaults to the input folder and the enum folder to <schema>/Enums.
     """
-    schema_root = schema_path or (input_path if input_path.is_dir() else input_path.parent)
+    schema_root = schema_path or (input_path.parent if input_path.is_file() else input_path)
     errors = ErrorCollector()
     warnings: list[str] = []
     schemas = load_schemas(schema_root, enum_folder(schema_root, enum_path), errors)
@@ -87,7 +87,7 @@ def load_model(
     errors.raise_if_any()
 
     # Reference headers that point at a schema path missing on this machine stop updating.
-    base = schema_root if schema_root.is_dir() else schema_root.parent
+    base = schema_root.parent if schema_root.is_file() else schema_root
     schema_files = {
         (base / item.file).resolve()
         for schema in schemas.all()

@@ -42,7 +42,7 @@ def write_headers(
     Returns the workbooks changed.
     """
     changed: list[Path] = []
-    base = schema_root if schema_root.is_dir() else schema_root.parent
+    base = schema_root.parent if schema_root.is_file() else schema_root
     for path, relative in find_files(input_path, allow_empty=True):
         if path.name.lower().endswith(SCHEMA_SUFFIXES):
             continue

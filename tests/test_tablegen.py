@@ -12,16 +12,25 @@ from tablegen.cli import main
 def add_enum(workbook: Workbook) -> None:
     sheet = workbook.active
     sheet.title = "<enum>Element"
-    sheet.append(["all", "all", "#"])
-    sheet.append(["ID<name>", "int32", "string"])
     sheet.append(["Id", "Value", "Comment"])
+    sheet.append(["ID<name>", "int32", "string"])
+    sheet.append(["all", "all", "#"])
     sheet.append(["Fire", 0, "불"])
     sheet.append(["Water", None, "물"])
 
 
 def add_table(workbook: Workbook, title: str = "Effects") -> object:
     sheet = workbook.create_sheet(title)
-    sheet.append(["all", "all", "all", "client", "server", "#", "all", "all"])
+    sheet.append([
+            "Id",
+            "Name",
+            "Element",
+            "ClientOnly",
+            "ServerOnly",
+            "Memo",
+            "Reward[1]",
+            "Reward[0]",
+        ])
     sheet.append(
         [
             "ID<int32>",
@@ -35,16 +44,7 @@ def add_table(workbook: Workbook, title: str = "Effects") -> object:
         ]
     )
     sheet.append(
-        [
-            "Id",
-            "Name",
-            "Element",
-            "ClientOnly",
-            "ServerOnly",
-            "Memo",
-            "Reward[1]",
-            "Reward[0]",
-        ]
+        ["all", "all", "all", "client", "server", "#", "all", "all"]
     )
     sheet.append([1001, "Burn", "Fire", 12.5, 99, "무시", 20, 10])
     sheet.append([1002, "Freeze", "Water", None, 100, "무시", None, 30])
@@ -141,9 +141,9 @@ def test_enum_info_table_and_stamp(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "<enum>ItemType"
-    sheet.append(["all", "all", "#", "client", "server"])
-    sheet.append(["ID<name>", "int32", "string", "string", "int32"])
     sheet.append(["Id", "Value", "Comment", "DisplayName", "MaxStack"])
+    sheet.append(["ID<name>", "int32", "string", "string", "int32"])
+    sheet.append(["all", "all", "#", "client", "server"])
     sheet.append(["Weapon", 0, "무기류", "무기", 1])
     source = tmp_path / "enum-info.xlsx"
     workbook.save(source)
@@ -179,9 +179,9 @@ def test_cpp_scalar_initializers(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Numbers"
-    sheet.append(["all", "all", "all", "all", "all", "all"])
-    sheet.append(["ID<int32>", "int64", "float", "double", "bool", "string"])
     sheet.append(["Id", "Big", "Ratio", "Precise", "Enabled", "Label"])
+    sheet.append(["ID<int32>", "int64", "float", "double", "bool", "string"])
+    sheet.append(["all", "all", "all", "all", "all", "all"])
     sheet.append([1, 2, 3.5, 4.5, True, "값"])
     source = tmp_path / "initializers.xlsx"
     workbook.save(source)
@@ -203,7 +203,20 @@ def test_column_defaults_apply_to_cpp_and_empty_cells_deterministically(
     add_enum(workbook)
     sheet = workbook.create_sheet("Defaults")
     sheet.append(
-        ["all"] * 12
+        [
+            "Id",
+            "Multiplier",
+            "Count",
+            "Enabled",
+            "Label",
+            "Name",
+            "DisplayName",
+            "StateTag",
+            "Icon",
+            "Element",
+            "Reward[0]",
+            "Reward[1]",
+        ]
     )
     sheet.append(
         [
@@ -221,20 +234,7 @@ def test_column_defaults_apply_to_cpp_and_empty_cells_deterministically(
             "int32=20",
         ]
     )
-    sheet.append([
-            "Id",
-            "Multiplier",
-            "Count",
-            "Enabled",
-            "Label",
-            "Name",
-            "DisplayName",
-            "StateTag",
-            "Icon",
-            "Element",
-            "Reward[0]",
-            "Reward[1]",
-        ])
+    sheet.append(["all"] * 12)
     sheet.append([1] + [None] * 11)
     sheet.append(
         [
@@ -308,9 +308,9 @@ def test_key_defaults_are_rejected_without_outputs(
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "KeyDefault"
-    sheet.append(["all", "all"])
-    sheet.append([key_type, "string"] if key_type.startswith("ID") else ["ID<int32>", key_type])
     sheet.append(["Id", "Lookup"])
+    sheet.append([key_type, "string"] if key_type.startswith("ID") else ["ID<int32>", key_type])
+    sheet.append(["all", "all"])
     sheet.append([1, "값"])
     source = tmp_path / "key-default.xlsx"
     workbook.save(source)
@@ -333,9 +333,9 @@ def test_invalid_column_default_is_rejected_without_outputs(
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "InvalidDefault"
-    sheet.append(["all", "all"])
-    sheet.append(["ID<int32>", "float=not-a-number"])
     sheet.append(["Id", "Multiplier"])
+    sheet.append(["ID<int32>", "float=not-a-number"])
+    sheet.append(["all", "all"])
     sheet.append([1, None])
     source = tmp_path / "invalid-default.xlsx"
     workbook.save(source)
@@ -357,12 +357,12 @@ def test_semantic_string_types_generate_cpp_json_and_conditional_includes(
     sheet = workbook.active
     sheet.title = "Types"
     sheet.append(
-        ["all", "all", "all", "all", "all", "all", "all"]
+        ["Id", "Label", "DisplayName", "StateTag", "Icon", "Count", "Enabled"]
     )
     sheet.append(
         ["ID<name>", "string", "text", "tag", "path", "int32", "bool"]
     )
-    sheet.append(["Id", "Label", "DisplayName", "StateTag", "Icon", "Count", "Enabled"])
+    sheet.append(["all", "all", "all", "all", "all", "all", "all"])
     sheet.append(
         [
             "Effect.Burn",
@@ -411,9 +411,9 @@ def test_type_specific_includes_are_omitted_when_unused(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Plain"
-    sheet.append(["all", "all"])
-    sheet.append(["ID<int32>", "string"])
     sheet.append(["Id", "Label"])
+    sheet.append(["ID<int32>", "string"])
+    sheet.append(["all", "all"])
     sheet.append([1, "값"])
     source = tmp_path / "plain.xlsx"
     workbook.save(source)
@@ -434,9 +434,9 @@ def test_legacy_types_are_rejected_with_migration_message(
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Legacy"
-    sheet.append(["all", "all"])
-    sheet.append(["ID<int32>", legacy_type])
     sheet.append(["Id", "OldValue"])
+    sheet.append(["ID<int32>", legacy_type])
+    sheet.append(["all", "all"])
     sheet.append([1, "값"])
     source = tmp_path / f"legacy-{legacy_type}.xlsx"
     workbook.save(source)
@@ -458,13 +458,13 @@ def test_unsupported_key_types_are_rejected_without_outputs(
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "InvalidKey"
-    sheet.append(["all", "all"])
+    sheet.append(["Id", "Value"])
     sheet.append(
         [f"ID<{value_type}>", "string"]
         if role == "ID"
         else ["ID<int32>", f"SubKey<{value_type}>"]
     )
-    sheet.append(["Id", "Value"])
+    sheet.append(["all", "all"])
     sheet.append(["Key" if role == "ID" else 1, "Value"])
     source = tmp_path / f"invalid-{role.lower()}-{value_type}.xlsx"
     workbook.save(source)
@@ -484,11 +484,11 @@ def test_supported_key_types_remain_available(tmp_path: Path) -> None:
     workbook = Workbook()
     add_enum(workbook)
     sheet = workbook.create_sheet("SupportedKeys")
-    sheet.append(["all", "all", "all", "all"])
+    sheet.append(["Id", "Numeric", "Name", "Element"])
     sheet.append(
         ["ID<int64>", "SubKey<int32>", "SubKey<name>", "SubKey<EElement>"]
     )
-    sheet.append(["Id", "Numeric", "Name", "Element"])
+    sheet.append(["all", "all", "all", "all"])
     sheet.append([9_000_000_001, 7, "Burn", "Fire"])
     source = tmp_path / "supported-keys.xlsx"
     workbook.save(source)
@@ -505,9 +505,9 @@ def test_text_cannot_be_used_as_key(
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "TextKey"
-    sheet.append(["all", "all"])
-    sheet.append(["ID<int32>", key_type])
     sheet.append(["Id", "Localized"])
+    sheet.append(["ID<int32>", key_type])
+    sheet.append(["all", "all"])
     sheet.append([1, "지역화 값"])
     source = tmp_path / "text-key.xlsx"
     workbook.save(source)
@@ -523,9 +523,9 @@ def test_typed_path_syntax_is_rejected(tmp_path: Path, capsys: pytest.CaptureFix
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "TypedPath"
-    sheet.append(["all", "all"])
-    sheet.append(["ID<int32>", "path<UTexture2D>"])
     sheet.append(["Id", "Icon"])
+    sheet.append(["ID<int32>", "path<UTexture2D>"])
+    sheet.append(["all", "all"])
     sheet.append([1, "/Game/UI/T_Icon.T_Icon"])
     source = tmp_path / "typed-path.xlsx"
     workbook.save(source)
@@ -581,15 +581,15 @@ def test_enum_info_name_collision(tmp_path: Path, capsys: pytest.CaptureFixture[
     workbook = Workbook()
     add_enum(workbook)
     enum_sheet = workbook.active
-    enum_sheet["D3"] = "Label"
+    enum_sheet["D1"] = "Label"
     enum_sheet["D2"] = "string"
-    enum_sheet["D1"] = "all"
+    enum_sheet["D3"] = "all"
     enum_sheet["D4"] = "불"
     enum_sheet["D5"] = "물"
     table = workbook.create_sheet("ElementInfo")
-    table.append(["all"])
-    table.append(["ID<int32>"])
     table.append(["Id"])
+    table.append(["ID<int32>"])
+    table.append(["all"])
     table.append([1])
     source = tmp_path / "collision.xlsx"
     workbook.save(source)
@@ -603,9 +603,9 @@ def test_sub_keys_can_be_empty(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Items"
-    sheet.append(["all", "all"])
-    sheet.append(["ID<name>", "string"])
     sheet.append(["Id", "Name"])
+    sheet.append(["ID<name>", "string"])
+    sheet.append(["all", "all"])
     sheet.append(["Sword", "검"])
     source = tmp_path / "input.xlsx"
     workbook.save(source)
@@ -621,13 +621,13 @@ def test_primary_key_scope_must_be_all(
     workbook = Workbook()
     add_enum(workbook)
     sheet = add_table(workbook)
-    sheet["A1"] = "client"
+    sheet["A3"] = "client"
     source = tmp_path / "bad-primary-scope.xlsx"
     workbook.save(source)
 
     assert main(["check", "--input", str(source)]) == 1
     stderr = capsys.readouterr().err
-    assert "Effects!A1" in stderr
+    assert "Effects!A3" in stderr
     assert "기본키 범위는 all" in stderr
 
 
@@ -648,7 +648,7 @@ def test_check_does_not_write_files(tmp_path: Path) -> None:
         (lambda sheet: sheet.__setitem__("A5", None), "Effects!A5", "비어"),
         (lambda sheet: sheet.__setitem__("C2", "EMissing"), "Effects!C2", "정의되지 않은"),
         (lambda sheet: sheet.__setitem__("D4", "숫자 아님"), "Effects!D4", "변환"),
-        (lambda sheet: sheet.__setitem__("B3", "Id"), "Effects!B3", "중복"),
+        (lambda sheet: sheet.__setitem__("B1", "Id"), "Effects!B1", "중복"),
     ],
 )
 def test_validation_errors(
@@ -673,10 +673,10 @@ def test_validation_errors(
 @pytest.mark.parametrize(
     ("mutate", "location", "message"),
     [
-        (lambda sheet: sheet.__setitem__("G3", "Reward[2]"), "Effects!G3", "연속"),
-        (lambda sheet: sheet.__setitem__("G3", "Reward[0]"), "Effects!H3", "중복"),
+        (lambda sheet: sheet.__setitem__("G1", "Reward[2]"), "Effects!G1", "연속"),
+        (lambda sheet: sheet.__setitem__("G1", "Reward[0]"), "Effects!H1", "중복"),
         (lambda sheet: sheet.__setitem__("G2", "float"), "Effects!G2", "자료형"),
-        (lambda sheet: sheet.__setitem__("G1", "client"), "Effects!G1", "범위"),
+        (lambda sheet: sheet.__setitem__("G3", "client"), "Effects!G3", "범위"),
     ],
 )
 def test_array_validation_errors(
@@ -721,9 +721,9 @@ def add_unsorted_table(workbook: Workbook) -> None:
     같지 않도록 Zeta를 끼워 넣는다.
     """
     sheet = workbook.create_sheet("Effects")
-    sheet.append(["all", "all", "all", "server"])
-    sheet.append(["ID<int32>", "SubKey<name>", "SubKey<EElement>", "int32"])
     sheet.append(["Id", "Name", "Element", "ServerOnly"])
+    sheet.append(["ID<int32>", "SubKey<name>", "SubKey<EElement>", "int32"])
+    sheet.append(["all", "all", "all", "server"])
     sheet.append([1003, "Curse", "Water", 3])
     sheet.append([1001, "Burn", "Zeta", 1])
     sheet.append([1002, "Freeze", "Water", 2])
@@ -733,9 +733,9 @@ def save_unsorted(path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "<enum>Element"
-    sheet.append(["all", "all", "#"])
-    sheet.append(["ID<name>", "int32", "string"])
     sheet.append(["Id", "Value", "Comment"])
+    sheet.append(["ID<name>", "int32", "string"])
+    sheet.append(["all", "all", "#"])
     sheet.append(["Zeta", 0, "이름은 뒤지만 값이 앞"])
     sheet.append(["Water", 1, "물"])
     add_unsorted_table(workbook)
@@ -763,9 +763,9 @@ def test_asset_class_without_sub_keys_has_no_index_arrays(tmp_path: Path) -> Non
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Items"
-    sheet.append(["all", "all"])
-    sheet.append(["ID<name>", "string"])
     sheet.append(["Id", "Name"])
+    sheet.append(["ID<name>", "string"])
+    sheet.append(["all", "all"])
     sheet.append(["Sword", "검"])
     source = tmp_path / "items.xlsx"
     workbook.save(source)

@@ -160,12 +160,12 @@ def _check_member_names(model) -> None:
         seen: dict[str, str] = {}
         for name, cell in generated_member_names(table):
             if name in fields:
-                errors.add(table.sheet, cell, tr(
+                errors.add(table.location, cell, tr(
                     f"생성할 함수 '{name}'이 같은 이름의 필드와 겹칩니다",
                     f"generated function '{name}' clashes with a field of the same name",
                 ))
             elif name in seen:
-                errors.add(table.sheet, cell, tr(
+                errors.add(table.location, cell, tr(
                     f"생성할 함수 '{name}'이 {seen[name]}에서 만든 함수와 겹칩니다",
                     f"generated function '{name}' clashes with the one generated for {seen[name]}",
                 ))

@@ -98,3 +98,15 @@ def test_content_hash_tracks_values_and_manifest_records_naming(tmp_path: Path) 
         hashes.append((payload["schema_hash"], payload["content_hash"]))
     assert hashes[0][0] == hashes[1][0]  # 구조는 같다
     assert hashes[0][1] != hashes[1][1]  # 값이 바뀌면 내용 해시가 바뀐다
+
+
+def test_ue_plugin_preset(tmp_path: Path) -> None:
+    source = tmp_path / "in.xlsx"
+    _book({"T": [["Id"], ["ID<int32>"], ["B"], [1]]}).save(source)
+    assert _build(source, tmp_path, "--ue-plugin", "--prefix", "Gm") == 0
+    table = (tmp_path / "cpp" / "GmTTable.h").read_text(encoding="utf-8")
+    assert '#include "TableGenAssetBase.h"' in table
+    assert "class UGmTTable : public UTableGenAssetBase" in table
+    source_cpp = (tmp_path / "cpp" / "GmTRow.cpp").read_text(encoding="utf-8")
+    assert '#include "TableGenRuntime.h"' in source_cpp
+    assert (tmp_path / "cpp" / "GmTableRegistration.h").exists()

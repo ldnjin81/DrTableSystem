@@ -36,8 +36,7 @@ DrTableSystem(DesignToRuntime Table System)은 기획자가 엑셀에 적은 데
 11. [변경 감지: 스키마 해시와 내용 해시](#11-변경-감지-스키마-해시와-내용-해시)
 12. [조회가 틀리지 않게 지키는 규칙](#12-조회가-틀리지-않게-지키는-규칙)
 13. [CI](#13-ci)
-14. [예전 형식에서 옮기기](#14-예전-형식에서-옮기기)
-15. [문제 해결](#15-문제-해결)
+14. [문제 해결](#14-문제-해결)
 
 ---
 
@@ -251,7 +250,7 @@ DropTable:  Id: ID<int32>       GroupId: SubKey<int32>      Item: Ref<Items>
 <out-cpp>/DtTableRegistration.h   DtGeneratedTables::RegisterAll(Registry)
 ```
 
-- 행 구조체 `F<접두사><테이블>Row`, 에셋 클래스 `U<접두사><테이블>Table`, 열거형 `E<접두사><열거형>`. `--prefix` 기본값은 `Dt`이니 프로젝트 접두사로 바꿔 쓰세요.
+- 행 구조체 `F<접두사><테이블>Row`, 에셋 클래스 `U<접두사><테이블>Table`, 열거형 `E<접두사><열거형>`. `--prefix` 기본값은 `Dr`이니 프로젝트 접두사로 바꿔 쓰세요.
 - 클라 필드(`all`, `client`)만 생성합니다.
 - **생성 코드는 스키마에만 의존합니다.** 데이터 값, 데이터 파일 이름, 행 수는 코드에 들어가지 않으므로, 데이터를 고치거나 파일·시트를 나눠도 코드는 바이트 단위로 같습니다. 첫 줄 주석에는 스키마 파일이 적힙니다(`// … Source: Items.schema.xlsx`).
 - 에셋 클래스에는 `Rows`(기본키 순 정렬), `PrimaryKeys`(같은 순서), 그리고 서브키마다 `<이름>_Keys`, `<이름>_Offsets`, `<이름>_Indices`(생성기가 계산한 CSR 인덱스)가 들어갑니다.
@@ -311,13 +310,12 @@ namespace DrTableRuntime {
 ```sh
 drtable build --input <xlsx|폴더> --out-cpp <dir> --out-client <dir> --out-server <dir>
                [--schema <폴더>] [--enums <폴더>]
-               [--prefix Dt] [--ue-plugin] [--asset-base <클래스> --asset-base-header <헤더.h>]
+               [--prefix Dr] [--ue-plugin] [--asset-base <클래스> --asset-base-header <헤더.h>]
                [--runtime-header <헤더.h>] [--asset-name DA_{table}] [--stamp <ISO8601>]
 drtable graph --input <xlsx|폴더> --out references.md [--schema …] [--enums …]
 drtable check --client <클라 JSON 폴더> [--server <서버 JSON 폴더>]
 drtable check --input <xlsx|폴더> [--schema …] [--enums …]   # 검사만 하고 아무것도 쓰지 않음
 drtable new --table <테이블> --out <새 xlsx> --schema <폴더> [--enums …]  # 참고 수식이 든 새 데이터 파일
-drtable migrate --input <xlsx|폴더> [--schema …] [--enums …] [--overwrite]
 drtable [--lang en|ko] …
 ```
 
@@ -325,7 +323,7 @@ drtable [--lang en|ko] …
 |---|---|
 | `--schema` | 테이블 스키마 폴더. 기본값은 입력 폴더. |
 | `--enums` | 열거형 스키마 폴더. 기본값은 `<스키마>/Enums`. |
-| `--prefix` | C++ 타입 접두사(`Dt` → `FDtEffectsRow`). |
+| `--prefix` | C++ 타입 접두사(`Dr` → `FDrEffectsRow`, 기본값 `Dr`). |
 | `--ue-plugin` | DrTableSystem 플러그인용 설정: 에셋 기반 `UDrTableAssetBase`, 런타임 헤더 `DrTableRuntime.h`. 플러그인과 함께 쓸 때 권장합니다. |
 | `--asset-base`, `--asset-base-header` | 에셋 클래스의 기반 클래스와 그 헤더. 헤더 없이 기반만 바꾸면 오류입니다(컴파일되지 않는 코드가 나오므로). |
 | `--runtime-header` | 행 함수, `.cpp`, 등록 헤더를 생성합니다. |
@@ -336,7 +334,7 @@ drtable [--lang en|ko] …
 - `check --client/--server`는 생성된 JSON만 읽으므로 CI에서 돌릴 수 있습니다. 끊긴 참조를 전부 출력합니다(예: `Quests.Next[2002](0) = 9999 → Quests 테이블에 없음`). 빈 참조는 건너뛰고, 대상에 "참조 없음" 값(0이나 빈 이름)과 같은 키가 있으면 경고합니다.
 - 경고(`경고: …`)는 표준 오류로 나가고 종료 코드에 영향을 주지 않습니다.
 
-종료 코드: `build`·`graph`·`check --input`·`new`·`migrate`는 0 성공, 1 검증 오류, 2 사용 오류. `check --client`는 0 통과, 1 끊긴 참조, 2 입력 오류.
+종료 코드: `build`·`graph`·`check --input`·`new`는 0 성공, 1 검증 오류, 2 사용 오류. `check --client`는 0 통과, 1 끊긴 참조, 2 입력 오류.
 
 ### GUI (`drtable-gui`)
 
@@ -347,7 +345,7 @@ drtable [--lang en|ko] …
 | 빌드·검사 | 폴더를 고르고 검사 또는 빌드합니다. 빌드한 뒤에는 참조 검사도 함께 돌립니다. 오류·경고는 `[파일]시트!셀` 위치와 함께 표로 나오고, 더블클릭하면 그 파일을 엑셀로 엽니다. |
 | 테이블 | 테이블·열거형 목록, 필드(자료형·키·범위·배열·참조), 스키마 파일, 데이터가 있는 파일·시트와 행 수를 보여 줍니다. |
 | 참조 그래프 | 테이블 간 참조를 그립니다. 노드를 끌어 옮길 수 있고, 끊긴 참조는 빨간색입니다. 노드를 더블클릭하면 그 테이블로 갑니다. |
-| 새 파일·변환 | `drtable new`(참고 수식이 든 새 데이터 파일)와 `drtable migrate`(예전 형식 변환)를 실행합니다. 기존 데이터 파일은 고치지 않습니다. |
+| 새 파일 | `drtable new`로 참고 수식이 든 새 데이터 파일을 만듭니다. 기존 데이터 파일은 고치지 않습니다. |
 
 ![빌드·검사](../images/ko/build.png)
 ![테이블](../images/ko/tables.png)
@@ -469,27 +467,13 @@ UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # 빠졌거나 오�
 
 `v*` 태그를 달면 운영체제별 실행 파일을 빌드해 Release에 올립니다.
 
-## 14. 예전 형식에서 옮기기
-
-예전 형식은 데이터 시트의 1~3행에 필드명·자료형·범위를 적고, 열거형을 `<enum>이름` 시트에 두었습니다. `drtable migrate`가 새 형식으로 옮깁니다.
-
-```sh
-drtable migrate --input Design/Tables --schema Design/Tables/Schemas
-```
-
-- 테이블 시트의 헤더 → `<테이블>.schema.xlsx`. 같은 테이블이 여러 시트에 있으면 첫 시트(파일 경로 순, 파일 안에서는 시트 순)를 씁니다.
-- `<enum>이름` 시트 → 열거형 폴더의 `<이름>.enum.xlsx`. `Id`·`Value`·`Comment` 말고 다른 열이 있으면 `<이름>Info` 테이블의 스키마와 **새 데이터 파일** `<이름>Info.xlsx`를 만듭니다.
-- **기존 데이터 파일은 고치지 않습니다.** 옛 `<enum>` 시트는 빌드가 읽지 않고 경고만 하니 확인한 뒤 지우세요. 옛 2·3행은 빌드가 읽지 않으니 그대로 두거나, 참고 수식이 필요하면 `drtable new`로 만든 파일에서 복사해 붙입니다.
-- 이미 있는 스키마 파일은 건너뜁니다(`--overwrite`로 덮어쓰기).
-
-## 15. 문제 해결
+## 14. 문제 해결
 
 | 메시지 | 원인과 조치 |
 |---|---|
-| `스키마가 없습니다. 'X.schema.xlsx'에…` | 데이터 시트 이름에 맞는 스키마가 없습니다. 스키마를 만들거나(예전 형식이면 `drtable migrate`) `--schema` 경로를 확인하세요. |
+| `스키마가 없습니다. 'X.schema.xlsx'에…` | 데이터 시트 이름에 맞는 스키마가 없습니다. 스키마를 만들거나 `--schema` 경로를 확인하세요. |
 | `필드 'X'이 스키마 …에 없습니다` | 데이터 1행에 스키마에 없는 이름이 있습니다. 오타를 고치거나 스키마에 필드를 추가하세요(프로그래머). 메모 열이면 이름을 `#`으로 시작하세요. |
 | `필드 'X'의 열이 없습니다` | 스키마의 필드가 데이터 시트에 없습니다. 열을 추가하세요. |
-| `열거형 값은 이제 열거형 스키마…에 정의합니다` (경고) | 옛 `<enum>` 시트입니다. 값은 열거형 폴더의 스키마에서 읽으니 시트를 지우세요. |
 | `참고 헤더가 이 PC에 없는 경로를 가리킵니다` (경고) | 다른 경로에서 저장된 링크입니다. 엑셀의 링크 편집으로 원본을 바꾸거나 2·3행을 다시 복사해 넣으세요(2절 링크 경로 주의). |
 | `열거형 스키마는 열거형 폴더(…)에 두어야 합니다` | `*.enum.xlsx` 파일을 열거형 폴더로 옮기세요. |
 | `Schema mismatch, re-bake required` | 옛 구조로 구운 에셋입니다. 생성 → 빌드 → 굽기. |
@@ -499,4 +483,3 @@ drtable migrate --input Design/Tables --schema Design/Tables/Schemas
 | `--asset-base를 바꾸면 --asset-base-header도 필요합니다` | 기반 클래스를 선언한 헤더를 주거나 `--ue-plugin`을 쓰세요. |
 | `생성할 함수 'Find'이 같은 이름의 필드와 겹칩니다` | 필드 이름을 바꾸세요. `Find`, `GetAll`, `FindBy<서브키>`, `Get<필드>`는 생성 이름입니다. |
 | `name 키 'x'이 … 'X'과 대소문자만 다릅니다` | 철자를 똑같이 맞추거나 다른 이름을 쓰세요. |
-| `옛 범위 표기 'B' 대신 'all'를 쓰세요` | 범위는 `all`·`client`·`server`·`#`만 씁니다. 옛 `B`·`C`·`S`는 각각 `all`·`client`·`server`로 바꾸세요. |

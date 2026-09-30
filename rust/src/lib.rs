@@ -12,7 +12,6 @@ pub mod graph;
 pub mod gui;
 pub mod headers;
 pub mod i18n;
-pub mod migrate;
 pub mod reader;
 pub mod schema;
 pub mod schemafile;

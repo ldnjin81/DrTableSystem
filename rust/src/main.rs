@@ -1,5 +1,5 @@
 //! DrTableSystem (DesignToRuntime Table System) command line:
-//! `drtable build | graph | check | migrate | new`.
+//! `drtable build | graph | check | new`.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -9,9 +9,9 @@ use drtable::commands::{self, BuildError, BuildOptions};
 use drtable::emit_cpp::{DEFAULT_ASSET_BASE, DEFAULT_ASSET_NAME};
 use drtable::errors::{ErrorCollector, ValidationErrors};
 use drtable::i18n::{self, tr};
-use drtable::{check, excel, graph, headers, migrate, schemafile, VERSION};
+use drtable::{check, excel, graph, headers, schemafile, VERSION};
 
-const HELP: &str = "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,migrate,new} ...
+const HELP: &str = "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,new} ...
 
 Generate C++, JSON and Unreal DataAssets from spreadsheet tables.
 
@@ -19,7 +19,6 @@ commands:
   build     generate C++, client JSON and server JSON
   graph     write the table reference graph as Mermaid Markdown
   check     check references in generated JSON (or validate a spreadsheet with --input)
-  migrate   move the header rows of old workbooks into schema files (data files are not changed)
   new       create a data workbook for a table, with reference formulas in rows 2-3
 
 options:
@@ -36,7 +35,6 @@ fn command_options(command: &str) -> Option<&'static [(&'static str, bool)]> {
         ],
         "graph" => &[("input", true), ("schema", true), ("enums", true), ("out", true)],
         "check" => &[("client", true), ("server", true), ("input", true), ("schema", true), ("enums", true)],
-        "migrate" => &[("input", true), ("schema", true), ("enums", true), ("overwrite", false)],
         "new" => &[("table", true), ("out", true), ("schema", true), ("enums", true)],
         _ => return None,
     })
@@ -46,7 +44,6 @@ fn required(command: &str) -> &'static [&'static str] {
     match command {
         "build" => &["input", "out-cpp", "out-client", "out-server"],
         "graph" => &["input", "out"],
-        "migrate" => &["input"],
         "new" => &["table", "out", "schema"],
         _ => &[],
     }
@@ -82,7 +79,7 @@ fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
     let mut flags = HashSet::new();
     let usage = |command: &Option<String>| match command {
         Some(c) => format!("usage: drtable {c} [options]"),
-        None => "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,migrate,new} ...".to_string(),
+        None => "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,new} ...".to_string(),
     };
     while index < argv.len() {
         let arg = &argv[index];
@@ -115,7 +112,7 @@ fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
                 continue;
             }
             if command_options(arg).is_none() {
-                return Err(UsageError(usage(&command), format!("argument command: invalid choice: '{arg}' (choose from 'build', 'graph', 'check', 'migrate', 'new')")));
+                return Err(UsageError(usage(&command), format!("argument command: invalid choice: '{arg}' (choose from 'build', 'graph', 'check', 'new')")));
             }
             command = Some(arg.clone());
             continue;
@@ -220,24 +217,6 @@ fn run(args: Args) -> ExitCode {
         print_errors(&failures);
         return if failures.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) };
     }
-    if args.command == "migrate" {
-        let input = args.path("input").unwrap();
-        let root = schemafile::folder_of(&input);
-        let schema_dir = args.path("schema").unwrap_or(root);
-        let enum_dir = schemafile::enum_folder(&schema_dir, args.path("enums").as_deref());
-        return match migrate::extract_schemas(&input, &schema_dir, &enum_dir, args.flags.contains("overwrite")) {
-            Ok(written) => {
-                for path in written {
-                    println!("{}", path.display());
-                }
-                ExitCode::SUCCESS
-            }
-            Err(ValidationErrors(messages)) => {
-                print_errors(&messages);
-                ExitCode::from(1)
-            }
-        };
-    }
     if args.command == "new" {
         let schema_dir = args.path("schema").unwrap();
         let out = args.path("out").unwrap();
@@ -289,7 +268,7 @@ fn build(args: &Args, model: &excel::DataModel, usage: impl Fn(String) -> ExitCo
         out_cpp: args.path("out-cpp").unwrap(),
         out_client: args.path("out-client").unwrap(),
         out_server: args.path("out-server").unwrap(),
-        prefix: args.get("prefix").unwrap_or("Dt").to_string(),
+        prefix: args.get("prefix").unwrap_or("Dr").to_string(),
         stamp: args.get("stamp").map(str::to_string),
         asset_base: args.get("asset-base").unwrap_or(DEFAULT_ASSET_BASE).to_string(),
         asset_base_header: args.get("asset-base-header").map(str::to_string),

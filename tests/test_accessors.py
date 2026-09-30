@@ -9,7 +9,7 @@ from openpyxl import Workbook
 
 from drtable.cli import main
 
-RUNTIME = "TableData/DtTableRuntime.h"
+RUNTIME = "TableData/DrTableRuntime.h"
 
 
 def _sheet(workbook: Workbook, name: str, rows: list[list[object]]) -> None:
@@ -66,58 +66,58 @@ def test_without_runtime_header_no_accessors_are_generated(tmp_path: Path) -> No
     assert _build(source, tmp_path) == 0
     names = sorted(path.name for path in (tmp_path / "cpp").iterdir())
     assert not any(name.endswith(".cpp") for name in names)
-    assert "DtTableRegistration.h" not in names
-    row = _read(tmp_path, "DtQuestsRow.h")
+    assert "DrTableRegistration.h" not in names
+    row = _read(tmp_path, "DrQuestsRow.h")
     assert "static" not in row
-    assert "struct FDtItemsRow;" not in row
+    assert "struct FDrItemsRow;" not in row
 
 
 def test_row_header_declarations_and_forward_declarations(tmp_path: Path) -> None:
     source = tmp_path / "in.xlsx"
     _source(source)
     assert _build(source, tmp_path, "--runtime-header", RUNTIME) == 0
-    quests = _read(tmp_path, "DtQuestsRow.h")
-    assert "struct FDtItemsRow;" in quests
-    assert "struct FDtQuestsRow;" not in quests  # 자기 참조는 전방 선언하지 않는다.
-    assert "#include \"DtItemsRow.h\"" not in quests  # 순환 include 금지
-    assert "static const FDtQuestsRow* Find(int32 Key);" in quests
-    assert "static TArray<const FDtQuestsRow*> FindByReward(int32 Key);" in quests
-    assert "static TConstArrayView<FDtQuestsRow> GetAll();" in quests
-    assert "const FDtItemsRow* GetReward() const;" in quests
-    assert "const FDtQuestsRow* GetNext(int32 Index) const;" in quests
+    quests = _read(tmp_path, "DrQuestsRow.h")
+    assert "struct FDrItemsRow;" in quests
+    assert "struct FDrQuestsRow;" not in quests  # 자기 참조는 전방 선언하지 않는다.
+    assert "#include \"DrItemsRow.h\"" not in quests  # 순환 include 금지
+    assert "static const FDrQuestsRow* Find(int32 Key);" in quests
+    assert "static TArray<const FDrQuestsRow*> FindByReward(int32 Key);" in quests
+    assert "static TConstArrayView<FDrQuestsRow> GetAll();" in quests
+    assert "const FDrItemsRow* GetReward() const;" in quests
+    assert "const FDrQuestsRow* GetNext(int32 Index) const;" in quests
 
-    items = _read(tmp_path, "DtItemsRow.h")
-    assert "static TArray<const FDtItemsRow*> FindByKind(EDtKind Key);" in items
+    items = _read(tmp_path, "DrItemsRow.h")
+    assert "static TArray<const FDrItemsRow*> FindByKind(EDrKind Key);" in items
     assert "GetServerQuest" not in items  # 서버 전용 필드는 클라 구조체에 없다.
 
-    monsters = _read(tmp_path, "DtMonstersRow.h")
-    assert "static const FDtMonstersRow* Find(FName Key);" in monsters
-    assert "TArray<const FDtDropTableRow*> GetDropGroup() const;" in monsters
-    assert "TArray<const FDtDropTableRow*> GetByKind() const;" in monsters
-    assert "const FDtMonstersRow* GetName() const;" in monsters
+    monsters = _read(tmp_path, "DrMonstersRow.h")
+    assert "static const FDrMonstersRow* Find(FName Key);" in monsters
+    assert "TArray<const FDrDropTableRow*> GetDropGroup() const;" in monsters
+    assert "TArray<const FDrDropTableRow*> GetByKind() const;" in monsters
+    assert "const FDrMonstersRow* GetName() const;" in monsters
 
 
 def test_row_source_definitions(tmp_path: Path) -> None:
     source = tmp_path / "in.xlsx"
     _source(source)
     assert _build(source, tmp_path, "--runtime-header", RUNTIME) == 0
-    quests = _read(tmp_path, "DtQuestsRow.cpp")
+    quests = _read(tmp_path, "DrQuestsRow.cpp")
     assert quests.splitlines()[1:4] == [
-        '#include "DtQuestsRow.h"',
-        '#include "DtItemsRow.h"',
+        '#include "DrQuestsRow.h"',
+        '#include "DrItemsRow.h"',
         f'#include "{RUNTIME}"',
     ]
-    assert "return DrTableRuntime::FindByKey<FDtQuestsRow>(Key);" in quests
-    assert ('return DrTableRuntime::FindAllBySubKey<FDtQuestsRow>'
+    assert "return DrTableRuntime::FindByKey<FDrQuestsRow>(Key);" in quests
+    assert ('return DrTableRuntime::FindAllBySubKey<FDrQuestsRow>'
             '(FName(TEXT("Reward")), Key);') in quests
-    assert "return DrTableRuntime::GetAll<FDtQuestsRow>();" in quests
+    assert "return DrTableRuntime::GetAll<FDrQuestsRow>();" in quests
     assert "    if (Index < 0 || Index >= 2 || Next[Index] == 0)" in quests
-    assert "    return FDtQuestsRow::Find(Next[Index]);" in quests
+    assert "    return FDrQuestsRow::Find(Next[Index]);" in quests
 
-    monsters = _read(tmp_path, "DtMonstersRow.cpp")
+    monsters = _read(tmp_path, "DrMonstersRow.cpp")
     assert "    if (DropGroup == 0)\n    {\n        return {};\n    }" in monsters
-    assert "    return FDtDropTableRow::FindByGroupId(DropGroup);" in monsters
-    assert "    return FDtDropTableRow::FindByKindKey(ByKind);" in monsters
+    assert "    return FDrDropTableRow::FindByGroupId(DropGroup);" in monsters
+    assert "    return FDrDropTableRow::FindByKindKey(ByKind);" in monsters
     assert "    if (Name.IsNone())\n    {\n        return nullptr;\n    }" in monsters
     # 열거형 서브키 대상은 빈 셀이 금지라 없음 값 검사가 없다.
     by_kind = monsters.split("GetByKind() const\n{\n", 1)[1].split("}\n", 1)[0]
@@ -129,16 +129,16 @@ def test_registration_header(tmp_path: Path) -> None:
     _source(source)
     assert _build(source, tmp_path, "--runtime-header", RUNTIME,
                   "--asset-name", "BT_{table}") == 0
-    text = _read(tmp_path, "DtTableRegistration.h")
-    assert '#include "DtGeneratedTables.h"' in text
-    assert '#include "DtQuestsTable.h"' in text
-    assert "namespace DtGeneratedTables" in text
+    text = _read(tmp_path, "DrTableRegistration.h")
+    assert '#include "DrGeneratedTables.h"' in text
+    assert '#include "DrQuestsTable.h"' in text
+    assert "namespace DrGeneratedTables" in text
     assert "    template <typename TRegistry>\n    void RegisterAll(TRegistry& Registry)" in text
-    assert ('Registry.template Register<FDtQuestsRow, UDtQuestsTable>(TEXT("BT_Quests"), '
-            "&UDtQuestsTable::Rows, &UDtQuestsTable::PrimaryKeys)") in text
+    assert ('Registry.template Register<FDrQuestsRow, UDrQuestsTable>(TEXT("BT_Quests"), '
+            "&UDrQuestsTable::Rows, &UDrQuestsTable::PrimaryKeys)") in text
     assert ('            .WithSchemaHash(QuestsSchemaHash)\n'
-            '            .WithSubKey(TEXT("Reward"), &UDtQuestsTable::Reward_Keys, '
-            "&UDtQuestsTable::Reward_Offsets, &UDtQuestsTable::Reward_Indices);") in text
+            '            .WithSubKey(TEXT("Reward"), &UDrQuestsTable::Reward_Keys, '
+            "&UDrQuestsTable::Reward_Offsets, &UDrQuestsTable::Reward_Indices);") in text
     assert '            .WithSchemaHash(MonstersSchemaHash);' in text
     assert "ContentHash" not in text
     # 테이블 이름 순서(결정성)

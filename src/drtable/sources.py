@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from .errors import ValidationErrors
 from .i18n import tr
-
-ENUM_SHEET_RE = re.compile(r"^<enum>(?P<name>[A-Za-z][A-Za-z0-9_]*)$")
 
 # '#' starts a comment everywhere: a sheet named "#Notes" is skipped, and in "Items#Weapons"
 # the text from '#' on is a comment, so the sheet is part of table Items.
@@ -21,12 +18,12 @@ def strip_sheet_comment(sheet_title: str) -> str:
 
 
 def table_name_of(sheet_title: str) -> str | None:
-    """Table name for a table sheet, or None for notes and enums.
+    """Table name for a data sheet, or None for note sheets.
 
     The sheet name without its #comment is the table name. Sheets with the same table name,
     in one file or in several, are parts of one table.
     """
-    if sheet_title.startswith(("#", "<enum>")):
+    if sheet_title.startswith("#"):
         return None
     return strip_sheet_comment(sheet_title)
 

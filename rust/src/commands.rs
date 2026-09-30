@@ -37,7 +37,7 @@ impl Default for BuildOptions {
             out_cpp: PathBuf::new(),
             out_client: PathBuf::new(),
             out_server: PathBuf::new(),
-            prefix: "Dt".into(),
+            prefix: "Dr".into(),
             stamp: None,
             asset_base: DEFAULT_ASSET_BASE.into(),
             asset_base_header: None,

@@ -29,15 +29,12 @@ PRIMITIVES = {
     "tag",
     "path",
 }
-LEGACY_TYPES = {"FName", "FString"}
 KEY_PRIMITIVES = {"int32", "int64", "name"}
 SCOPES = {"all", "client", "server", "#"}
 CLIENT_SCOPES = frozenset({"all", "client"})
 SERVER_SCOPES = frozenset({"all", "server"})
 # Header layout: row 1 field name, row 2 type, row 3 scope, data from row 4.
 NAME_ROW, TYPE_ROW, SCOPE_ROW, DATA_ROW = 1, 2, 3, 4
-# Old single-letter scope codes, rejected with a hint to the new words.
-LEGACY_SCOPES = {"B": "all", "C": "client", "S": "server"}
 
 
 @dataclass(frozen=True)
@@ -207,9 +204,6 @@ def parse_type(
                 return None
         else:
             text = f"Ref<{ref_spec}>"
-    if text in LEGACY_TYPES:
-        errors.add(sheet, cell, tr(f"옛 자료형 '{text}'은 지원하지 않습니다. 이제 name/string을 쓰세요", f"legacy type '{text}' is no longer supported; use name/string"))
-        return None
     if text not in PRIMITIVES and not ENUM_RE.fullmatch(text) and not ref_target:
         errors.add(sheet, cell, tr(f"알 수 없는 자료형 '{text}'", f"unknown type '{text}'"))
         return None
@@ -272,17 +266,10 @@ def build_columns(
         raw_scope_text = "" if raw_scope is None else str(raw_scope).strip()
         scope = raw_scope_text.lower() if raw_scope_text.lower() in SCOPES else ""
         if not scope:
-            if raw_scope_text.upper() in LEGACY_SCOPES:
-                word = LEGACY_SCOPES[raw_scope_text.upper()]
-                errors.add(sheet, scope_cell, tr(
-                    f"옛 범위 표기 '{raw_scope_text}' 대신 '{word}'를 쓰세요",
-                    f"use '{word}' instead of the old scope code '{raw_scope_text}'",
-                ))
-            else:
-                errors.add(sheet, scope_cell, tr(
-                    f"범위는 all, client, server, # 중 하나여야 합니다: '{raw_scope_text}'",
-                    f"scope must be one of all, client, server, #: '{raw_scope_text}'",
-                ))
+            errors.add(sheet, scope_cell, tr(
+                f"범위는 all, client, server, # 중 하나여야 합니다: '{raw_scope_text}'",
+                f"scope must be one of all, client, server, #: '{raw_scope_text}'",
+            ))
             continue
         if scope == "#":
             continue

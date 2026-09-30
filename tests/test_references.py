@@ -64,9 +64,9 @@ def test_ref_build_graph_check_and_determinism(tmp_path: Path) -> None:
     assert quest["rows"][1]["Item"] == 0
     links = json.loads((tmp_path / "client" / "Links.json").read_text(encoding="utf-8"))
     assert links["rows"][0]["NameRef"] == ""
-    link_header = (tmp_path / "cpp" / "DtLinksRow.h").read_text(encoding="utf-8")
+    link_header = (tmp_path / "cpp" / "DrLinksRow.h").read_text(encoding="utf-8")
     assert "FName NameRef = NAME_None;" in link_header
-    header = (tmp_path / "cpp" / "DtQuestsRow.h").read_text(encoding="utf-8")
+    header = (tmp_path / "cpp" / "DrQuestsRow.h").read_text(encoding="utf-8")
     assert 'meta = (TableRef = "Items")' in header
     assert 'meta = (TableRef = "Quests")' in header
     assert "int32 Item" in header
@@ -149,8 +149,8 @@ def test_enum_ref_empty_is_error_and_info_is_target(
     workbook["Uses"]["C4"] = "Sword"
     workbook.save(source)
     assert _build(source, tmp_path) == 0
-    header = (tmp_path / "cpp" / "DtUsesRow.h").read_text(encoding="utf-8")
-    assert "EDtKind Kind" in header
+    header = (tmp_path / "cpp" / "DrUsesRow.h").read_text(encoding="utf-8")
+    assert "EDrKind Kind" in header
     assert 'TableRef = "KindInfo"' in header
 
 
@@ -206,10 +206,10 @@ def test_subkey_ref_outputs_and_check(tmp_path: Path, capsys: pytest.CaptureFixt
         (tmp_path / "server" / "manifest.json").read_text(encoding="utf-8")
     )["references"]
     assert "NameGroup" not in {ref["field"] for ref in server_refs}
-    header = (tmp_path / "cpp" / "DtMonstersRow.h").read_text(encoding="utf-8")
+    header = (tmp_path / "cpp" / "DrMonstersRow.h").read_text(encoding="utf-8")
     assert 'meta = (TableRef = "DropTable", TableRefKey = "GroupId")' in header
     assert 'meta = (TableRef = "DropTable", TableRefKey = "KindKey")' in header
-    assert "EDtKind Kind" in header
+    assert "EDrKind Kind" in header
     assert main(["check", "--client", str(tmp_path / "client"),
                  "--server", str(tmp_path / "server")]) == 0
     diagram = tmp_path / "graph.md"
@@ -287,7 +287,7 @@ def test_chained_subkey_ref_resolves_final_type(tmp_path: Path) -> None:
     source = tmp_path / "chain.xlsx"
     workbook.save(source)
     assert _build(source, tmp_path) == 0
-    header = (tmp_path / "cpp" / "DtUsesRow.h").read_text(encoding="utf-8")
+    header = (tmp_path / "cpp" / "DrUsesRow.h").read_text(encoding="utf-8")
     assert "int64 Value" in header
     manifest = json.loads((tmp_path / "client" / "manifest.json").read_text(encoding="utf-8"))
     ref = next(r for r in manifest["references"] if r["table"] == "Uses")

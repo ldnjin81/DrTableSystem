@@ -18,7 +18,7 @@ Rules for contributors and coding agents.
 - **Byte-for-byte parity.** `DRTABLE_BIN=<path to drtable> uv run pytest -q` runs every test against the executable; each `build`, `graph` and `check` call also runs the Python implementation and must produce the same exit code, stdout, stderr and files.
 - **Deterministic output.** The same input gives the same bytes: no dependence on hash or directory order, LF line endings, fixed JSON key order, no timestamps unless `--stamp` is given.
 - **Generated code depends on the schemas only**, never on data values or data file names.
-- **The tool never modifies existing data workbooks.** It only creates new files (`migrate`, `new`).
+- **The tool never modifies existing data workbooks.** It only creates new files (`new`).
 - Every error message starts with a `[File]Sheet!Cell` location, and exists in English and Korean (`tr(ko, en)`).
 - Test workbooks are created inside the tests with openpyxl; no binary fixtures in the repository.
 - Keep dependencies minimal: Python `openpyxl`; Rust `calamine`, `rust_xlsxwriter`, `zip`, `sha2`, `serde_json`, `regex`, `rayon`, `chrono`. Explain any addition in the commit message.

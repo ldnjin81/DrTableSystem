@@ -10,6 +10,5 @@ First public version.
 - Tables can be split over sheets and files (`Items#Weapons`, several workbooks); duplicates are checked across all parts.
 - References between tables (`Ref<Table>`, `Ref<Table.SubKey>`), checked by `drtable check` and drawn by `drtable graph`.
 - Unreal plugin `DrTableSystem`: baked DataAssets with prebuilt key indices, typed lookups, schema hash checks, `DrTableBake` commandlet with `-Verify`.
-- `drtable migrate` converts the old layout (headers in rows 1-3, `<enum>` sheets) into schema files without touching the data workbooks.
 - Messages in English or Korean (`--lang`, `DRTABLE_LANG`).
-- `drtable-gui`: build and check with an error list that opens the workbook, a table browser, the reference graph, and `new`/`migrate` in a window.
+- `drtable-gui`: build and check with an error list that opens the workbook, a table browser, the reference graph, and `new` in a window.

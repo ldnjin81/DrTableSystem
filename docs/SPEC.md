@@ -231,6 +231,50 @@ int32 Reward[3] = {};
 int32 StartValues[2] = {10, 20}; // 각 물리 열이 int32=10, int32=20
 ```
 
+### 2.1.1 런타임 연동 — 조회·참조 함수와 등록 헤더 (`--runtime-header`)
+
+`--runtime-header <경로>`를 주면 아래 산출물이 추가된다. 주지 않으면 C++ 산출물은 이 기능 이전과 **바이트까지 같다**.
+
+**조회 계약.** 생성 코드는 테이블 저장소를 직접 알지 않고, 지정한 헤더가 제공하는 아래 세 함수만 부른다. 구현은 프로젝트의 몫이다.
+
+```cpp
+namespace TableGenRuntime {
+  template <typename TRow, typename TKey> const TRow* FindByKey(const TKey& Key);
+  template <typename TRow, typename TKey> TArray<const TRow*> FindAllBySubKey(FName SubKeyName, const TKey& Key);
+  template <typename TRow> TConstArrayView<TRow> GetAll();
+}
+```
+
+**행 구조체에 생기는 함수**(UFUNCTION이 아닌 일반 C++ 멤버, 블루프린트 노출 없음). 클라 범위(`B`/`C`) 필드만 대상이다.
+
+| 함수 | 조건 | 동작 |
+|---|---|---|
+| `static const F…Row* Find(<기본키 타입> Key)` | 모든 테이블 | `FindByKey` |
+| `static TArray<const F…Row*> FindBy<서브키>(<서브키 타입> Key)` | 서브키마다 | `FindAllBySubKey(TEXT("<서브키>"), Key)` |
+| `static TConstArrayView<F…Row> GetAll()` | 모든 테이블 | `GetAll` |
+| `const F<대상>Row* Get<필드>() const` | `Ref<대상>` 필드 | 대상 `Find` |
+| `TArray<const F<대상>Row*> Get<필드>() const` | `Ref<대상.서브키>` 필드 | 대상 `FindBy<서브키>` |
+| `Get<필드>(int32 Index) const` | 위 둘의 배열 필드 | 범위 밖이면 nullptr/빈 배열 |
+
+- 참조 값이 **없음 값**(`int32`/`int64`는 `0`, `name`은 `NAME_None`)이면 조회하지 않고 바로 nullptr/빈 배열을 돌려준다. 열거형 대상은 빈 셀이 금지라 검사하지 않는다.
+- 테이블끼리 서로 참조할 수 있으므로 행 헤더에는 대상 행을 **전방 선언**만 하고, 정의는 테이블마다 생기는 `<P><T>Row.cpp`에서 대상 행 헤더와 런타임 헤더를 include한다. 테이블별 파일로 나눈 것은 한 테이블이 바뀌어도 그 파일만 다시 컴파일되게 하려는 것이다.
+- 생성할 함수 이름(`Find`, `GetAll`, `FindBy<서브키>`, `Get<필드>`)이 같은 테이블의 필드명이나 다른 생성 함수와 겹치면, 그 이름을 만든 헤더 셀 주소와 함께 **생성 오류**다. 옵션이 없으면 검사하지 않는다.
+
+**등록 헤더 `<P>TableRegistration.h`.** 모든 테이블의 에셋 헤더를 include하고, `<P>GeneratedTables` 네임스페이스에 등록 템플릿을 둔다. 레지스트리 타입은 템플릿 인자라 생성기는 프로젝트의 저장소 클래스를 모른다.
+
+```cpp
+namespace DtGeneratedTables {
+  template <typename TRegistry> void RegisterAll(TRegistry& Registry) {
+    Registry.template Register<FDtEffectDefsRow, UDtEffectDefsTable>(TEXT("DA_EffectDefs"), &UDtEffectDefsTable::Rows, &UDtEffectDefsTable::PrimaryKeys)
+        .WithSchemaHash(EffectDefsSchemaHash)
+        .WithSubKey(TEXT("Category"), &UDtEffectDefsTable::Category_Keys, &UDtEffectDefsTable::Category_Offsets, &UDtEffectDefsTable::Category_Indices);
+    // … 모든 테이블, 테이블 이름 순
+  }
+}
+```
+
+레지스트리가 제공해야 하는 것: `Register<행, 에셋>(FName 이름, TArray<행> 에셋::*, TArray<기본키> 에셋::*)`, 그 반환값의 `WithSchemaHash(const TCHAR*)`, `WithSubKey(FName, TArray<키> 에셋::*, TArray<int32> 에셋::*, TArray<int32> 에셋::*)`(자기 자신을 돌려줘 이어 부를 수 있어야 함). 모든 테이블에 스키마 해시가 붙으므로 수동 등록에서 해시를 빠뜨리는 일이 없다. 에셋 이름은 `--asset-name`(기본 `DA_{table}`, `{table}`이 반드시 들어가야 함)으로 정한다.
+
 ### 2.2 클라이언트 JSON
 
 ```json
@@ -277,7 +321,7 @@ int32 StartValues[2] = {10, 20}; // 각 물리 열이 int32=10, int32=20
 ## 3. CLI
 
 ```
-tablegen build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt] [--stamp <ISO8601>] [--asset-base UPrimaryDataAsset] [--asset-base-header <경로>]
+tablegen build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt] [--stamp <ISO8601>] [--asset-base UPrimaryDataAsset] [--asset-base-header <경로>] [--runtime-header <경로>] [--asset-name DA_{table}]
 tablegen graph --input <xlsx 파일 또는 폴더> --out <file.md>
 tablegen check --client <생성된 클라 JSON 디렉터리> [--server <생성된 서버 JSON 디렉터리>]
 tablegen check --input <xlsx 파일 또는 폴더>         # 기존 스키마 검사

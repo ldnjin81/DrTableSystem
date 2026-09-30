@@ -33,8 +33,8 @@ KEY_PRIMITIVES = {"int32", "int64", "name"}
 SCOPES = {"all", "client", "server", "#"}
 CLIENT_SCOPES = frozenset({"all", "client"})
 SERVER_SCOPES = frozenset({"all", "server"})
-# Header layout: row 1 scope, row 2 type, row 3 field name (right above the data), data from row 4.
-SCOPE_ROW, TYPE_ROW, NAME_ROW, DATA_ROW = 1, 2, 3, 4
+# Header layout: row 1 field name, row 2 type, row 3 scope, data from row 4.
+NAME_ROW, TYPE_ROW, SCOPE_ROW, DATA_ROW = 1, 2, 3, 4
 # Old single-letter scope codes, rejected with a hint to the new words.
 LEGACY_SCOPES = {"B": "all", "C": "client", "S": "server"}
 
@@ -73,6 +73,20 @@ class ColumnSchema:
 
 
 @dataclass
+class TableSource:
+    """One sheet that contributes rows to a table (a table may be split over sheets and files)."""
+
+    file: str
+    sheet: str
+    rows: int = 0
+
+    @property
+    def location(self) -> str:
+        """Excel-style reference used in messages: [File.xlsx]Sheet."""
+        return f"[{self.file}]{self.sheet}"
+
+
+@dataclass
 class TableSchema:
     name: str
     sheet: str
@@ -80,6 +94,18 @@ class TableSchema:
     columns: list[ColumnSchema]
     rows: list[dict[str, object]] = field(default_factory=list)
     schema_hash: str = ""
+    sources: list[TableSource] = field(default_factory=list)
+
+    @property
+    def location(self) -> str:
+        """Where the table's header is defined (its first part)."""
+        return self.sources[0].location if self.sources else f"[{self.source_name}]{self.sheet}"
+
+    @property
+    def source_list(self) -> list[str]:
+        """Every part for generated comments: ['File.xlsx / Sheet', 'Other.xlsx / Sheet@Part']."""
+        parts = self.sources or [TableSource(self.source_name, self.sheet)]
+        return [f"{part.file} / {part.sheet}" for part in parts]
 
     @property
     def primary_key(self) -> ColumnSchema:

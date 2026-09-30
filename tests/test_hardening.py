@@ -27,7 +27,7 @@ def _build(source: Path, root: Path, *extra: str) -> int:
 
 
 def _enum_sheet(values: list[tuple[str, int]]) -> list[list[object]]:
-    return [["all", "all"], ["ID<name>", "int32"], ["Id", "Value"], *[[n, v] for n, v in values]]
+    return [["Id", "Value"], ["ID<name>", "int32"], ["all", "all"], *[[n, v] for n, v in values]]
 
 
 def _schema_hash(root: Path, table: str) -> str:
@@ -35,7 +35,7 @@ def _schema_hash(root: Path, table: str) -> str:
 
 
 def test_enum_definition_changes_schema_hash(tmp_path: Path) -> None:
-    table = [["all", "all"], ["ID<int32>", "SubKey<EKind>"], ["Id", "Kind"], [1, "A"], [2, "B"]]
+    table = [["Id", "Kind"], ["ID<int32>", "SubKey<EKind>"], ["all", "all"], [1, "A"], [2, "B"]]
     for run, values in (("a", [("A", 0), ("B", 1)]), ("b", [("A", 1), ("B", 0)])):
         source = tmp_path / f"{run}.xlsx"
         _book({"<enum>Kind": _enum_sheet(values), "T": table}).save(source)
@@ -45,7 +45,7 @@ def test_enum_definition_changes_schema_hash(tmp_path: Path) -> None:
 
 
 def test_unused_enum_does_not_change_schema_hash(tmp_path: Path) -> None:
-    table = [["all"], ["ID<int32>"], ["Id"], [1]]
+    table = [["Id"], ["ID<int32>"], ["all"], [1]]
     hashes = []
     for run, values in (("a", [("A", 0)]), ("b", [("A", 0), ("Z", 9)])):
         source = tmp_path / f"{run}.xlsx"
@@ -68,16 +68,16 @@ def test_name_keys_differing_only_by_case_are_rejected(
 ) -> None:
     headers = ["Id", "Group"][: len(types)]
     source = tmp_path / "in.xlsx"
-    _book({"T": [["all"] * len(types), types, headers, *rows]}).save(source)
+    _book({"T": [headers, types, ["all"] * len(types), *rows]}).save(source)
     assert _build(source, tmp_path) == 1
     error = capsys.readouterr().err
     assert "대소문자만 다릅니다" in error
-    assert error.startswith("T!")
+    assert error.startswith("[in.xlsx]T!")
 
 
 def test_same_subkey_value_repeated_is_fine(tmp_path: Path) -> None:
     source = tmp_path / "in.xlsx"
-    _book({"T": [["all", "all"], ["ID<int32>", "SubKey<name>"], ["Id", "Group"],
+    _book({"T": [["Id", "Group"], ["ID<int32>", "SubKey<name>"], ["all", "all"],
                  [1, "Fire"], [2, "Fire"]]}).save(source)
     assert _build(source, tmp_path) == 0
 
@@ -86,7 +86,7 @@ def test_content_hash_tracks_values_and_manifest_records_naming(tmp_path: Path) 
     hashes = []
     for run, value in (("a", 10), ("b", 11)):
         source = tmp_path / f"{run}.xlsx"
-        _book({"T": [["all", "all"], ["ID<int32>", "int32"], ["Id", "Power"], [1, value]]}).save(source)
+        _book({"T": [["Id", "Power"], ["ID<int32>", "int32"], ["all", "all"], [1, value]]}).save(source)
         assert _build(source, tmp_path / run, "--prefix", "Gm", "--asset-name", "BT_{table}") == 0
         payload = json.loads((tmp_path / run / "client" / "T.json").read_text(encoding="utf-8"))
         manifest = json.loads((tmp_path / run / "client" / "manifest.json").read_text(encoding="utf-8"))
@@ -102,7 +102,7 @@ def test_content_hash_tracks_values_and_manifest_records_naming(tmp_path: Path) 
 
 def test_ue_plugin_preset(tmp_path: Path) -> None:
     source = tmp_path / "in.xlsx"
-    _book({"T": [["all"], ["ID<int32>"], ["Id"], [1]]}).save(source)
+    _book({"T": [["Id"], ["ID<int32>"], ["all"], [1]]}).save(source)
     assert _build(source, tmp_path, "--ue-plugin", "--prefix", "Gm") == 0
     table = (tmp_path / "cpp" / "GmTTable.h").read_text(encoding="utf-8")
     assert '#include "TableGenAssetBase.h"' in table

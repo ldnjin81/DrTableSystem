@@ -14,8 +14,7 @@ from tablegen.cli import main
 def _sheet(workbook: Workbook, name: str, headers: list[str], types: list[str],
            scopes: list[str], rows: list[list[object]]) -> None:
     sheet = workbook.create_sheet(name)
-    # Header rows: 1 scope, 2 type, 3 field name.
-    for record in (scopes, types, headers, *rows):
+    for record in (headers, types, scopes, *rows):
         sheet.append(record)
 
 
@@ -118,9 +117,9 @@ def test_ref_schema_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str],
     workbook = Workbook()
     workbook.active.title = "Quests"
     q = workbook.active
-    q.append(["all", "all"])
-    q.append([decl, "Ref<Items>"] if decl.startswith("ID<") else ["ID<int32>", decl])
     q.append(["Id", "Item"])
+    q.append([decl, "Ref<Items>"] if decl.startswith("ID<") else ["ID<int32>", decl])
+    q.append(["all", "all"])
     q.append([1, 1001])
     _sheet(workbook, "Items", ["Id"], ["ID<int32>"], ["all"], [[1001]])
     workbook.create_sheet("#Notes")
@@ -136,9 +135,9 @@ def test_enum_ref_empty_is_error_and_info_is_target(
     workbook = Workbook()
     enum = workbook.active
     enum.title = "<enum>Kind"
-    enum.append(["all", "all", "all"])
-    enum.append(["ID<name>", "int32", "string"])
     enum.append(["Id", "Value", "Label"])
+    enum.append(["ID<name>", "int32", "string"])
+    enum.append(["all", "all", "all"])
     enum.append(["Sword", 0, "검"])
     _sheet(workbook, "Uses", ["Id", "Kind", "Info"],
            ["ID<int32>", "Ref<KindInfo>", "Ref<KindInfo>"],
@@ -243,7 +242,7 @@ def test_subkey_ref_schema_errors(
     workbook = load_workbook(source)
     sheet = workbook["Monsters"]
     sheet["B2"] = decl
-    sheet["B1"] = scope
+    sheet["B3"] = scope
     workbook.save(source)
     assert _build(source, tmp_path) == 1
     output = capsys.readouterr().err

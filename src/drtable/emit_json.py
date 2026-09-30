@@ -15,7 +15,7 @@ def emit_json(
     client_output: Path,
     server_output: Path,
     stamp: str | None = None,
-    prefix: str = "Dt",
+    prefix: str = "Dr",
     asset_name: str = "DA_{table}",
 ) -> None:
     client_output.mkdir(parents=True, exist_ok=True)

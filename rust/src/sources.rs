@@ -5,12 +5,6 @@ use std::path::{Path, PathBuf};
 use crate::errors::ValidationErrors;
 use crate::i18n::tr;
 
-/// `<enum>Name` sheet titles (old layout).
-pub fn enum_sheet_name(title: &str) -> Option<&str> {
-    let name = title.strip_prefix("<enum>")?;
-    is_identifier(name).then_some(name)
-}
-
 /// `^[A-Za-z][A-Za-z0-9_]*$`
 pub fn is_identifier(text: &str) -> bool {
     let mut chars = text.chars();
@@ -23,10 +17,10 @@ pub fn strip_sheet_comment(title: &str) -> &str {
     title.split('#').next().unwrap_or("").trim()
 }
 
-/// Table name for a table sheet, or None for notes and enums. Sheets with the same table
+/// Table name for a data sheet, or None for note sheets. Sheets with the same table
 /// name, in one file or in several, are parts of one table.
 pub fn table_name_of(title: &str) -> Option<&str> {
-    if title.starts_with('#') || title.starts_with("<enum>") {
+    if title.starts_with('#') {
         return None;
     }
     Some(strip_sheet_comment(title))

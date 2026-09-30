@@ -235,13 +235,6 @@ pub fn parse_type(
             text = format!("Ref<{spec}>");
         }
     }
-    if text == "FName" || text == "FString" {
-        errors.add(sheet, cell, tr(
-            format!("옛 자료형 '{text}'은 지원하지 않습니다. 이제 name/string을 쓰세요"),
-            format!("legacy type '{text}' is no longer supported; use name/string"),
-        ));
-        return None;
-    }
     if !PRIMITIVES.contains(&text.as_str()) && enum_of(&text).is_none() && ref_target.is_none() {
         errors.add(sheet, cell, tr(format!("알 수 없는 자료형 '{text}'"), format!("unknown type '{text}'")));
         return None;
@@ -344,22 +337,10 @@ pub fn build_columns(
         let raw_scope_text = raw_scope.text_or_empty();
         let lowered = raw_scope_text.to_lowercase();
         if !SCOPES.contains(&lowered.as_str()) {
-            let legacy = match raw_scope_text.to_uppercase().as_str() {
-                "B" => Some("all"),
-                "C" => Some("client"),
-                "S" => Some("server"),
-                _ => None,
-            };
-            match legacy {
-                Some(word) => errors.add(sheet, &scope_cell, tr(
-                    format!("옛 범위 표기 '{raw_scope_text}' 대신 '{word}'를 쓰세요"),
-                    format!("use '{word}' instead of the old scope code '{raw_scope_text}'"),
-                )),
-                None => errors.add(sheet, &scope_cell, tr(
-                    format!("범위는 all, client, server, # 중 하나여야 합니다: '{raw_scope_text}'"),
-                    format!("scope must be one of all, client, server, #: '{raw_scope_text}'"),
-                )),
-            }
+            errors.add(sheet, &scope_cell, tr(
+                format!("범위는 all, client, server, # 중 하나여야 합니다: '{raw_scope_text}'"),
+                format!("scope must be one of all, client, server, #: '{raw_scope_text}'"),
+            ));
             continue;
         }
         let scope = lowered;

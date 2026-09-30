@@ -122,14 +122,6 @@ def load_model(
             ref = SheetRef(relative, sheet)
             if sheet.title.startswith("#"):
                 continue
-            if sheet.title.startswith("<enum>"):
-                warnings.append(tr(
-                    f"{ref.where}: 열거형 값은 이제 열거형 스키마(.enum.xlsx)에 정의합니다. "
-                    "이 시트는 읽지 않으니 지워도 됩니다(옮기기: drtable migrate)",
-                    f"{ref.where}: enum values are now defined in enum schemas (.enum.xlsx). "
-                    "This sheet is not read and can be deleted (to convert: drtable migrate)",
-                ))
-                continue
             name = table_name_of(sheet.title)
             ref = SheetRef(relative, _Grid(sheet))
             if not name or not IDENTIFIER_RE.fullmatch(name):

@@ -10,8 +10,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use rust_xlsxwriter::{DocProperties, Workbook};
-
 use crate::errors::{ErrorCollector, ValidationErrors};
 use crate::i18n::tr;
 use crate::reader::read_workbook;
@@ -22,8 +20,6 @@ use crate::value::Cell;
 pub const TABLE_SUFFIXES: [&str; 1] = [".schema.xlsx"];
 pub const ENUM_SUFFIXES: [&str; 1] = [".enum.xlsx"];
 pub const SCHEMA_SUFFIXES: [&str; 2] = [".schema.xlsx", ".enum.xlsx"];
-pub const TABLE_LABELS: [&str; 4] = ["Field", "Type", "Scope", "Comment"];
-pub const ENUM_LABELS: [&str; 3] = ["Name", "Value", "Comment"];
 pub const DEFAULT_ENUM_FOLDER: &str = "Enums";
 
 /// One definition row: (row, name, type or value, scope, comment).
@@ -231,45 +227,4 @@ fn read_schema(path: &Path, relative: &str, is_enum: bool, errors: &mut ErrorCol
         }
     }
     Some(schema)
-}
-
-/// A schema workbook. The creation time is pinned so the same definition gives the same file.
-pub fn render_xlsx(schema: &Schema) -> Result<Vec<u8>, String> {
-    let mut workbook = Workbook::new();
-    let properties = DocProperties::new()
-        .set_author("DrTableSystem")
-        .set_creation_datetime(&rust_xlsxwriter::ExcelDateTime::from_ymd(2000, 1, 1).map_err(|e| e.to_string())?);
-    workbook.set_properties(&properties);
-    let sheet = workbook.add_worksheet();
-    sheet.set_name(&schema.name).map_err(|e| e.to_string())?;
-    let (labels, widths): (&[&str], &[f64]) = if schema.is_enum {
-        (&ENUM_LABELS, &[28.0, 10.0, 40.0])
-    } else {
-        (&TABLE_LABELS, &[24.0, 28.0, 10.0, 40.0])
-    };
-    for (column, label) in labels.iter().enumerate() {
-        sheet.write_string(0, column as u16, *label).map_err(|e| e.to_string())?;
-    }
-    for (column, width) in widths.iter().enumerate() {
-        sheet.set_column_width(column as u16, *width).map_err(|e| e.to_string())?;
-    }
-    for (index, (_, name, second, third, comment)) in schema.rows.iter().enumerate() {
-        let row = index as u32 + 1;
-        let values: Vec<&Cell> = if schema.is_enum { vec![name, second, comment] } else { vec![name, second, third, comment] };
-        for (column, value) in values.into_iter().enumerate() {
-            write_cell(sheet, row, column as u16, value)?;
-        }
-    }
-    workbook.save_to_buffer().map_err(|e| e.to_string())
-}
-
-pub fn write_cell(sheet: &mut rust_xlsxwriter::Worksheet, row: u32, column: u16, value: &Cell) -> Result<(), String> {
-    let result = match value {
-        Cell::Empty => return Ok(()),
-        Cell::Int(i) => sheet.write_number(row, column, *i as f64).map(|_| ()),
-        Cell::Float(f) => sheet.write_number(row, column, *f).map(|_| ()),
-        Cell::Str(s) | Cell::Date(s) => sheet.write_string(row, column, s).map(|_| ()),
-        Cell::Bool(b) => sheet.write_boolean(row, column, *b).map(|_| ()),
-    };
-    result.map_err(|e| e.to_string())
 }

@@ -1,4 +1,4 @@
-"""Command line interface: ``drtable build | graph | check | migrate | new``."""
+"""Command line interface: ``drtable build | graph | check | new``."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from .excel import load_model
 from .graph import emit_graph
 from .headers import new_workbook
 from .i18n import SUPPORTED, set_language, tr
-from .migrate import extract_schemas
 from .schema import CLIENT_SCOPES, IDENTIFIER_RE
 from .schemafile import enum_folder, load_schemas
 
@@ -45,7 +44,7 @@ def create_parser() -> argparse.ArgumentParser:
     build.add_argument("--out-cpp", required=True, type=Path, help="output folder for C++ headers")
     build.add_argument("--out-client", required=True, type=Path, help="output folder for client JSON")
     build.add_argument("--out-server", required=True, type=Path, help="output folder for server JSON")
-    build.add_argument("--prefix", default="Dt", help="C++ type prefix, e.g. Dt -> FDtItemsRow (default: Dt)")
+    build.add_argument("--prefix", default="Dr", help="C++ type prefix, e.g. Dr -> FDrItemsRow (default: Dr)")
     build.add_argument("--stamp", type=_iso8601, help="ISO 8601 value to record as generated_at in the manifest")
     build.add_argument(
         "--asset-base",
@@ -86,14 +85,6 @@ def create_parser() -> argparse.ArgumentParser:
     check.add_argument("--schema", type=Path, help="folder of table schemas (default: the input folder)")
     check.add_argument("--enums", type=Path, help="folder of *.enum.xlsx files (default: <schema>/Enums)")
 
-    migrate = subparsers.add_parser(
-        "migrate", help="move the header rows of old workbooks into schema files (data files are not changed)"
-    )
-    migrate.add_argument("--input", required=True, type=Path, help="an .xlsx file or a folder of them")
-    migrate.add_argument("--schema", type=Path, help="folder to write the schema files to (default: the input folder)")
-    migrate.add_argument("--enums", type=Path, help="folder of *.enum.xlsx files (default: <schema>/Enums)")
-    migrate.add_argument("--overwrite", action="store_true", help="replace existing schema files")
-
     new = subparsers.add_parser(
         "new", help="create a data workbook for a table, with reference formulas in rows 2-3"
     )
@@ -125,20 +116,6 @@ def main(argv: list[str] | None = None) -> int:
         except CheckInputError as exc:
             print(exc, file=sys.stderr)
             return 2
-    if args.command == "migrate":
-        root = args.input.parent if args.input.is_file() else args.input
-        try:
-            schema_dir = args.schema or root
-            written = extract_schemas(
-                args.input, schema_dir, enum_folder(schema_dir, args.enums), args.overwrite
-            )
-        except ValidationErrors as exc:
-            for message in exc.messages:
-                print(message, file=sys.stderr)
-            return 1
-        for path in written:
-            print(path)
-        return 0
     if args.command == "new":
         errors = ErrorCollector()
         schemas = load_schemas(args.schema, enum_folder(args.schema, args.enums), errors)

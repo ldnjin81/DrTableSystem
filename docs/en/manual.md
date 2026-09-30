@@ -36,8 +36,7 @@ Contents
 11. [Change detection: schema hash and content hash](#11-change-detection-schema-hash-and-content-hash)
 12. [Lookup correctness rules](#12-lookup-correctness-rules)
 13. [CI](#13-ci)
-14. [Migrating from the old layout](#14-migrating-from-the-old-layout)
-15. [Troubleshooting](#15-troubleshooting)
+14. [Troubleshooting](#14-troubleshooting)
 
 ---
 
@@ -251,7 +250,7 @@ With `--runtime-header` (or `--ue-plugin`) also:
 <out-cpp>/DtTableRegistration.h   DtGeneratedTables::RegisterAll(Registry)
 ```
 
-- Row struct `F<Prefix><Table>Row`, asset class `U<Prefix><Table>Table`, enum `E<Prefix><Enum>`. The default `--prefix` is `Dt`; set your project's prefix.
+- Row struct `F<Prefix><Table>Row`, asset class `U<Prefix><Table>Table`, enum `E<Prefix><Enum>`. The default `--prefix` is `Dr`; set your project's prefix.
 - Only client fields (`all`, `client`) are generated.
 - **Generated code depends on the schemas only.** Data values, data file names and row counts never reach the code, so editing data or splitting it into files and sheets leaves the code byte-for-byte the same. The first comment line names the schema file (`// … Source: Items.schema.xlsx`).
 - The asset class holds `Rows` (sorted by primary key), `PrimaryKeys` (same order) and, per sub key, `<Name>_Keys`, `<Name>_Offsets`, `<Name>_Indices` (a CSR index computed by the generator).
@@ -311,13 +310,12 @@ Outputs are **deterministic**: the same input gives the same bytes (LF line endi
 ```sh
 drtable build --input <xlsx|folder> --out-cpp <dir> --out-client <dir> --out-server <dir>
                [--schema <folder>] [--enums <folder>]
-               [--prefix Dt] [--ue-plugin] [--asset-base <Class> --asset-base-header <Header.h>]
+               [--prefix Dr] [--ue-plugin] [--asset-base <Class> --asset-base-header <Header.h>]
                [--runtime-header <Header.h>] [--asset-name DA_{table}] [--stamp <ISO8601>]
 drtable graph --input <xlsx|folder> --out references.md [--schema …] [--enums …]
 drtable check --client <client JSON folder> [--server <server JSON folder>]
 drtable check --input <xlsx|folder> [--schema …] [--enums …]   # validate only, write nothing
 drtable new --table <Table> --out <new xlsx> --schema <folder> [--enums …]  # new data workbook with reference formulas
-drtable migrate --input <xlsx|folder> [--schema …] [--enums …] [--overwrite]
 drtable [--lang en|ko] …
 ```
 
@@ -325,7 +323,7 @@ drtable [--lang en|ko] …
 |---|---|
 | `--schema` | Table schema folder. Default: the input folder. |
 | `--enums` | Enum schema folder. Default: `<schema>/Enums`. |
-| `--prefix` | C++ type prefix (`Dt` → `FDtEffectsRow`). |
+| `--prefix` | C++ type prefix (`Dr` → `FDrEffectsRow`, default `Dr`). |
 | `--ue-plugin` | Settings for the DrTableSystem plugin: asset base `UDrTableAssetBase`, runtime header `DrTableRuntime.h`. Recommended with the plugin. |
 | `--asset-base`, `--asset-base-header` | Base class of the asset classes and the header declaring it. Changing the base without its header is an error, since the code would not compile. |
 | `--runtime-header` | Generates row functions, `.cpp` files and the registration header. |
@@ -336,7 +334,7 @@ drtable [--lang en|ko] …
 - `check --client/--server` reads only the generated JSON, so it runs in CI. It lists every broken reference (e.g. `Quests.Next[2002](0) = 9999 → not in Quests`), skips empty references, and warns when a target table has a key equal to the "no reference" value (0 or an empty name).
 - Warnings (`warning: …`) go to standard error and do not change the exit code.
 
-Exit codes: `build`, `graph`, `check --input`, `new` and `migrate` return 0 on success, 1 on validation errors, 2 on usage errors. `check --client` returns 0 when clean, 1 on broken references, 2 on input errors.
+Exit codes: `build`, `graph`, `check --input` and `new` return 0 on success, 1 on validation errors, 2 on usage errors. `check --client` returns 0 when clean, 1 on broken references, 2 on input errors.
 
 ### GUI (`drtable-gui`)
 
@@ -347,7 +345,7 @@ Exit codes: `build`, `graph`, `check --input`, `new` and `migrate` return 0 on s
 | Build & check | Pick the folders, then check or build. A build also checks the references in its output. Errors and warnings are listed with their `[File]Sheet!Cell` location; double-click one to open its workbook in Excel. |
 | Tables | Tables and enums with their fields (type, key, scope, array, reference), schema file, and the files and sheets holding their data with row counts. |
 | References | The reference graph. Drag nodes to move them; broken references are red; double-click a node to open its table. |
-| New & convert | Runs `drtable new` (a new data workbook with the reference formulas) and `drtable migrate` (converting the old layout). Existing data workbooks are never changed. |
+| New file | Creates a new data workbook with the reference formulas (`drtable new`). Existing data workbooks are never changed. |
 
 ![Build & check](../images/en/build.png)
 ![Tables](../images/en/tables.png)
@@ -469,27 +467,13 @@ On every push, `.github/workflows/ci.yml` runs on Windows, macOS and Linux:
 
 A `v*` tag builds the executables for each platform and attaches them to a Release.
 
-## 14. Migrating from the old layout
-
-The old layout kept the field name, type and scope in rows 1-3 of each data sheet and enums in `<enum>Name` sheets. `drtable migrate` converts it:
-
-```sh
-drtable migrate --input Design/Tables --schema Design/Tables/Schemas
-```
-
-- Each table sheet's header → `<Table>.schema.xlsx`. When a table spans several sheets, the first one (by file path, then sheet order) is used.
-- Each `<enum>Name` sheet → `<Name>.enum.xlsx` in the enum folder. Columns other than `Id`, `Value` and `Comment` become a `<Name>Info` table: its schema and a **new data workbook** `<Name>Info.xlsx`.
-- **Existing data workbooks are not modified.** The build ignores old `<enum>` sheets with a warning, so delete them once you have checked the result. The build does not read the old rows 2-3 either; keep them, or paste the reference formulas from a workbook made by `drtable new`.
-- Existing schema files are kept (`--overwrite` replaces them).
-
-## 15. Troubleshooting
+## 14. Troubleshooting
 
 | Message | Cause and fix |
 |---|---|
-| `no schema. Define the fields in 'X.schema.xlsx'` | No schema matches the data sheet's name. Create one (or run `drtable migrate` for the old layout), or check the `--schema` path. |
+| `no schema. Define the fields in 'X.schema.xlsx'` | No schema matches the data sheet's name. Create one, or check the `--schema` path. |
 | `field 'X' is not in the schema …` | Row 1 has a name the schema does not define. Fix the typo or add the field to the schema (programmers). For a note column, start the name with `#`. |
 | `no column for field 'X'` | A schema field has no column in the data sheet. Add the column. |
-| `enum values are now defined in enum schemas …` (warning) | An old `<enum>` sheet. Values are read from the enum schema; delete the sheet. |
 | `the reference headers link to a path that does not exist here` (warning) | The link was saved on another path. Fix it with Edit Links in Excel or paste rows 2-3 again (see Link paths in section 2). |
 | `enum schemas belong in the enum folder (…)` | Move the `*.enum.xlsx` file into the enum folder. |
 | `Schema mismatch, re-bake required` | The asset was baked with an older structure. Generate → build → bake. |
@@ -499,4 +483,3 @@ drtable migrate --input Design/Tables --schema Design/Tables/Schemas
 | `--asset-base requires --asset-base-header` | Pass the header that declares the base class, or use `--ue-plugin`. |
 | `generated function 'Find' clashes with a field of the same name` | Rename the field. `Find`, `GetAll`, `FindBy<SubKey>` and `Get<Field>` are generated names. |
 | `name key 'x' differs from 'X' at … only by case` | Use identical spelling, or different names. |
-| `use 'all' instead of the old scope code 'B'` | Scopes are `all`, `client`, `server` or `#`. Replace the old `B`, `C`, `S` with `all`, `client`, `server`. |

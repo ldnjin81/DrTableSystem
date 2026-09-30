@@ -1,22 +1,25 @@
-"""Converts old workbooks, whose sheets carried the field name, type and scope in rows 1-3.
+"""Test helper: turns workbooks written in the old layout (field name, type and scope in rows
+1-3, enums in <enum> sheets) into schema files, so tests can describe a table in one place.
 
 * Each table sheet's header becomes ``<Table>.schema.xlsx``.
 * Each ``<enum>Name`` sheet becomes ``<Enum>.enum.xlsx`` in the enum folder,
   its rows becoming the enum values. Extra columns (other than Id, Value and Comment) become a
   ``<Enum>Info`` table: a schema keyed by the enum and a new data workbook holding its rows.
 
-Existing data workbooks are never modified; only new files are written.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
-from .schema import DATA_ROW, IDENTIFIER_RE, NAME_ROW, SCOPE_ROW
-from .schemafile import SCHEMA_SUFFIXES, Schema, render_xlsx
-from .sources import ENUM_SHEET_RE, find_files, strip_sheet_comment, table_name_of
+from drtable.schema import DATA_ROW, IDENTIFIER_RE, NAME_ROW, SCOPE_ROW
+from drtable.schemafile import SCHEMA_SUFFIXES, Schema, render_xlsx
+from drtable.sources import find_files, strip_sheet_comment, table_name_of
+
+ENUM_SHEET_RE = re.compile(r"^<enum>(?P<name>[A-Za-z][A-Za-z0-9_]*)$")
 
 
 def extract_schemas(

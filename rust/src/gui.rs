@@ -1,5 +1,5 @@
 //! drtable-gui: a window for DrTableSystem. Build and check, browse tables, see the reference
-//! graph, create data workbooks and convert old ones. Uses the same library as `drtable`.
+//! graph, create data workbooks. Uses the same library as `drtable`.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ use crate::excel::{load_model, DataModel};
 use crate::i18n::{self, tr};
 use crate::schema::{in_scopes, CLIENT_SCOPES, SERVER_SCOPES};
 use crate::schemafile::{enum_folder, folder_of, load_schemas};
-use crate::{check, headers, migrate, VERSION};
+use crate::{check, headers, VERSION};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 use serde::{Deserialize, Serialize};
 
@@ -95,9 +95,6 @@ struct Settings {
     asset_name: String,
     new_table: String,
     new_out: String,
-    migrate_input: String,
-    migrate_schema: String,
-    migrate_overwrite: bool,
 }
 
 impl Default for Settings {
@@ -110,14 +107,11 @@ impl Default for Settings {
             out_cpp: String::new(),
             out_client: String::new(),
             out_server: String::new(),
-            prefix: "Dt".into(),
+            prefix: "Dr".into(),
             ue_plugin: true,
             asset_name: "DA_{table}".into(),
             new_table: String::new(),
             new_out: String::new(),
-            migrate_input: String::new(),
-            migrate_schema: String::new(),
-            migrate_overwrite: false,
         }
     }
 }
@@ -246,7 +240,7 @@ impl App {
         self.summary = tr("작업 중…", "Working…");
     }
 
-    /// True while background work (check, build, new, convert) is running.
+    /// True while background work (check, build, new) is running.
     pub fn is_busy(&self) -> bool {
         self.running.is_some()
     }
@@ -380,7 +374,7 @@ impl eframe::App for App {
                     (Tab::Build, tr("빌드·검사", "Build & check")),
                     (Tab::Tables, tr("테이블", "Tables")),
                     (Tab::Graph, tr("참조 그래프", "References")),
-                    (Tab::Files, tr("새 파일·변환", "New & convert")),
+                    (Tab::Files, tr("새 파일", "New file")),
                 ] {
                     ui.selectable_value(&mut self.tab, tab, label);
                 }
@@ -806,42 +800,6 @@ impl App {
                 }
                 let summary = if created { tr("새 파일을 만들었습니다", "Created the workbook") } else { tr("만들지 못했습니다", "Nothing was created") };
                 Outcome::Files { messages, summary }
-            });
-            self.tab = Tab::Build;
-        }
-        ui.add_space(16.0);
-        ui.separator();
-        ui.heading(tr("예전 형식 변환", "Convert the old layout"));
-        ui.label(tr(
-            "헤더 1~3행과 <enum> 시트를 스키마 파일로 옮깁니다. 기존 데이터 파일은 고치지 않고 새 파일만 만듭니다.",
-            "Moves header rows 1-3 and <enum> sheets into schema files. Existing data workbooks are not changed; only new files are written.",
-        ));
-        egui::Grid::new("migrate").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-            path_row(ui, &tr("예전 데이터 폴더", "Old data folder"), &mut self.settings.migrate_input, Pick::Folder);
-            path_row(ui, &tr("스키마를 쓸 폴더", "Schema folder to write"), &mut self.settings.migrate_schema, Pick::Folder);
-            ui.label("");
-            ui.checkbox(&mut self.settings.migrate_overwrite, tr("이미 있는 스키마 파일 덮어쓰기", "Overwrite existing schema files"));
-            ui.end_row();
-        });
-        if ui.add_enabled(idle && !self.settings.migrate_input.trim().is_empty(), egui::Button::new(tr("변환", "Convert"))).clicked() {
-            let settings = self.settings.clone();
-            self.start(ctx, move || {
-                let input = PathBuf::from(settings.migrate_input.trim());
-                let schema = if settings.migrate_schema.trim().is_empty() { folder_of(&input) } else { PathBuf::from(settings.migrate_schema.trim()) };
-                let enums = enum_folder(&schema, None);
-                match migrate::extract_schemas(&input, &schema, &enums, settings.migrate_overwrite) {
-                    Ok(written) => {
-                        let count = written.len();
-                        Outcome::Files {
-                            messages: written.iter().map(|p| Message { level: Level::Info, location: String::new(), text: p.display().to_string() }).collect(),
-                            summary: tr(format!("파일 {count}개를 만들었습니다"), format!("Wrote {count} files")),
-                        }
-                    }
-                    Err(ValidationErrors(messages)) => Outcome::Files {
-                        messages: messages.iter().map(|m| Message::parse(Level::Error, m)).collect(),
-                        summary: tr("변환하지 못했습니다", "Conversion failed"),
-                    },
-                }
             });
             self.tab = Tab::Build;
         }

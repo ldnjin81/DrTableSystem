@@ -65,16 +65,6 @@ def test_folder_input_skips_excel_lock_files(tmp_path: Path) -> None:
                  "--out-client", str(tmp_path / "cl"), "--out-server", str(tmp_path / "s")]) == 0
 
 
-def test_legacy_scope_codes_are_rejected_with_hint(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    source = tmp_path / "in.xlsx"
-    _save(source, [["Id"], ["ID<int32>"], ["B"], [1]])
-    code = main(["--lang", "en", "check", "--input", str(source)])
-    assert code == 1
-    assert "[Items.schema.xlsx]Items!C2: use 'all' instead of the old scope code 'B'" in capsys.readouterr().err
-
-
 def test_scope_words_are_case_insensitive(tmp_path: Path) -> None:
     source = tmp_path / "in.xlsx"
     _save(source, [["Id", "A", "B", "Note"], ["ID<int32>", "int32", "int32", "string"],

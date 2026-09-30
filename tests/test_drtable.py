@@ -88,17 +88,17 @@ def test_build_outputs_scope_array_and_determinism(tmp_path: Path) -> None:
     assert main(args) == 0
     first = output_bytes(tmp_path)
     assert {path.name for path in cpp.iterdir()} == {
-        "EDtElement.h",
-        "DtEffectsRow.h",
-        "DtEffectsTable.h",
-        "DtGeneratedTables.h",
+        "EDrElement.h",
+        "DrEffectsRow.h",
+        "DrEffectsTable.h",
+        "DrGeneratedTables.h",
     }
-    header = (cpp / "DtEffectsRow.h").read_text(encoding="utf-8")
-    enum_header = (cpp / "EDtElement.h").read_text(encoding="utf-8")
+    header = (cpp / "DrEffectsRow.h").read_text(encoding="utf-8")
+    enum_header = (cpp / "EDrElement.h").read_text(encoding="utf-8")
     assert "Fire = 0, // 불" in enum_header
     assert "int32 Id = 0;" in header
     assert "FName Name;" in header
-    assert "EDtElement Element = EDtElement::Fire;" in header
+    assert "EDrElement Element = EDrElement::Fire;" in header
     assert "float ClientOnly = 0.0f;" in header
     assert "int32 Reward[2] = {};" in header
     assert "ClientOnly" in header
@@ -124,13 +124,13 @@ def test_cpp_array_property_is_not_exposed_to_blueprint(tmp_path: Path) -> None:
 
     assert _build(source, output) == 0
 
-    header = (output / "cpp" / "DtEffectsRow.h").read_text(encoding="utf-8")
+    header = (output / "cpp" / "DrEffectsRow.h").read_text(encoding="utf-8")
     scalar_property = (
-        '    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dt|Effects")\n'
+        '    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dr|Effects")\n'
         "    int32 Id = 0;"
     )
     array_property = (
-        '    UPROPERTY(EditAnywhere, Category = "Dt|Effects")\n'
+        '    UPROPERTY(EditAnywhere, Category = "Dr|Effects")\n'
         "    int32 Reward[2] = {};"
     )
     assert scalar_property in header
@@ -138,7 +138,7 @@ def test_cpp_array_property_is_not_exposed_to_blueprint(tmp_path: Path) -> None:
 
 
 def test_enum_info_table_and_stamp(tmp_path: Path) -> None:
-    # 열거형 시트의 부가 열은 migrate가 ItemTypeInfo 테이블(스키마 + 새 데이터 파일)로 옮긴다.
+    # 옛 형식 열거형 시트의 부가 열은 테스트 도우미가 ItemTypeInfo 테이블(스키마 + 데이터 파일)로 옮긴다.
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "<enum>ItemType"
@@ -164,8 +164,8 @@ def test_enum_info_table_and_stamp(tmp_path: Path) -> None:
         ]
     )
     assert result == 0
-    row_header = (tmp_path / "cpp" / "DtItemTypeInfoRow.h").read_text(encoding="utf-8")
-    assert "EDtItemType Id = EDtItemType::Weapon;" in row_header
+    row_header = (tmp_path / "cpp" / "DrItemTypeInfoRow.h").read_text(encoding="utf-8")
+    assert "EDrItemType Id = EDrItemType::Weapon;" in row_header
     assert "Value" not in row_header
     assert "Comment" not in row_header
     client = json.loads((tmp_path / "client" / "ItemTypeInfo.json").read_text(encoding="utf-8"))
@@ -188,7 +188,7 @@ def test_cpp_scalar_initializers(tmp_path: Path) -> None:
     workbook.save(source)
 
     assert _build(source, tmp_path) == 0
-    header = (tmp_path / "cpp" / "DtNumbersRow.h").read_text(encoding="utf-8")
+    header = (tmp_path / "cpp" / "DrNumbersRow.h").read_text(encoding="utf-8")
     assert "int32 Id = 0;" in header
     assert "int64 Big = 0;" in header
     assert "float Ratio = 0.0f;" in header
@@ -260,7 +260,7 @@ def test_column_defaults_apply_to_cpp_and_empty_cells_deterministically(
     assert _build(source, output) == 0
     first = output_bytes(output)
 
-    header = (output / "cpp" / "DtDefaultsRow.h").read_text(encoding="utf-8")
+    header = (output / "cpp" / "DrDefaultsRow.h").read_text(encoding="utf-8")
     assert "float Multiplier = 1.0f;" in header
     assert "int32 Count = 7;" in header
     assert "bool Enabled = true;" in header
@@ -275,7 +275,7 @@ def test_column_defaults_apply_to_cpp_and_empty_cells_deterministically(
         'FSoftObjectPath Icon = FSoftObjectPath('
         'TEXT("/Game/UI/T_Default.T_Default"));'
     ) in header
-    assert "EDtElement Element = EDtElement::Water;" in header
+    assert "EDrElement Element = EDrElement::Water;" in header
     assert "int32 Reward[2] = {10, 20};" in header
 
     expected = {
@@ -380,7 +380,7 @@ def test_semantic_string_types_generate_cpp_json_and_conditional_includes(
 
     assert _build(source, tmp_path) == 0
     first = output_bytes(tmp_path)
-    header = (tmp_path / "cpp" / "DtTypesRow.h").read_text(encoding="utf-8")
+    header = (tmp_path / "cpp" / "DrTypesRow.h").read_text(encoding="utf-8")
     assert "FName Id;" in header
     assert "FString Label;" in header
     assert "FText DisplayName;" in header
@@ -420,32 +420,10 @@ def test_type_specific_includes_are_omitted_when_unused(tmp_path: Path) -> None:
     workbook.save(source)
 
     assert _build(source, tmp_path) == 0
-    header = (tmp_path / "cpp" / "DtPlainRow.h").read_text(encoding="utf-8")
+    header = (tmp_path / "cpp" / "DrPlainRow.h").read_text(encoding="utf-8")
     assert "Internationalization/Text.h" not in header
     assert "GameplayTagContainer.h" not in header
     assert "UObject/SoftObjectPath.h" not in header
-
-
-@pytest.mark.parametrize("legacy_type", ["FName", "FString"])
-def test_legacy_types_are_rejected_with_migration_message(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    legacy_type: str,
-) -> None:
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "Legacy"
-    sheet.append(["Id", "OldValue"])
-    sheet.append(["ID<int32>", legacy_type])
-    sheet.append(["all", "all"])
-    sheet.append([1, "값"])
-    source = tmp_path / f"legacy-{legacy_type}.xlsx"
-    workbook.save(source)
-
-    assert main(["check", "--input", str(source)]) == 1
-    stderr = capsys.readouterr().err
-    assert "[Legacy.schema.xlsx]Legacy!B3" in stderr
-    assert "이제 name/string을 쓰세요" in stderr
 
 
 @pytest.mark.parametrize("value_type", ["string", "tag", "path", "float", "double", "bool"])
@@ -694,17 +672,17 @@ def test_asset_class_header_is_generated(tmp_path: Path) -> None:
     source = tmp_path / "Tables.xlsx"
     save_valid(source)
     assert _build(source, tmp_path) == 0
-    header = (tmp_path / "cpp" / "DtEffectsTable.h").read_text(encoding="utf-8")
-    assert "class UDtEffectsTable : public UPrimaryDataAsset" in header
+    header = (tmp_path / "cpp" / "DrEffectsTable.h").read_text(encoding="utf-8")
+    assert "class UDrEffectsTable : public UPrimaryDataAsset" in header
     assert '#include "Engine/DataAsset.h"' in header
-    assert '#include "DtEffectsRow.h"' in header
-    assert '#include "EDtElement.h"' in header
-    assert "TArray<FDtEffectsRow> Rows;" in header
+    assert '#include "DrEffectsRow.h"' in header
+    assert '#include "EDrElement.h"' in header
+    assert "TArray<FDrEffectsRow> Rows;" in header
     assert "TArray<int32> PrimaryKeys;" in header
     assert "TArray<FName> Name_Keys;" in header
     assert "TArray<int32> Name_Offsets;" in header
     assert "TArray<int32> Name_Indices;" in header
-    assert "TArray<EDtElement> Element_Keys;" in header
+    assert "TArray<EDrElement> Element_Keys;" in header
 
 
 def test_asset_class_without_sub_keys_has_no_index_arrays(tmp_path: Path) -> None:
@@ -718,7 +696,7 @@ def test_asset_class_without_sub_keys_has_no_index_arrays(tmp_path: Path) -> Non
     source = tmp_path / "items.xlsx"
     workbook.save(source)
     assert _build(source, tmp_path) == 0
-    header = (tmp_path / "cpp" / "DtItemsTable.h").read_text(encoding="utf-8")
+    header = (tmp_path / "cpp" / "DrItemsTable.h").read_text(encoding="utf-8")
     assert "TArray<FName> PrimaryKeys;" in header
     assert "_Keys;" not in header
     assert "_Offsets;" not in header
@@ -740,15 +718,15 @@ def test_asset_base_option_uses_given_class_and_header(tmp_path: Path) -> None:
             "--out-server",
             str(tmp_path / "server"),
             "--asset-base",
-            "UDtTableAsset",
+            "UDrTableAsset",
             "--asset-base-header",
-            "TableData/DtTableAsset.h",
+            "TableData/DrTableAsset.h",
         ]
     )
     assert code == 0
-    header = (tmp_path / "cpp" / "DtEffectsTable.h").read_text(encoding="utf-8")
-    assert "class UDtEffectsTable : public UDtTableAsset" in header
-    assert '#include "TableData/DtTableAsset.h"' in header
+    header = (tmp_path / "cpp" / "DrEffectsTable.h").read_text(encoding="utf-8")
+    assert "class UDrEffectsTable : public UDrTableAsset" in header
+    assert '#include "TableData/DrTableAsset.h"' in header
     assert '#include "Engine/DataAsset.h"' not in header
 
 
@@ -771,7 +749,7 @@ def test_asset_base_without_header_is_usage_error(
                 "--out-server",
                 str(tmp_path / "server"),
                 "--asset-base",
-                "UDtTableAsset",
+                "UDrTableAsset",
             ]
         )
     assert excinfo.value.code == 2

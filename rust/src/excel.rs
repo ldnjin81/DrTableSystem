@@ -69,7 +69,7 @@ pub fn load_model(input: &Path, schema_path: Option<&Path>, enum_path: Option<&P
         .collect();
     let read: Vec<Result<Vec<Sheet>, String>> = files
         .par_iter()
-        .map(|(path, _)| read_workbook(path, |title| !title.starts_with('#') && !title.starts_with("<enum>")))
+        .map(|(path, _)| read_workbook(path, |title| !title.starts_with('#')))
         .collect();
     let mut workbooks: Vec<(&str, Vec<Sheet>)> = Vec::new();
     for ((_, relative), result) in files.iter().zip(read) {
@@ -96,13 +96,6 @@ pub fn load_model(input: &Path, schema_path: Option<&Path>, enum_path: Option<&P
         for sheet in sheets {
             let where_ = format!("[{relative}]{}", sheet.title);
             if sheet.title.starts_with('#') {
-                continue;
-            }
-            if sheet.title.starts_with("<enum>") {
-                warnings.push(tr(
-                    format!("{where_}: 열거형 값은 이제 열거형 스키마(.enum.xlsx)에 정의합니다. 이 시트는 읽지 않으니 지워도 됩니다(옮기기: drtable migrate)"),
-                    format!("{where_}: enum values are now defined in enum schemas (.enum.xlsx). This sheet is not read and can be deleted (to convert: drtable migrate)"),
-                ));
                 continue;
             }
             let name = table_name_of(&sheet.title).unwrap_or("");

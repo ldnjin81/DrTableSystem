@@ -1,10 +1,9 @@
 """The test suite asserts the Korean messages; English is covered by test_i18n.py.
 
-Most tests describe a table the old way, as one sheet with the field name, type and scope in
-rows 1-3. Saving such a workbook also writes its schema files next to it (tables) and under
-Enums/ (enums), the same conversion `drtable migrate` performs, so each test keeps its fixture
-in one readable place.
-Tests that build schema files themselves save with ``plain_save``.
+Most tests describe a table compactly, as one sheet with the field name, type and scope in
+rows 1-3 (enums in <enum> sheets). Saving such a workbook also writes its schema files next to
+it (tables) and under Enums/ (enums), see legacy_layout.py, so each test keeps its fixture in
+one readable place. Tests that build schema files themselves save with ``plain_save``.
 """
 
 from __future__ import annotations
@@ -19,11 +18,11 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from openpyxl import Workbook
+from legacy_layout import extract_schemas
+from openpyxl import Workbook, load_workbook
 
 import drtable.cli
 from drtable.i18n import language, set_language
-from drtable.migrate import extract_schemas
 from drtable.schemafile import SCHEMA_SUFFIXES
 
 plain_save = Workbook.save
@@ -46,6 +45,17 @@ def _save_with_schemas(self: Workbook, filename) -> None:
         _extracting = True
         try:
             extract_schemas(path, path.parent, path.parent / "Enums", overwrite=True)
+            # Enum values now live in the enum schemas, so the data workbook drops its
+            # <enum> sheets (the test's own workbook object is left as it is).
+            if any(sheet.title.startswith("<enum>") for sheet in self.worksheets):
+                saved = load_workbook(path)
+                for sheet in list(saved.worksheets):
+                    if sheet.title.startswith("<enum>"):
+                        saved.remove(sheet)
+                if saved.worksheets:
+                    plain_save(saved, path)
+                else:
+                    path.unlink()
         finally:
             _extracting = False
 
@@ -105,7 +115,7 @@ def _rust_main(argv: list[str] | None = None) -> int:
                 python_argv[index + 1] = str(scratch / arg.strip("-"))
     out, err = io.StringIO(), io.StringIO()
     python_exit: object
-    if command in ("migrate", "new"):
+    if command == "new":
         # These only create files; the Python run would create them first. The tests check
         # the Rust output themselves.
         env = dict(os.environ, DRTABLE_LANG=lang)
@@ -140,7 +150,7 @@ def _rust_main(argv: list[str] | None = None) -> int:
     usage_error = isinstance(python_exit, tuple)
     if not usage_error and result.stderr != err.getvalue():
         problems.append(f"stderr differs:\n--- rust\n{result.stderr}--- python\n{err.getvalue()}")
-    if not usage_error and command not in ("migrate", "new") and result.stdout != out.getvalue():
+    if not usage_error and command != "new" and result.stdout != out.getvalue():
         problems.append(f"stdout differs:\n--- rust\n{result.stdout}--- python\n{out.getvalue()}")
     for option, path in real_outputs.items():
         actual = _snapshot(path)

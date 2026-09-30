@@ -137,11 +137,10 @@ def test_registration_header(tmp_path: Path) -> None:
     assert ('Registry.template Register<FDtQuestsRow, UDtQuestsTable>(TEXT("BT_Quests"), '
             "&UDtQuestsTable::Rows, &UDtQuestsTable::PrimaryKeys)") in text
     assert ('            .WithSchemaHash(QuestsSchemaHash)\n'
-            '            .WithContentHash(QuestsContentHash)\n'
             '            .WithSubKey(TEXT("Reward"), &UDtQuestsTable::Reward_Keys, '
             "&UDtQuestsTable::Reward_Offsets, &UDtQuestsTable::Reward_Indices);") in text
-    assert ('            .WithSchemaHash(MonstersSchemaHash)\n'
-            '            .WithContentHash(MonstersContentHash);') in text
+    assert '            .WithSchemaHash(MonstersSchemaHash);' in text
+    assert "ContentHash" not in text
     # 테이블 이름 순서(결정성)
     order = [text.index(f"Register<FDt{name}Row") for name in
              ("DropTable", "Items", "KindInfo", "Monsters", "Quests") if f"Register<FDt{name}Row" in text]
@@ -192,7 +191,7 @@ def test_member_name_collisions_are_errors(
     assert _build(source, tmp_path, "--runtime-header", RUNTIME) == 1
     error = capsys.readouterr().err
     assert message in error
-    assert error.startswith("[in.xlsx]T!")
+    assert error.startswith("[T.schema.xlsx]T!")
     assert not (tmp_path / "cpp").exists()  # 오류면 아무것도 쓰지 않는다.
 
 

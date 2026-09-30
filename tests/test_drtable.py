@@ -318,8 +318,8 @@ def test_key_defaults_are_rejected_without_outputs(
     output = tmp_path / "output"
     assert _build(source, output) == 1
     stderr = capsys.readouterr().err
-    expected_cell = "A2" if key_type.startswith("ID") else "B2"
-    assert f"KeyDefault!{expected_cell}" in stderr
+    expected_cell = "B2" if key_type.startswith("ID") else "B3"
+    assert f"[KeyDefault.schema.xlsx]KeyDefault!{expected_cell}" in stderr
     assert "기본키와 서브키에는 기본값을 지정할 수 없습니다" in stderr
     assert not (output / "cpp").exists()
     assert not (output / "client").exists()
@@ -343,7 +343,7 @@ def test_invalid_column_default_is_rejected_without_outputs(
     output = tmp_path / "output"
     assert _build(source, output) == 1
     stderr = capsys.readouterr().err
-    assert "InvalidDefault!B2" in stderr
+    assert "[InvalidDefault.schema.xlsx]InvalidDefault!B3" in stderr
     assert "float 자료형으로 변환할 수 없습니다" in stderr
     assert not (output / "cpp").exists()
     assert not (output / "client").exists()
@@ -443,7 +443,7 @@ def test_legacy_types_are_rejected_with_migration_message(
 
     assert main(["check", "--input", str(source)]) == 1
     stderr = capsys.readouterr().err
-    assert "Legacy!B2" in stderr
+    assert "[Legacy.schema.xlsx]Legacy!B3" in stderr
     assert "이제 name/string을 쓰세요" in stderr
 
 
@@ -471,8 +471,8 @@ def test_unsupported_key_types_are_rejected_without_outputs(
 
     assert _build(source, tmp_path / "output") == 1
     stderr = capsys.readouterr().err
-    expected_cell = "A2" if role == "ID" else "B2"
-    assert f"InvalidKey!{expected_cell}" in stderr
+    expected_cell = "B2" if role == "ID" else "B3"
+    assert f"[InvalidKey.schema.xlsx]InvalidKey!{expected_cell}" in stderr
     assert f"{value_type} 자료형은 기본키나 서브키" in stderr
     assert "int32, int64, name, 열거형(E*)" in stderr
     assert not (tmp_path / "output" / "cpp").exists()
@@ -514,7 +514,7 @@ def test_text_cannot_be_used_as_key(
 
     assert main(["check", "--input", str(source)]) == 1
     stderr = capsys.readouterr().err
-    assert "TextKey!B2" in stderr
+    assert "[TextKey.schema.xlsx]TextKey!B3" in stderr
     assert "text 자료형은 기본키나 서브키" in stderr
     assert "int32, int64, name, 열거형(E*)" in stderr
 
@@ -532,7 +532,7 @@ def test_typed_path_syntax_is_rejected(tmp_path: Path, capsys: pytest.CaptureFix
 
     assert main(["check", "--input", str(source)]) == 1
     stderr = capsys.readouterr().err
-    assert "TypedPath!B2" in stderr
+    assert "[TypedPath.schema.xlsx]TypedPath!B3" in stderr
     assert "알 수 없는 자료형" in stderr
 
 
@@ -549,10 +549,10 @@ def test_manifest_has_no_stamp_by_default(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("mutate", "location", "message"),
     [
-        (lambda sheet: sheet.__setitem__("A2", "name"), "<enum>Element!A2", "기본키"),
+        (lambda sheet: sheet.__setitem__("A2", "name"), "[Element.schema.xlsx]<enum>Element!B2", "기본키"),
         (
             lambda sheet: sheet.__setitem__("B2", "ID<int32>"),
-            "<enum>Element!A2",
+            "[Element.schema.xlsx]<enum>Element!B2",
             "기본키",
         ),
         (lambda sheet: sheet.__setitem__("A4", "Bad-Name"), "<enum>Element!A4", "열거자"),
@@ -627,7 +627,7 @@ def test_primary_key_scope_must_be_all(
 
     assert main(["check", "--input", str(source)]) == 1
     stderr = capsys.readouterr().err
-    assert "Effects!A3" in stderr
+    assert "[Effects.schema.xlsx]Effects!C2" in stderr
     assert "기본키 범위는 all" in stderr
 
 
@@ -642,13 +642,13 @@ def test_check_does_not_write_files(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("mutate", "location", "message"),
     [
-        (lambda sheet: sheet.__setitem__("A2", "int32"), "Effects!A2", "기본키"),
-        (lambda sheet: sheet.__setitem__("B2", "ID<name>"), "Effects!A2", "기본키"),
+        (lambda sheet: sheet.__setitem__("A2", "int32"), "[Effects.schema.xlsx]Effects!B2", "기본키"),
+        (lambda sheet: sheet.__setitem__("B2", "ID<name>"), "[Effects.schema.xlsx]Effects!B2", "기본키"),
         (lambda sheet: sheet.__setitem__("A5", 1001), "Effects!A5", "중복"),
         (lambda sheet: sheet.__setitem__("A5", None), "Effects!A5", "비어"),
-        (lambda sheet: sheet.__setitem__("C2", "EMissing"), "Effects!C2", "정의되지 않은"),
+        (lambda sheet: sheet.__setitem__("C2", "EMissing"), "[Effects.schema.xlsx]Effects!B4", "정의되지 않은"),
         (lambda sheet: sheet.__setitem__("D4", "숫자 아님"), "Effects!D4", "변환"),
-        (lambda sheet: sheet.__setitem__("B1", "Id"), "Effects!B1", "중복"),
+        (lambda sheet: sheet.__setitem__("B1", "Id"), "[Effects.schema.xlsx]Effects!A3", "중복"),
     ],
 )
 def test_validation_errors(
@@ -673,10 +673,10 @@ def test_validation_errors(
 @pytest.mark.parametrize(
     ("mutate", "location", "message"),
     [
-        (lambda sheet: sheet.__setitem__("G1", "Reward[2]"), "Effects!G1", "연속"),
-        (lambda sheet: sheet.__setitem__("G1", "Reward[0]"), "Effects!H1", "중복"),
-        (lambda sheet: sheet.__setitem__("G2", "float"), "Effects!G2", "자료형"),
-        (lambda sheet: sheet.__setitem__("G3", "client"), "Effects!G3", "범위"),
+        (lambda sheet: sheet.__setitem__("G1", "Reward[2]"), "[Effects.schema.xlsx]Effects!A8", "연속"),
+        (lambda sheet: sheet.__setitem__("G1", "Reward[0]"), "[Effects.schema.xlsx]Effects!A9", "중복"),
+        (lambda sheet: sheet.__setitem__("G2", "float"), "[Effects.schema.xlsx]Effects!B8", "자료형"),
+        (lambda sheet: sheet.__setitem__("G3", "client"), "[Effects.schema.xlsx]Effects!C8", "범위"),
     ],
 )
 def test_array_validation_errors(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .errors import ErrorCollector
@@ -95,6 +96,15 @@ class TableSchema:
     rows: list[dict[str, object]] = field(default_factory=list)
     schema_hash: str = ""
     sources: list[TableSource] = field(default_factory=list)
+    # Where the fields are defined, e.g. "[Schema.xlsx]Items" (header cells point into it).
+    schema_location: str = ""
+    # The schema file ("Items.schema.xlsx"); generated code names it instead of data files so
+    # that editing or reorganizing data never changes the code.
+    schema_file: str = ""
+
+    @property
+    def header_location(self) -> str:
+        return self.schema_location or self.location
 
     @property
     def location(self) -> str:
@@ -103,7 +113,7 @@ class TableSchema:
 
     @property
     def source_list(self) -> list[str]:
-        """Every part for generated comments: ['File.xlsx / Sheet', 'Other.xlsx / Sheet@Part']."""
+        """Every part for generated comments: ['File.xlsx / Sheet', 'Other.xlsx / Sheet#part']."""
         parts = self.sources or [TableSource(self.source_name, self.sheet)]
         return [f"{part.file} / {part.sheet}" for part in parts]
 
@@ -239,17 +249,25 @@ def build_columns(
     enums: dict[str, EnumSchema],
     errors: ErrorCollector,
     table_keys: dict[str, tuple[str, str, str]] | None = None,
+    cell_of: Callable[[int, int], str] | None = None,
 ) -> list[ColumnSchema]:
-    """Turns physical columns into logical fields, grouping Name[0], Name[1], ... into arrays."""
+    """Turns field definitions into logical fields, grouping Name[0], Name[1], ... into arrays.
+
+    ``raw_columns`` holds (index, name, type, scope). ``cell_of(index, header_row)`` gives the
+    cell to report for a definition; by default a definition is a column with the name, type
+    and scope in rows 1-3, and a schema sheet passes its own layout (one field per row).
+    """
+    if cell_of is None:
+        cell_of = _cell
     scalars: list[tuple[int, ColumnSchema]] = []
     arrays: dict[str, list[tuple[int, int, ParsedType | None, str, str]]] = {}
     scalar_headers: dict[str, str] = {}
     resolved_types: dict[str, str] = {}
 
     for column_index, raw_name, raw_type, raw_scope in raw_columns:
-        header_cell = _cell(column_index, NAME_ROW)
-        type_cell = _cell(column_index, TYPE_ROW)
-        scope_cell = _cell(column_index, SCOPE_ROW)
+        header_cell = cell_of(column_index, NAME_ROW)
+        type_cell = cell_of(column_index, TYPE_ROW)
+        scope_cell = cell_of(column_index, SCOPE_ROW)
         name = str(raw_name).strip()
         raw_scope_text = "" if raw_scope is None else str(raw_scope).strip()
         scope = raw_scope_text.lower() if raw_scope_text.lower() in SCOPES else ""
@@ -333,14 +351,14 @@ def build_columns(
         if sorted(seen) != expected:
             errors.add(sheet, group_cell, tr(f"배열 '{name}'의 인덱스는 0부터 연속이어야 합니다", f"array '{name}' indices must start at 0 without gaps"))
         if first_type and first_type.role:
-            errors.add(sheet, _cell(first_column, TYPE_ROW), tr(f"배열 '{name}'은 키로 지정할 수 없습니다", f"array '{name}' cannot be a key"))
+            errors.add(sheet, cell_of(first_column, TYPE_ROW), tr(f"배열 '{name}'은 키로 지정할 수 없습니다", f"array '{name}' cannot be a key"))
         for column_index, _, parsed, scope, _ in parts_by_index[1:]:
             if parsed and first_type and (parsed.type_name, parsed.ref_target, parsed.ref_key) != (first_type.type_name, first_type.ref_target, first_type.ref_key):
-                errors.add(sheet, _cell(column_index, TYPE_ROW), tr(f"배열 '{name}'의 자료형이 일치하지 않습니다", f"array '{name}' elements have different types"))
+                errors.add(sheet, cell_of(column_index, TYPE_ROW), tr(f"배열 '{name}'의 자료형이 일치하지 않습니다", f"array '{name}' elements have different types"))
             if parsed and parsed.role:
-                errors.add(sheet, _cell(column_index, TYPE_ROW), tr(f"배열 '{name}'은 키로 지정할 수 없습니다", f"array '{name}' cannot be a key"))
+                errors.add(sheet, cell_of(column_index, TYPE_ROW), tr(f"배열 '{name}'은 키로 지정할 수 없습니다", f"array '{name}' cannot be a key"))
             if scope != first_scope:
-                errors.add(sheet, _cell(column_index, SCOPE_ROW), tr(f"배열 '{name}'의 범위가 일치하지 않습니다", f"array '{name}' elements have different scopes"))
+                errors.add(sheet, cell_of(column_index, SCOPE_ROW), tr(f"배열 '{name}'의 범위가 일치하지 않습니다", f"array '{name}' elements have different scopes"))
         if first_type:
             grouped.append(
                 (
@@ -355,7 +373,7 @@ def build_columns(
                         len(seen),
                         tuple(
                             _convert_default(
-                                item[2], enums, sheet, _cell(item[0], TYPE_ROW), errors
+                                item[2], enums, sheet, cell_of(item[0], TYPE_ROW), errors
                             )
                             if item[2] is not None
                             else None
@@ -370,11 +388,11 @@ def build_columns(
     columns = [column for _, column in sorted(scalars + grouped, key=lambda item: item[0])]
     ids = [column for column in columns if column.role == "id"]
     if len(ids) != 1:
-        errors.add(sheet, _cell(1, TYPE_ROW), tr(f"기본키는 정확히 1개여야 합니다(현재 {len(ids)}개)", f"exactly one primary key is required (found {len(ids)})"))
+        errors.add(sheet, cell_of(raw_columns[0][0] if raw_columns else 1, TYPE_ROW), tr(f"기본키는 정확히 1개여야 합니다(현재 {len(ids)}개)", f"exactly one primary key is required (found {len(ids)})"))
     elif ids[0].scope != "all":
         errors.add(
             sheet,
-            _cell(ids[0].source_columns[0], SCOPE_ROW),
+            cell_of(ids[0].source_columns[0], SCOPE_ROW),
             tr("기본키 범위는 all이어야 합니다", "the primary key scope must be all"),
         )
     return columns

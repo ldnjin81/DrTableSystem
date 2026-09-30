@@ -7,7 +7,10 @@ name = "drtablesystem"
 version = "0.1.0"
 description = "DrTableSystem (DesignToRuntime Table System): Excel tables to Unreal C++, baked DataAssets and server/client JSON"
 requires-python = ">=3.12"
-dependencies = ["openpyxl>=3.1,<4"]
+dependencies = [
+    "openpyxl>=3.1,<4",
+    "pyyaml>=6,<7",
+]
 
 [dependency-groups]
 dev = ["pytest>=8,<9", "ruff>=0.13,<1"]

@@ -62,6 +62,12 @@ def emit_json(
                     "rows": len(table.rows),
                     "schema_hash": table.schema_hash,
                     "content_hash": content_hashes[(side, table.name)],
+                    "schema": table.schema_file,
+                    # Where the rows come from: find a table's data files here.
+                    "sources": [
+                        {"file": part.file, "sheet": part.sheet, "rows": part.rows}
+                        for part in table.sources
+                    ],
                 }
                 for table in model.tables
             ],

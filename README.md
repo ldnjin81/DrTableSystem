@@ -20,11 +20,10 @@ Data workbooks (*.xlsx)    ─┘                 └─▶ server JSON ─▶ y
 ## Quick start
 
 ```sh
-uv sync
-uv run drtable build --input Design/Tables --schema Design/Tables/Schemas --ue-plugin --prefix Gm \
+drtable build --input Design/Tables --schema Design/Tables/Schemas --ue-plugin --prefix Gm \
   --out-cpp Source/MyGame/TableData/Generated --out-client Intermediate/DrTable/client --out-server Build/ServerData
-uv run drtable check --client Intermediate/DrTable/client --server Build/ServerData
-uv run drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schemas   # new data workbook
+drtable check --client Intermediate/DrTable/client --server Build/ServerData
+drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schemas   # new data workbook
 ```
 
 A table schema (`Design/Tables/Schemas/Items.schema.xlsx`, one field per row from row 2):
@@ -42,4 +41,4 @@ A data workbook has the field names in row 1 (any column order) and data from ro
 - Manual: [English](docs/en/manual.md) · [한국어](docs/ko/manual.md)
 - Unreal plugin: `unreal/DrTableSystem` (Unreal Engine 5.8)
 
-Requirements: Python 3.12+, `openpyxl`.
+`drtable` is a single executable with nothing to install (download it from Releases). To build it: `cd rust && cargo build --release`. `src/drtable` is a Python reference implementation; the tests check that both produce identical output.

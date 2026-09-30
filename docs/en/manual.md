@@ -43,14 +43,20 @@ Contents
 
 ## 1. Installation
 
-Requirements: Python 3.12+ and [uv](https://docs.astral.sh/uv/) (recommended). The only runtime dependency is `openpyxl`.
+`drtable` is **a single executable with nothing to install**. Download the archive for your platform from GitHub Releases (Windows `x86_64-pc-windows-msvc`, macOS `aarch64-apple-darwin`, Linux `x86_64-unknown-linux-gnu`) and put `drtable` (`drtable.exe` on Windows) wherever you like. For a team, commit it to the project repository (for example `Tools/DrTable/drtable.exe`) so that syncing the repository is all anyone needs.
 
 ```sh
-git clone <this repository> DrTableSystem
-cd DrTableSystem
-uv sync
-uv run drtable --version
+drtable --version
 ```
+
+To build it yourself you need [Rust](https://rustup.rs/):
+
+```sh
+cd rust
+cargo build --release          # rust/target/release/drtable
+```
+
+`src/drtable` in the repository is a Python reference implementation of the same behaviour. The tests compare both implementations byte for byte (section 13).
 
 For Unreal, copy `unreal/DrTableSystem` into your project's `Plugins/` folder ([section 10](#10-unreal-plugin)). The plugin is developed and tested with Unreal Engine 5.8.
 
@@ -430,7 +436,13 @@ drtable check --client … --server …                     # fails on broken re
 UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # fails on missing or stale assets
 ```
 
-`.github/workflows/ci.yml` runs the Python tests and lint on every push.
+On every push, `.github/workflows/ci.yml` runs on Windows, macOS and Linux:
+
+- the tests and lint of the Python reference implementation
+- the Rust build and unit tests
+- the same test suite against the Rust executable (`DRTABLE_BIN`), where every `build`, `graph` and `check` also runs the reference implementation and must match its exit code, messages and written files byte for byte
+
+A `v*` tag builds the executables for each platform and attaches them to a Release.
 
 ## 14. Migrating from the old layout
 

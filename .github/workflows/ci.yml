@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Python reference implementation
+        run: |
+          uv sync
+          uv run ruff check src tests
+          uv run pytest -q
+      - name: Rust build and unit tests
+        working-directory: rust
+        run: |
+          cargo build --release
+          cargo test --release
+      - name: Rust against the reference (byte for byte)
+        shell: bash
+        run: |
+          BIN="$PWD/rust/target/release/drtable"
+          if [ "$RUNNER_OS" = "Windows" ]; then BIN="$(cygpath -w "$BIN.exe")"; fi
+          DRTABLE_BIN="$BIN" uv run pytest -q
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: drtable.exe
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary: drtable
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: drtable
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build
+        working-directory: rust
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          NAME="drtable-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$NAME"
+          cp "rust/target/${{ matrix.target }}/release/${{ matrix.binary }}" "$NAME/"
+          cp -r unreal README.md README.ko.md docs "$NAME/"
+          if [ "$RUNNER_OS" = "Windows" ]; then 7z a "$NAME.zip" "$NAME"; else zip -qr "$NAME.zip" "$NAME"; fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: drtable-*.zip

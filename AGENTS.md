@@ -1,13 +1,32 @@
-# DrTableSystem — Codex 작업 규칙
+# Working on DrTableSystem
 
-- 설계 기준은 `docs/ko/manual.md`(사용자 매뉴얼)다. `docs/SPEC.md`는 초기 설계 메모라 현재 규약과 다를 수 있다. 명세와 다르게 가야 하면 구현 전에 Agent Bridge `send_message(to="claude", kind="question")`로 묻는다.
-- 런타임(PC): `C:\tools\_portable\uv\uv.exe`(환경변수 `UV_PYTHON_INSTALL_DIR=C:\tools\_portable\python`, `UV_CACHE_DIR=C:\tools\_portable\uv-cache`). 시스템 Python·전역 pip 설치 금지.
-  - 준비: `uv sync` / 테스트: `uv run pytest -q` / 린트: `uv run ruff check .`
-- 순수 Python만 쓴다. 의존성은 최소로: `openpyxl`만 쓰고, 더 필요하면 이유를 커밋 메시지에 적는다.
-- 코드 주석·문서·오류 메시지는 한국어로 쓴다. 식별자는 영어.
-- **생성물은 결정적이어야 한다.** 같은 입력이면 바이트까지 같아야 한다. 딕셔너리 순회 순서에 의존하지 말고, 줄바꿈은 LF, JSON은 키 순서 고정.
-- 오류 메시지에는 항상 `[파일]시트!셀` 위치를 넣는다.
-- 테스트 픽스처 xlsx는 저장소에 바이너리로 넣지 말고 **테스트 안에서 openpyxl로 만든다**.
-- 브랜치: `auto/<task-slug>`. main 직접 커밋 금지. 원격 `ssh://git@192.168.0.24:2222/ldnjin/tablegen.git`.
-  - 무인 실행에서는 커밋·push를 직접 하지 않는다(샌드박스가 `.git`과 SSH 키를 막음). 작업트리에서 수정하고 `update_task`에 `lore_branch`만 넣으면 `codex-run.ps1`이 커밋·push한다.
-- 보고: 끝나면 `report-result` 스킬로 올린다(테스트 결과, 샘플 입력 대비 산출물 요약).
+Rules for contributors and coding agents.
+
+## Layout
+
+| Path | What |
+|---|---|
+| `rust/` | The `drtable` executable (the product). |
+| `src/drtable/` | Python reference implementation of the same behaviour. |
+| `tests/` | One test suite for both implementations. |
+| `unreal/DrTableSystem/` | Unreal Engine plugin (runtime registry, bake commandlet, tests). |
+| `docs/en`, `docs/ko` | User manuals. The manual is the specification. |
+
+## Rules
+
+- **Change both implementations together.** Any change in behaviour, output or messages goes into `rust/` and `src/drtable/` in the same commit.
+- **Byte-for-byte parity.** `DRTABLE_BIN=<path to drtable> uv run pytest -q` runs every test against the executable; each `build`, `graph` and `check` call also runs the Python implementation and must produce the same exit code, stdout, stderr and files.
+- **Deterministic output.** The same input gives the same bytes: no dependence on hash or directory order, LF line endings, fixed JSON key order, no timestamps unless `--stamp` is given.
+- **Generated code depends on the schemas only**, never on data values or data file names.
+- **The tool never modifies existing data workbooks.** It only creates new files (`migrate`, `new`).
+- Every error message starts with a `[File]Sheet!Cell` location, and exists in English and Korean (`tr(ko, en)`).
+- Test workbooks are created inside the tests with openpyxl; no binary fixtures in the repository.
+- Keep dependencies minimal: Python `openpyxl`; Rust `calamine`, `rust_xlsxwriter`, `zip`, `sha2`, `serde_json`, `regex`, `rayon`, `chrono`. Explain any addition in the commit message.
+
+## Commands
+
+```sh
+uv sync && uv run ruff check src tests && uv run pytest -q     # reference implementation
+cd rust && cargo build --release && cargo test --release       # executable
+DRTABLE_BIN=$PWD/rust/target/release/drtable uv run pytest -q  # parity
+```

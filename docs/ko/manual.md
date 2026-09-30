@@ -43,14 +43,20 @@ DrTableSystem(DesignToRuntime Table System)은 기획자가 엑셀에 적은 데
 
 ## 1. 설치
 
-필요한 것: Python 3.12 이상, [uv](https://docs.astral.sh/uv/)(권장). 실행 의존성은 `openpyxl` 하나입니다.
+`drtable`은 **설치가 필요 없는 실행 파일 하나**입니다. GitHub Releases에서 운영체제에 맞는 압축 파일(윈도우 `x86_64-pc-windows-msvc`, 맥 `aarch64-apple-darwin`, 리눅스 `x86_64-unknown-linux-gnu`)을 받아 `drtable`(윈도우는 `drtable.exe`)을 원하는 곳에 둡니다. 팀에서 쓸 때는 프로젝트 저장소(예: `Tools/DrTable/drtable.exe`)에 함께 넣으면 저장소만 받아도 바로 쓸 수 있습니다.
 
 ```sh
-git clone <이 저장소> DrTableSystem
-cd DrTableSystem
-uv sync
-uv run drtable --version
+drtable --version
 ```
+
+직접 빌드하려면 [Rust](https://rustup.rs/)가 필요합니다.
+
+```sh
+cd rust
+cargo build --release          # rust/target/release/drtable
+```
+
+저장소의 `src/drtable`은 같은 동작의 파이썬 기준 구현입니다. 테스트가 두 구현의 결과를 바이트 단위로 비교합니다(13절).
 
 언리얼 쪽은 `unreal/DrTableSystem`을 프로젝트의 `Plugins/` 폴더에 복사합니다([10절](#10-언리얼-플러그인)). 플러그인은 Unreal Engine 5.8에서 개발·검증했습니다.
 
@@ -430,7 +436,13 @@ drtable check --client … --server …                     # 끊긴 참조가 �
 UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # 빠졌거나 오래된 에셋이 있으면 실패
 ```
 
-`.github/workflows/ci.yml`이 push마다 파이썬 테스트와 린트를 돌립니다.
+`.github/workflows/ci.yml`은 push마다 윈도우·맥·리눅스에서 다음을 돌립니다.
+
+- 파이썬 기준 구현의 테스트와 린트
+- Rust 빌드와 단위 테스트
+- 같은 테스트 모음을 Rust 실행 파일로 다시 돌리기(`DRTABLE_BIN`). 이때 `build`·`graph`·`check`는 매번 두 구현의 종료 코드, 메시지, 생성 파일을 바이트 단위로 비교합니다.
+
+`v*` 태그를 달면 운영체제별 실행 파일을 빌드해 Release에 올립니다.
 
 ## 14. 예전 형식에서 옮기기
 

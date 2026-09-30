@@ -20,11 +20,10 @@ Schemas/Enums/*.enum.xlsx  ─┼▶ drtable build ─┼─▶ 클라 JSON ─�
 ## 빠른 시작
 
 ```sh
-uv sync
-uv run drtable --lang ko build --input Design/Tables --schema Design/Tables/Schemas --ue-plugin --prefix Gm \
+drtable --lang ko build --input Design/Tables --schema Design/Tables/Schemas --ue-plugin --prefix Gm \
   --out-cpp Source/MyGame/TableData/Generated --out-client Intermediate/DrTable/client --out-server Build/ServerData
-uv run drtable --lang ko check --client Intermediate/DrTable/client --server Build/ServerData
-uv run drtable --lang ko new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schemas   # 새 데이터 파일
+drtable --lang ko check --client Intermediate/DrTable/client --server Build/ServerData
+drtable --lang ko new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schemas   # 새 데이터 파일
 ```
 
 테이블 스키마(`Design/Tables/Schemas/Items.schema.xlsx`, 2행부터 필드 하나에 한 행):
@@ -42,4 +41,4 @@ uv run drtable --lang ko new --table Items --out Design/Tables/Items.xlsx --sche
 - 매뉴얼: [한국어](docs/ko/manual.md) · [English](docs/en/manual.md)
 - 언리얼 플러그인: `unreal/DrTableSystem` (Unreal Engine 5.8)
 
-필요한 것: Python 3.12 이상, `openpyxl`.
+`drtable`은 설치가 필요 없는 실행 파일 하나입니다(Releases에서 받습니다). 직접 빌드: `cd rust && cargo build --release`. `src/drtable`은 파이썬 기준 구현이고, 테스트가 두 구현의 결과가 같은지 확인합니다.

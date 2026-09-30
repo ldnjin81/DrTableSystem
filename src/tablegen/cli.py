@@ -40,6 +40,12 @@ def create_parser() -> argparse.ArgumentParser:
         help="기반 클래스를 바꿀 때 include할 헤더 경로",
     )
     build.add_argument(
+        "--ue-plugin",
+        action="store_true",
+        help="TableGen UE 플러그인용 기본값: --asset-base UTableGenAssetBase, "
+        "--asset-base-header TableGenAssetBase.h, --runtime-header TableGenRuntime.h",
+    )
+    build.add_argument(
         "--runtime-header",
         help="TableGenRuntime 조회 계약을 제공하는 헤더. 주면 행 조회·참조 함수와 등록 헤더를 생성",
     )
@@ -93,6 +99,12 @@ def main(argv: list[str] | None = None) -> int:
         outputs = (args.out_cpp, args.out_client, args.out_server)
         if len({path.resolve() for path in outputs}) != len(outputs):
             parser.error("출력 디렉터리는 서로 달라야 합니다")
+        if args.ue_plugin:
+            # 명시한 옵션이 있으면 그 값을 존중하고, 비어 있는 것만 플러그인 기본값으로 채운다.
+            if args.asset_base == DEFAULT_ASSET_BASE:
+                args.asset_base = "UTableGenAssetBase"
+            args.asset_base_header = args.asset_base_header or "TableGenAssetBase.h"
+            args.runtime_header = args.runtime_header or "TableGenRuntime.h"
         if args.asset_base != DEFAULT_ASSET_BASE and not args.asset_base_header:
             # 헤더 없이 기반 클래스만 바꾸면 컴파일되지 않는 코드가 나온다.
             # 조용히 내보내는 대신 생성 단계에서 멈춘다.

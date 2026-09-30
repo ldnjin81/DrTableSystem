@@ -62,24 +62,20 @@ class _RowState:
     name_spellings: dict[tuple[str, str], tuple[str, str]] = field(default_factory=dict)
 
 
-# Text in parentheses is a comment: "Items(Weapons)" and "Items (Armor)" are both table Items.
-SHEET_COMMENT_RE = re.compile(r"\([^()]*\)")
+# '#' starts a comment everywhere: a sheet named "#Notes" is skipped, and in "Items#Weapons"
+# the text from '#' on is a comment, so the sheet is part of table Items.
+SHEET_COMMENT = "#"
 
 
 def strip_sheet_comment(sheet_title: str) -> str:
-    """The sheet name without its (comments) and surrounding spaces.
-
-    Comments may come before or after the name but must not split it: 'Items(A)x' is kept
-    as-is so that it fails the name check instead of silently becoming table 'Itemsx'.
-    """
-    pieces = [piece.strip() for piece in SHEET_COMMENT_RE.split(sheet_title) if piece.strip()]
-    return pieces[0] if len(pieces) == 1 else sheet_title
+    """The sheet name without its #comment and surrounding spaces."""
+    return sheet_title.split(SHEET_COMMENT, 1)[0].strip()
 
 
 def table_name_of(sheet_title: str) -> str | None:
     """Table name for a table sheet, or None for notes and enums.
 
-    The sheet name without its (comment) is the table name. Sheets with the same table name,
+    The sheet name without its #comment is the table name. Sheets with the same table name,
     in one file or in several, are parts of one table.
     """
     if sheet_title.startswith("#") or sheet_title.startswith("<enum>"):

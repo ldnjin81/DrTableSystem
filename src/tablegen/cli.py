@@ -16,7 +16,7 @@ from .errors import ErrorCollector, ValidationErrors
 from .excel import load_model
 from .graph import emit_graph
 from .i18n import SUPPORTED, set_language, tr
-from .schema import IDENTIFIER_RE
+from .schema import CLIENT_SCOPES, IDENTIFIER_RE
 
 PLUGIN_ASSET_BASE = "UTableGenAssetBase"
 PLUGIN_ASSET_BASE_HEADER = "TableGenAssetBase.h"
@@ -156,7 +156,7 @@ def _check_member_names(model) -> None:
     """Generated member functions must not clash with fields or with each other (C++ would not compile)."""
     errors = ErrorCollector()
     for table in model.tables:
-        fields = {column.name for column in table.columns if column.scope in {"B", "C"}}
+        fields = {column.name for column in table.columns if column.scope in CLIENT_SCOPES}
         seen: dict[str, str] = {}
         for name, cell in generated_member_names(table):
             if name in fields:

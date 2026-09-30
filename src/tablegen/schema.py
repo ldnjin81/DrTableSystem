@@ -30,7 +30,13 @@ PRIMITIVES = {
 }
 LEGACY_TYPES = {"FName", "FString"}
 KEY_PRIMITIVES = {"int32", "int64", "name"}
-SCOPES = {"B", "C", "S", "#"}
+SCOPES = {"all", "client", "server", "#"}
+CLIENT_SCOPES = frozenset({"all", "client"})
+SERVER_SCOPES = frozenset({"all", "server"})
+# Header layout: row 1 scope, row 2 type, row 3 field name (right above the data), data from row 4.
+SCOPE_ROW, TYPE_ROW, NAME_ROW, DATA_ROW = 1, 2, 3, 4
+# Old single-letter scope codes, rejected with a hint to the new words.
+LEGACY_SCOPES = {"B": "all", "C": "client", "S": "server"}
 
 
 @dataclass(frozen=True)
@@ -215,13 +221,24 @@ def build_columns(
     resolved_types: dict[str, str] = {}
 
     for column_index, raw_name, raw_type, raw_scope in raw_columns:
-        header_cell = _cell(column_index, 1)
-        type_cell = _cell(column_index, 2)
-        scope_cell = _cell(column_index, 3)
+        header_cell = _cell(column_index, NAME_ROW)
+        type_cell = _cell(column_index, TYPE_ROW)
+        scope_cell = _cell(column_index, SCOPE_ROW)
         name = str(raw_name).strip()
-        scope = "" if raw_scope is None else str(raw_scope).strip().upper()
-        if scope not in SCOPES:
-            errors.add(sheet, scope_cell, tr(f"범위는 B, C, S, # 중 하나여야 합니다: '{scope}'", f"scope must be one of B, C, S, #: '{scope}'"))
+        raw_scope_text = "" if raw_scope is None else str(raw_scope).strip()
+        scope = raw_scope_text.lower() if raw_scope_text.lower() in SCOPES else ""
+        if not scope:
+            if raw_scope_text.upper() in LEGACY_SCOPES:
+                word = LEGACY_SCOPES[raw_scope_text.upper()]
+                errors.add(sheet, scope_cell, tr(
+                    f"옛 범위 표기 '{raw_scope_text}' 대신 '{word}'를 쓰세요",
+                    f"use '{word}' instead of the old scope code '{raw_scope_text}'",
+                ))
+            else:
+                errors.add(sheet, scope_cell, tr(
+                    f"범위는 all, client, server, # 중 하나여야 합니다: '{raw_scope_text}'",
+                    f"scope must be one of all, client, server, #: '{raw_scope_text}'",
+                ))
             continue
         if scope == "#":
             continue
@@ -235,11 +252,11 @@ def build_columns(
         if parsed:
             validate_enum_type(parsed.type_name, enums, sheet, type_cell, errors)
             if parsed.ref_key and parsed.ref_scope:
-                output_scopes = {"B": {"C", "S"}, "C": {"C"}, "S": {"S"}}
+                output_scopes = {"all": {"client", "server"}, "client": {"client"}, "server": {"server"}}
                 if not output_scopes[scope].issubset(output_scopes[parsed.ref_scope]):
                     errors.add(
                         sheet, type_cell,
-                        tr(f"참조 범위 {scope}가 대상 서브키 {parsed.ref_scope}보다 넓습니다", f"reference scope {scope} is wider than the target sub key scope {parsed.ref_scope}"),
+                        tr(f"참조 범위 {scope}가 대상 서브키 범위 {parsed.ref_scope}보다 넓습니다", f"reference scope {scope} is wider than the target sub key scope {parsed.ref_scope}"),
                     )
 
         if array_match:
@@ -290,14 +307,14 @@ def build_columns(
         if sorted(seen) != expected:
             errors.add(sheet, group_cell, tr(f"배열 '{name}'의 인덱스는 0부터 연속이어야 합니다", f"array '{name}' indices must start at 0 without gaps"))
         if first_type and first_type.role:
-            errors.add(sheet, _cell(first_column, 2), tr(f"배열 '{name}'은 키로 지정할 수 없습니다", f"array '{name}' cannot be a key"))
+            errors.add(sheet, _cell(first_column, TYPE_ROW), tr(f"배열 '{name}'은 키로 지정할 수 없습니다", f"array '{name}' cannot be a key"))
         for column_index, _, parsed, scope, _ in parts_by_index[1:]:
             if parsed and first_type and (parsed.type_name, parsed.ref_target, parsed.ref_key) != (first_type.type_name, first_type.ref_target, first_type.ref_key):
-                errors.add(sheet, _cell(column_index, 2), tr(f"배열 '{name}'의 자료형이 일치하지 않습니다", f"array '{name}' elements have different types"))
+                errors.add(sheet, _cell(column_index, TYPE_ROW), tr(f"배열 '{name}'의 자료형이 일치하지 않습니다", f"array '{name}' elements have different types"))
             if parsed and parsed.role:
-                errors.add(sheet, _cell(column_index, 2), tr(f"배열 '{name}'은 키로 지정할 수 없습니다", f"array '{name}' cannot be a key"))
+                errors.add(sheet, _cell(column_index, TYPE_ROW), tr(f"배열 '{name}'은 키로 지정할 수 없습니다", f"array '{name}' cannot be a key"))
             if scope != first_scope:
-                errors.add(sheet, _cell(column_index, 3), tr(f"배열 '{name}'의 범위가 일치하지 않습니다", f"array '{name}' elements have different scopes"))
+                errors.add(sheet, _cell(column_index, SCOPE_ROW), tr(f"배열 '{name}'의 범위가 일치하지 않습니다", f"array '{name}' elements have different scopes"))
         if first_type:
             grouped.append(
                 (
@@ -312,7 +329,7 @@ def build_columns(
                         len(seen),
                         tuple(
                             _convert_default(
-                                item[2], enums, sheet, _cell(item[0], 2), errors
+                                item[2], enums, sheet, _cell(item[0], TYPE_ROW), errors
                             )
                             if item[2] is not None
                             else None
@@ -327,12 +344,12 @@ def build_columns(
     columns = [column for _, column in sorted(scalars + grouped, key=lambda item: item[0])]
     ids = [column for column in columns if column.role == "id"]
     if len(ids) != 1:
-        errors.add(sheet, "A2", tr(f"기본키는 정확히 1개여야 합니다(현재 {len(ids)}개)", f"exactly one primary key is required (found {len(ids)})"))
-    elif ids[0].scope != "B":
+        errors.add(sheet, _cell(1, TYPE_ROW), tr(f"기본키는 정확히 1개여야 합니다(현재 {len(ids)}개)", f"exactly one primary key is required (found {len(ids)})"))
+    elif ids[0].scope != "all":
         errors.add(
             sheet,
-            _cell(ids[0].source_columns[0], 3),
-            tr("기본키 범위는 B여야 합니다", "the primary key scope must be B"),
+            _cell(ids[0].source_columns[0], SCOPE_ROW),
+            tr("기본키 범위는 all이어야 합니다", "the primary key scope must be all"),
         )
     return columns
 

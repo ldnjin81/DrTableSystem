@@ -7,13 +7,12 @@ from pathlib import Path
 
 from .emit_json import content_hash
 from .excel import DataModel
-from .schema import ColumnSchema, EnumSchema, TableSchema
+from .schema import CLIENT_SCOPES, ColumnSchema, EnumSchema, TableSchema
 from .values import default_value
 
 DEFAULT_ASSET_BASE = "UPrimaryDataAsset"
 DEFAULT_ASSET_BASE_HEADER = "Engine/DataAsset.h"
 DEFAULT_ASSET_NAME = "DA_{table}"
-CLIENT_SCOPES = {"B", "C"}
 CPP_TYPES = {
     "name": "FName",
     "string": "FString",
@@ -98,7 +97,7 @@ def _table_header(
     enums: dict[str, EnumSchema],
     accessors: bool = False,
 ) -> str:
-    client_columns = [column for column in table.columns if column.scope in {"B", "C"}]
+    client_columns = [column for column in table.columns if column.scope in CLIENT_SCOPES]
     enum_includes = sorted(
         {column.type_name[1:] for column in client_columns if column.type_name.startswith("E")}
     )
@@ -132,7 +131,7 @@ def _table_header(
         ]
     )
     for column in table.columns:
-        if column.scope not in {"B", "C"}:
+        if column.scope not in CLIENT_SCOPES:
             continue
         property_specifiers = (
             "EditAnywhere"
@@ -343,7 +342,7 @@ def _asset_header(
     asset_base_header: str,
 ) -> str:
     """DataAsset class the bake commandlet fills. Indices are computed at build time and stored as-is."""
-    client_columns = [column for column in table.columns if column.scope in {"B", "C"}]
+    client_columns = [column for column in table.columns if column.scope in CLIENT_SCOPES]
     enum_includes = sorted(
         {column.type_name[1:] for column in client_columns if column.type_name.startswith("E")}
     )
@@ -377,7 +376,7 @@ def _asset_header(
         ]
     )
     for column in table.sub_keys:
-        if column.scope not in {"B", "C"}:
+        if column.scope not in CLIENT_SCOPES:
             continue
         key_type = _cpp_type(column, prefix)
         lines.extend(

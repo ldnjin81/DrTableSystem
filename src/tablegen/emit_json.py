@@ -7,10 +7,7 @@ import json
 from pathlib import Path
 
 from .excel import DataModel
-from .schema import ColumnSchema, EnumSchema, TableSchema
-
-CLIENT_SCOPES = {"B", "C"}
-SERVER_SCOPES = {"B", "S"}
+from .schema import CLIENT_SCOPES, SERVER_SCOPES, ColumnSchema, EnumSchema, TableSchema
 
 
 def emit_json(

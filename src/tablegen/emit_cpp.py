@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .emit_json import content_hash
 from .excel import DataModel
 from .schema import ColumnSchema, EnumSchema, TableSchema
 from .values import default_value
@@ -60,7 +61,7 @@ def emit_cpp(
                 output / f"{prefix}{table.name}Row.cpp",
                 _row_source(table, prefix, runtime_header),
             )
-    _write(output / f"{prefix}GeneratedTables.h", _tables_header(model, prefix))
+    _write(output / f"{prefix}GeneratedTables.h", _tables_header(model, prefix, enums))
     if runtime_header:
         _write(
             output / f"{prefix}TableRegistration.h",
@@ -308,7 +309,8 @@ def _registration_header(model: DataModel, prefix: str, asset_name: str) -> str:
             f"namespace {prefix}GeneratedTables",
             "{",
             "    // 레지스트리는 Register<행, 에셋>(이름, 행 배열, 기본키 배열)을 제공하고, 그 반환값은",
-            "    // WithSchemaHash(해시)와 WithSubKey(이름, 키, 오프셋, 인덱스)를 이어 부를 수 있어야 한다.",
+            "    // WithSchemaHash(해시), WithContentHash(해시), WithSubKey(이름, 키, 오프셋, 인덱스)를",
+            "    // 이어 부를 수 있어야 한다.",
             "    template <typename TRegistry>",
             "    void RegisterAll(TRegistry& Registry)",
             "    {",
@@ -323,6 +325,7 @@ def _registration_header(model: DataModel, prefix: str, asset_name: str) -> str:
             f'TEXT("{name}"), &{asset}::Rows, &{asset}::PrimaryKeys)'
         )
         lines.append(f"            .WithSchemaHash({table.name}SchemaHash)")
+        lines.append(f"            .WithContentHash({table.name}ContentHash)")
         for column in _client_sub_keys(table):
             lines.append(
                 f'            .WithSubKey(TEXT("{column.name}"), &{asset}::{column.name}_Keys, '
@@ -395,7 +398,7 @@ def _asset_header(
     return "\n".join(lines)
 
 
-def _tables_header(model: DataModel, prefix: str) -> str:
+def _tables_header(model: DataModel, prefix: str, enums: dict[str, EnumSchema]) -> str:
     source_names = ", ".join(model.source_files)
     lines = [
         f"// 자동 생성됨 — 직접 수정하지 말 것. 출처: {source_names} / 전체",
@@ -415,6 +418,7 @@ def _tables_header(model: DataModel, prefix: str) -> str:
                 f'    inline constexpr TCHAR {table.name}PrimaryKey[] = TEXT("{primary.name}");',
                 f'    inline constexpr TCHAR {table.name}SubKeys[] = TEXT("{sub_keys}");',
                 f'    inline constexpr TCHAR {table.name}SchemaHash[] = TEXT("{table.schema_hash}");',
+                f'    inline constexpr TCHAR {table.name}ContentHash[] = TEXT("{content_hash(table, enums)}");',
                 "",
             ]
         )

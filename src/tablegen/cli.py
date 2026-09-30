@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             args.runtime_header,
             args.asset_name,
         )
-        emit_json(model, args.out_client, args.out_server, args.stamp)
+        emit_json(model, args.out_client, args.out_server, args.stamp, args.prefix, args.asset_name)
         return 0
     except ValidationErrors as exc:
         for message in exc.messages:

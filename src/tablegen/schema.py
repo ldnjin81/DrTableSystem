@@ -355,7 +355,16 @@ def _convert_default(
     )
 
 
-def calculate_schema_hash(columns: list[ColumnSchema]) -> str:
+def calculate_schema_hash(
+    columns: list[ColumnSchema],
+    enums: dict[str, EnumSchema] | None = None,
+) -> str:
+    """구조 해시. 필드 구성뿐 아니라 **쓰는 열거형의 (이름, 값) 목록**도 넣는다.
+
+    열거형 서브키·기본키의 구운 인덱스는 열거형 값 순서로 정렬돼 있어서, 값만 바꾸고
+    다시 굽지 않으면 런타임 이진 탐색이 조용히 빗나간다. 열거형 정의를 해시에 넣어
+    그런 경우도 스키마 불일치로 잡히게 한다(2026-09-30 검수).
+    """
     payload = []
     for column in columns:
         entry = {
@@ -373,6 +382,18 @@ def calculate_schema_hash(columns: list[ColumnSchema]) -> str:
                 for value in column.default_values
             ]
         payload.append(entry)
+    used_enums = sorted(
+        {column.type_name[1:] for column in columns if ENUM_RE.fullmatch(column.type_name)}
+    )
+    if enums is not None and used_enums:
+        payload = {
+            "columns": payload,
+            "enums": {
+                name: [[value.name, value.value] for value in enums[name].values]
+                for name in used_enums
+                if name in enums
+            },
+        }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 

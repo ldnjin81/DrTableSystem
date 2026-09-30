@@ -43,7 +43,7 @@ DrTableSystem(DesignToRuntime Table System)은 기획자가 엑셀에 적은 데
 
 ## 1. 설치
 
-`drtable`은 **설치가 필요 없는 실행 파일 하나**입니다. GitHub Releases에서 운영체제에 맞는 압축 파일(윈도우 `x86_64-pc-windows-msvc`, 맥 `aarch64-apple-darwin`, 리눅스 `x86_64-unknown-linux-gnu`)을 받아 `drtable`(윈도우는 `drtable.exe`)을 원하는 곳에 둡니다. 팀에서 쓸 때는 프로젝트 저장소(예: `Tools/DrTable/drtable.exe`)에 함께 넣으면 저장소만 받아도 바로 쓸 수 있습니다.
+`drtable`은 **설치가 필요 없는 실행 파일 하나**입니다. GitHub Releases에서 운영체제에 맞는 압축 파일(윈도우 `x86_64-pc-windows-msvc`, 맥 `aarch64-apple-darwin`, 리눅스 `x86_64-unknown-linux-gnu`)을 받아 `drtable`(명령줄)과 `drtable-gui`(창, 9절)를 원하는 곳에 둡니다(윈도우는 `.exe`). 팀에서 쓸 때는 프로젝트 저장소(예: `Tools/DrTable/drtable.exe`)에 함께 넣으면 저장소만 받아도 바로 쓸 수 있습니다.
 
 ```sh
 drtable --version
@@ -53,7 +53,8 @@ drtable --version
 
 ```sh
 cd rust
-cargo build --release          # rust/target/release/drtable
+cargo build --release                                  # rust/target/release/drtable
+cargo build --release --features gui --bin drtable-gui  # rust/target/release/drtable-gui
 ```
 
 저장소의 `src/drtable`은 같은 동작의 파이썬 기준 구현입니다. 테스트가 두 구현의 결과를 바이트 단위로 비교합니다(13절).
@@ -336,6 +337,30 @@ drtable [--lang en|ko] …
 - 경고(`경고: …`)는 표준 오류로 나가고 종료 코드에 영향을 주지 않습니다.
 
 종료 코드: `build`·`graph`·`check --input`·`new`·`migrate`는 0 성공, 1 검증 오류, 2 사용 오류. `check --client`는 0 통과, 1 끊긴 참조, 2 입력 오류.
+
+### GUI (`drtable-gui`)
+
+`drtable-gui`는 같은 기능을 창으로 제공합니다. 실행 파일 하나이고 설치가 필요 없습니다. 설정(폴더, 접두사, 언어)은 다음 실행 때 그대로 복원됩니다.
+
+| 탭 | 하는 일 |
+|---|---|
+| 빌드·검사 | 폴더를 고르고 검사 또는 빌드합니다. 빌드한 뒤에는 참조 검사도 함께 돌립니다. 오류·경고는 `[파일]시트!셀` 위치와 함께 표로 나오고, 더블클릭하면 그 파일을 엑셀로 엽니다. |
+| 테이블 | 테이블·열거형 목록, 필드(자료형·키·범위·배열·참조), 스키마 파일, 데이터가 있는 파일·시트와 행 수를 보여 줍니다. |
+| 참조 그래프 | 테이블 간 참조를 그립니다. 노드를 끌어 옮길 수 있고, 끊긴 참조는 빨간색입니다. 노드를 더블클릭하면 그 테이블로 갑니다. |
+| 새 파일·변환 | `drtable new`(참고 수식이 든 새 데이터 파일)와 `drtable migrate`(예전 형식 변환)를 실행합니다. 기존 데이터 파일은 고치지 않습니다. |
+
+![빌드·검사](../images/ko/build.png)
+![테이블](../images/ko/tables.png)
+![참조 그래프](../images/ko/graph.png)
+
+바로가기에서 프로젝트를 지정해 열 수 있습니다.
+
+```sh
+drtable-gui --input Design/Tables --schema Design/Tables/Schemas --out-cpp Source/MyGame/TableData/Generated \
+  --out-client Intermediate/DrTable/client --out-server Build/ServerData --prefix Gm --lang ko --check
+```
+
+`--check`나 `--build`를 주면 창이 뜨자마자 실행하고, `--tab tables|graph|files`로 처음 보일 탭을 고릅니다. 한글은 시스템 글꼴(윈도우 맑은 고딕, 맥 Apple SD 고딕, 리눅스 Noto CJK·나눔고딕)로 표시합니다.
 
 ## 10. 언리얼 플러그인
 

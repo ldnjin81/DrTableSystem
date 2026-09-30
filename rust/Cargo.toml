@@ -6,9 +6,33 @@ edition = "2024"
 [dependencies]
 calamine = { version = "0.36.1", features = ["dates"] }
 chrono = "0.4.45"
+eframe = { version = "0.36.2", features = ["persistence"], optional = true }
+egui_kittest = { version = "0.36.2", features = ["wgpu", "eframe"], optional = true }
+png = { version = "0.18.1", optional = true }
 rayon = "1.12.0"
 regex = "1.13.1"
+rfd = { version = "0.17.2", optional = true }
 rust_xlsxwriter = "0.99.1"
+serde = { version = "1.0.229", features = ["derive"], optional = true }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 sha2 = "0.11.0"
 zip = "8.6.0"
+
+[features]
+gui = ["dep:eframe", "dep:rfd", "dep:serde", "dep:png"]
+# Renders the GUI without a window into PNG files (docs, and checking the layout headless).
+screenshots = ["gui", "dep:egui_kittest"]
+
+[[bin]]
+name = "drtable"
+path = "src/main.rs"
+
+[[bin]]
+name = "drtable-gui"
+path = "src/bin/drtable-gui.rs"
+required-features = ["gui"]
+
+[[bin]]
+name = "drtable-screenshots"
+path = "src/bin/drtable-screenshots.rs"
+required-features = ["screenshots"]

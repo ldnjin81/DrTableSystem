@@ -43,7 +43,7 @@ Contents
 
 ## 1. Installation
 
-`drtable` is **a single executable with nothing to install**. Download the archive for your platform from GitHub Releases (Windows `x86_64-pc-windows-msvc`, macOS `aarch64-apple-darwin`, Linux `x86_64-unknown-linux-gnu`) and put `drtable` (`drtable.exe` on Windows) wherever you like. For a team, commit it to the project repository (for example `Tools/DrTable/drtable.exe`) so that syncing the repository is all anyone needs.
+`drtable` is **a single executable with nothing to install**. Download the archive for your platform from GitHub Releases (Windows `x86_64-pc-windows-msvc`, macOS `aarch64-apple-darwin`, Linux `x86_64-unknown-linux-gnu`) and put `drtable` (command line) and `drtable-gui` (window, section 9) wherever you like (`.exe` on Windows). For a team, commit it to the project repository (for example `Tools/DrTable/drtable.exe`) so that syncing the repository is all anyone needs.
 
 ```sh
 drtable --version
@@ -53,7 +53,8 @@ To build it yourself you need [Rust](https://rustup.rs/):
 
 ```sh
 cd rust
-cargo build --release          # rust/target/release/drtable
+cargo build --release                                  # rust/target/release/drtable
+cargo build --release --features gui --bin drtable-gui  # rust/target/release/drtable-gui
 ```
 
 `src/drtable` in the repository is a Python reference implementation of the same behaviour. The tests compare both implementations byte for byte (section 13).
@@ -336,6 +337,30 @@ drtable [--lang en|ko] …
 - Warnings (`warning: …`) go to standard error and do not change the exit code.
 
 Exit codes: `build`, `graph`, `check --input`, `new` and `migrate` return 0 on success, 1 on validation errors, 2 on usage errors. `check --client` returns 0 when clean, 1 on broken references, 2 on input errors.
+
+### GUI (`drtable-gui`)
+
+`drtable-gui` offers the same features in a window. It is a single executable with nothing to install, and it restores its settings (folders, prefix, language) on the next start.
+
+| Tab | What it does |
+|---|---|
+| Build & check | Pick the folders, then check or build. A build also checks the references in its output. Errors and warnings are listed with their `[File]Sheet!Cell` location; double-click one to open its workbook in Excel. |
+| Tables | Tables and enums with their fields (type, key, scope, array, reference), schema file, and the files and sheets holding their data with row counts. |
+| References | The reference graph. Drag nodes to move them; broken references are red; double-click a node to open its table. |
+| New & convert | Runs `drtable new` (a new data workbook with the reference formulas) and `drtable migrate` (converting the old layout). Existing data workbooks are never changed. |
+
+![Build & check](../images/en/build.png)
+![Tables](../images/en/tables.png)
+![References](../images/en/graph.png)
+
+A shortcut can open a project directly:
+
+```sh
+drtable-gui --input Design/Tables --schema Design/Tables/Schemas --out-cpp Source/MyGame/TableData/Generated \
+  --out-client Intermediate/DrTable/client --out-server Build/ServerData --prefix Gm --lang en --check
+```
+
+`--check` or `--build` runs as soon as the window opens, and `--tab tables|graph|files` picks the first tab. Hangul is drawn with a system font (Malgun Gothic on Windows, Apple SD Gothic Neo on macOS, Noto CJK or Nanum Gothic on Linux).
 
 ## 10. Unreal plugin
 

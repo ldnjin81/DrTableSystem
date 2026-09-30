@@ -29,7 +29,7 @@ from .schema import (
     calculate_schema_hash,
     parse_type,
 )
-from .schemafile import SCHEMA_SUFFIXES, Schema, enum_folder, load_schemas, stale_views
+from .schemafile import SCHEMA_SUFFIXES, Schema, enum_folder, load_schemas
 from .sources import find_files, table_name_of
 from .values import convert_value
 
@@ -89,10 +89,7 @@ def load_model(
     # Reference headers that point at a schema path missing on this machine stop updating.
     base = schema_root.parent if schema_root.is_file() else schema_root
     schema_files = {
-        (base / item.file).resolve()
-        for schema in schemas.all()
-        for item in (schema, schema.view)
-        if item is not None and item.kind == "xlsx"
+        (base / schema.file).resolve() for schema in schemas.all()
     }
     for path, relative in files:
         warnings.extend(link_warnings(path, relative, schema_files))
@@ -105,9 +102,9 @@ def load_model(
                 continue
             if sheet.title.startswith("<enum>"):
                 warnings.append(tr(
-                    f"{ref.where}: 열거형 값은 이제 열거형 스키마(.enum.xlsx/.enum.yaml)에 정의합니다. "
+                    f"{ref.where}: 열거형 값은 이제 열거형 스키마(.enum.xlsx)에 정의합니다. "
                     "이 시트는 읽지 않으니 지워도 됩니다(옮기기: drtable migrate)",
-                    f"{ref.where}: enum values are now defined in enum schemas (.enum.xlsx/.enum.yaml). "
+                    f"{ref.where}: enum values are now defined in enum schemas (.enum.xlsx). "
                     "This sheet is not read and can be deleted (to convert: drtable migrate)",
                 ))
                 continue
@@ -120,8 +117,8 @@ def load_model(
                 continue
             if name not in schemas.tables:
                 errors.add(ref.where, "A1", tr(
-                    f"스키마가 없습니다. '{name}.schema.xlsx' 또는 '{name}.schema.yaml'에 필드를 정의하세요",
-                    f"no schema. Define the fields in '{name}.schema.xlsx' or '{name}.schema.yaml'",
+                    f"스키마가 없습니다. '{name}.schema.xlsx'에 필드를 정의하세요",
+                    f"no schema. Define the fields in '{name}.schema.xlsx'",
                 ))
                 continue
             table_parts.setdefault(name, []).append(ref)
@@ -163,7 +160,7 @@ def load_model(
         tuple(relative for relative, _ in workbooks),
         tuple(sorted(enums.values(), key=lambda item: item.name)),
         tuple(sorted(tables, key=lambda item: item.name)),
-        (*stale_views(schemas), *warnings),
+        tuple(warnings),
     )
 
 
@@ -249,7 +246,7 @@ def _parse_enum(schema: Schema, errors: ErrorCollector) -> EnumSchema | None:
         next_value = value + 1
         values.append(EnumValue(item_name, value, "" if raw_comment is None else str(raw_comment)))
     if not values:
-        errors.add(schema.where, "A2" if schema.kind == "xlsx" else "1", tr("열거형에는 항목이 하나 이상 필요합니다", "an enum needs at least one value"))
+        errors.add(schema.where, "A2", tr("열거형에는 항목이 하나 이상 필요합니다", "an enum needs at least one value"))
         return None
     return EnumSchema(schema.name, schema.title or schema.name, schema.file, tuple(values))
 

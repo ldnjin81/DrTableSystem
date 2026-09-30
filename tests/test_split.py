@@ -1,4 +1,4 @@
-"""스키마 파일(xlsx·YAML)과 데이터 시트 연결, 나뉜 테이블, [파일]시트 위치 표기 테스트.
+"""스키마 파일과 데이터 시트 연결, 나뉜 테이블, [파일]시트 위치 표기 테스트.
 
 여기서는 스키마 파일을 직접 만들고 데이터 워크북은 plain_save로 저장한다(자동 추출 없음).
 """
@@ -33,13 +33,6 @@ def _enum(folder: Path, name: str, values: list[tuple[object, object, object]]) 
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{name}.enum.xlsx"
     path.write_bytes(render_xlsx(Schema("", name, [(0, n, v, None, c) for n, v, c in values], is_enum=True)))
-    return path
-
-
-def _yaml(folder: Path, name: str, text: str) -> Path:
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{name}.schema.yaml"
-    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -217,21 +210,12 @@ def test_enum_schemas_must_be_in_the_enum_folder(
     assert "[Enums/Items.schema.xlsx]!A1: 열거형 폴더에는 열거형 스키마" in error
 
 
-ENUM_YAML = """\
-enum: Kind
-values:
-  - name: A
-  - name: B
-    value: 5
-    comment: 둘째
-"""
-
-
-def test_enum_yaml_and_folder_option(tmp_path: Path) -> None:
-    (tmp_path / "MyEnums").mkdir()
-    (tmp_path / "MyEnums" / "Kind.enum.yaml").write_text(ENUM_YAML, encoding="utf-8")
+def test_enum_folder_option(tmp_path: Path) -> None:
+    folder = tmp_path / "MyEnums"
+    folder.mkdir()
+    (folder / "Kind.enum.xlsx").write_bytes(render_xlsx(Schema("", "Kind", [(0, "A", None, None, None), (0, "B", 5, None, None)], is_enum=True)))
     _data(tmp_path / "Data.xlsx", {"#메모": [["x"]]})
-    assert _build(tmp_path, tmp_path / "out", "--enums", str(tmp_path / "MyEnums")) == 0
+    assert _build(tmp_path, tmp_path / "out", "--enums", str(folder)) == 0
     enum = (tmp_path / "out" / "cpp" / "EDtKind.h").read_text(encoding="utf-8")
     assert "B = 5" in enum
 
@@ -257,87 +241,19 @@ def test_hidden_folders_and_lock_files_are_skipped(tmp_path: Path) -> None:
     assert _build(tmp_path, tmp_path / "out") == 0
 
 
-ITEMS_YAML = """\
-table: Items
-fields:
-  - name: Id
-    type: ID<int32>
-    scope: all
-  - name: Name
-    type: name
-    scope: all
-  - name: Cost
-    type: int32
-    scope: server
-    comment: 구매 가격
-"""
-
-
-def test_yaml_schema_is_the_source(tmp_path: Path) -> None:
-    _yaml(tmp_path, "Items", ITEMS_YAML)
-    _data(tmp_path / "Items.xlsx", {"Items": [NAMES, *VIEW, [1, "Sword", 10]]})
-    assert _build(tmp_path, tmp_path / "out") == 0
-    assert _rows(tmp_path / "out", "server", "Items") == [{"Id": 1, "Name": "Sword", "Cost": 10}]
-
-
-def test_yaml_errors_use_file_and_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    _yaml(tmp_path, "Items", ITEMS_YAML.replace("type: int32\n", "type: EMissing\n"))
-    _data(tmp_path / "Items.xlsx", {"Items": [NAMES, *VIEW, [1, "Sword", 10]]})
-    assert _build(tmp_path, tmp_path / "out") == 1
-    assert "Items.schema.yaml:10: 정의되지 않은 열거형 'Missing'" in capsys.readouterr().err
-
-
-def test_yaml_unquoted_hash_scope_gets_a_hint(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    _yaml(tmp_path, "Items", ITEMS_YAML + "  - name: Memo\n    type: string\n    scope: #\n")
-    _data(tmp_path / "Items.xlsx", {"Items": [NAMES, *VIEW, [1, "Sword", 10]]})
-    assert _build(tmp_path, tmp_path / "out") == 1
-    assert 'Items.schema.yaml:15: scope가 비어 있습니다' in capsys.readouterr().err
-
-
-def test_schema_export_writes_deterministic_views(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    _yaml(tmp_path, "Items", ITEMS_YAML)
-    assert main(["schema-export", "--schema", str(tmp_path), "--check"]) == 1
-    assert main(["schema-export", "--schema", str(tmp_path)]) == 0
-    view = tmp_path / "Items.schema.xlsx"
-    first = view.read_bytes()
-    assert main(["schema-export", "--schema", str(tmp_path), "--check"]) == 0
-    assert main(["schema-export", "--schema", str(tmp_path)]) == 0
-    assert view.read_bytes() == first
-    capsys.readouterr()
-    # 보기 파일이 있어도 원본은 YAML이다.
-    _data(tmp_path / "Items.xlsx", {"Items": [NAMES, *VIEW, [1, "Sword", 10]]})
-    assert _build(tmp_path, tmp_path / "out") == 0
-    assert "경고" not in capsys.readouterr().err
-
-
-def test_stale_view_is_a_warning(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    _yaml(tmp_path, "Items", ITEMS_YAML)
-    assert main(["schema-export", "--schema", str(tmp_path)]) == 0
-    _yaml(tmp_path, "Items", ITEMS_YAML.replace("scope: server", "scope: all"))
-    _data(tmp_path / "Items.xlsx", {"Items": [NAMES, *VIEW, [1, "Sword", 10]]})
-    capsys.readouterr()
-    assert _build(tmp_path, tmp_path / "out") == 0
-    assert _rows(tmp_path / "out", "client", "Items")[0]["Cost"] == 10  # YAML이 이긴다
-    assert "경고: [Items.schema.xlsx]Items: Items.schema.yaml와 내용이 다릅니다" in capsys.readouterr().err
-
-
-@pytest.mark.parametrize("fmt", ["xlsx", "yaml"])
-def test_migrate_moves_old_headers_into_schema_files(tmp_path: Path, fmt: str) -> None:
+def test_migrate_moves_old_headers_into_schema_files(tmp_path: Path) -> None:
     old = [["Id", "Name", "Kind"], ["ID<int32>", "name", "EKind"], ["all", "all", "all"],
            [1, "Sword", "B"]]
     enum = [["Id", "Value", "Comment", "Label"], ["ID<name>", "int32", "string", "string"],
             ["all", "all", "#", "client"], ["A", 0, "첫째", "에이"], ["B", 3, None, "비"]]
     _data(tmp_path / "Items.xlsx", {"Items": old, "<enum>Kind": enum})
     before = (tmp_path / "Items.xlsx").read_bytes()
-    assert main(["migrate", "--input", str(tmp_path), "--format", fmt]) == 0
-    assert (tmp_path / f"Items.schema.{fmt}").exists()
-    assert (tmp_path / "Enums" / f"Kind.enum.{fmt}").exists()
-    assert (tmp_path / f"KindInfo.schema.{fmt}").exists()
+    assert main(["migrate", "--input", str(tmp_path)]) == 0
+    assert (tmp_path / "Items.schema.xlsx").exists()
+    assert (tmp_path / "Enums" / "Kind.enum.xlsx").exists()
+    assert (tmp_path / "KindInfo.schema.xlsx").exists()
     assert (tmp_path / "KindInfo.xlsx").exists()
     assert (tmp_path / "Items.xlsx").read_bytes() == before  # 기존 데이터 파일은 건드리지 않는다
-    if fmt == "yaml":
-        text = (tmp_path / "Enums" / "Kind.enum.yaml").read_text(encoding="utf-8")
-        assert text.startswith("enum: Kind\nvalues:\n  - name: A\n    value: 0\n    comment: 첫째\n")
     assert _build(tmp_path, tmp_path / "out") == 0
     assert _rows(tmp_path / "out", "server", "Items") == [{"Id": 1, "Name": "Sword", "Kind": "B"}]
     assert _rows(tmp_path / "out", "client", "KindInfo") == [

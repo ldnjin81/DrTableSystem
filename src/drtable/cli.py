@@ -1,4 +1,4 @@
-"""Command line interface: ``drtable build | graph | check | migrate | headers | schema-export``."""
+"""Command line interface: ``drtable build | graph | check | migrate | headers``."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from .headers import write_headers
 from .i18n import SUPPORTED, set_language, tr
 from .migrate import extract_schemas
 from .schema import CLIENT_SCOPES, IDENTIFIER_RE
-from .schemafile import enum_folder, export_views, load_schemas
+from .schemafile import enum_folder, load_schemas
 
 PLUGIN_ASSET_BASE = "UDrTableAssetBase"
 PLUGIN_ASSET_BASE_HEADER = "DrTableAssetBase.h"
@@ -41,7 +41,7 @@ def create_parser() -> argparse.ArgumentParser:
     build = subparsers.add_parser("build", help="generate C++, client JSON and server JSON")
     build.add_argument("--input", required=True, type=Path, help="an .xlsx file or a folder of them")
     build.add_argument("--schema", type=Path, help="folder of table schemas (default: the input folder)")
-    build.add_argument("--enums", type=Path, help="folder of *.enum.xlsx/.enum.yaml files (default: <schema>/Enums)")
+    build.add_argument("--enums", type=Path, help="folder of *.enum.xlsx files (default: <schema>/Enums)")
     build.add_argument("--out-cpp", required=True, type=Path, help="output folder for C++ headers")
     build.add_argument("--out-client", required=True, type=Path, help="output folder for client JSON")
     build.add_argument("--out-server", required=True, type=Path, help="output folder for server JSON")
@@ -74,7 +74,7 @@ def create_parser() -> argparse.ArgumentParser:
     graph = subparsers.add_parser("graph", help="write the table reference graph as Mermaid Markdown")
     graph.add_argument("--input", required=True, type=Path)
     graph.add_argument("--schema", type=Path, help="folder of table schemas (default: the input folder)")
-    graph.add_argument("--enums", type=Path, help="folder of *.enum.xlsx/.enum.yaml files (default: <schema>/Enums)")
+    graph.add_argument("--enums", type=Path, help="folder of *.enum.xlsx files (default: <schema>/Enums)")
     graph.add_argument("--out", required=True, type=Path)
 
     check = subparsers.add_parser(
@@ -84,16 +84,14 @@ def create_parser() -> argparse.ArgumentParser:
     check.add_argument("--server", type=Path, help="server JSON folder written by build")
     check.add_argument("--input", type=Path, help="validate a spreadsheet without writing anything")
     check.add_argument("--schema", type=Path, help="folder of table schemas (default: the input folder)")
-    check.add_argument("--enums", type=Path, help="folder of *.enum.xlsx/.enum.yaml files (default: <schema>/Enums)")
+    check.add_argument("--enums", type=Path, help="folder of *.enum.xlsx files (default: <schema>/Enums)")
 
     migrate = subparsers.add_parser(
         "migrate", help="move the header rows of old workbooks into schema files (data files are not changed)"
     )
     migrate.add_argument("--input", required=True, type=Path, help="an .xlsx file or a folder of them")
     migrate.add_argument("--schema", type=Path, help="folder to write the schema files to (default: the input folder)")
-    migrate.add_argument("--enums", type=Path, help="folder of *.enum.xlsx/.enum.yaml files (default: <schema>/Enums)")
-    migrate.add_argument("--format", choices=("xlsx", "yaml"), default="xlsx",
-                         help="xlsx: <Name>.schema.xlsx is the source; yaml: <Name>.schema.yaml is the source")
+    migrate.add_argument("--enums", type=Path, help="folder of *.enum.xlsx files (default: <schema>/Enums)")
     migrate.add_argument("--overwrite", action="store_true", help="replace existing schema files")
 
     headers = subparsers.add_parser(
@@ -103,12 +101,6 @@ def create_parser() -> argparse.ArgumentParser:
     headers.add_argument("--schema", type=Path, help="folder of table schemas (default: the input folder)")
     headers.add_argument("--enums", type=Path, help="folder of enum schemas (default: <schema>/Enums)")
 
-    export = subparsers.add_parser(
-        "schema-export", help="write the .xlsx view next to every .schema.yaml and .enum.yaml"
-    )
-    export.add_argument("--schema", required=True, type=Path, help="folder of YAML schemas (searched recursively)")
-    export.add_argument("--check", action="store_true",
-                        help="write nothing; fail if a view is missing or out of date (for CI)")
     return parser
 
 
@@ -138,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             schema_dir = args.schema or root
             written = extract_schemas(
-                args.input, schema_dir, enum_folder(schema_dir, args.enums), args.overwrite, args.format
+                args.input, schema_dir, enum_folder(schema_dir, args.enums), args.overwrite
             )
         except ValidationErrors as exc:
             for message in exc.messages:
@@ -157,17 +149,6 @@ def main(argv: list[str] | None = None) -> int:
         for path in changed:
             print(path)
         return 1 if errors.messages else 0
-    if args.command == "schema-export":
-        changed, errors = export_views(args.schema, check=args.check)
-        for message in errors:
-            print(message, file=sys.stderr)
-        for path in changed:
-            if args.check:
-                print(tr(f"{path}: 스키마 보기 파일이 최신이 아닙니다", f"{path}: schema view is out of date"),
-                      file=sys.stderr)
-            else:
-                print(path)
-        return 1 if errors or (args.check and changed) else 0
     if args.command == "check" and (args.server is not None or args.input is None):
         parser.error(tr("check에는 --client 또는 --input이 필요합니다",
                         "check needs --client or --input"))

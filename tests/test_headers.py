@@ -77,18 +77,6 @@ def test_workbooks_with_pictures_are_left_alone(tmp_path: Path, capsys: pytest.C
     assert path.read_bytes() == before
 
 
-def test_yaml_source_needs_its_view(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    _setup(tmp_path)
-    schemas = tmp_path / "Schemas"
-    (schemas / "Items.schema.xlsx").unlink()
-    (schemas / "Items.schema.yaml").write_text(
-        "table: Items\nfields:\n  - name: Id\n    type: ID<int32>\n    scope: all\n", encoding="utf-8")
-    assert _headers(tmp_path) == 1
-    assert "schema-export" in capsys.readouterr().err
-    assert main(["schema-export", "--schema", str(schemas)]) == 0
-    assert _headers(tmp_path) == 0
-
-
 def test_build_warns_when_the_link_path_is_missing_here(
     tmp_path: Path, capsys: pytest.CaptureFixture[str],
 ) -> None:

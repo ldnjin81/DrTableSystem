@@ -9,7 +9,6 @@ description = "DrTableSystem (DesignToRuntime Table System): Excel tables to Unr
 requires-python = ">=3.12"
 dependencies = [
     "openpyxl>=3.1,<4",
-    "pyyaml>=6,<7",
 ]
 
 [dependency-groups]

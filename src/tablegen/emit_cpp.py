@@ -112,8 +112,14 @@ def _table_header(
             if column.is_array
             else "EditAnywhere, BlueprintReadOnly"
         )
+        metadata = ""
+        if column.ref_target:
+            metadata = f', meta = (TableRef = "{column.ref_target}"'
+            if column.ref_key:
+                metadata += f', TableRefKey = "{column.ref_key}"'
+            metadata += ")"
         lines.append(
-            f'    UPROPERTY({property_specifiers}, Category = "{prefix}|{table.name}")'
+            f'    UPROPERTY({property_specifiers}, Category = "{prefix}|{table.name}"{metadata})'
         )
         declaration = f"{_cpp_type(column, prefix)} {column.name}"
         if column.is_array:
@@ -247,6 +253,8 @@ def _cpp_initializer(
     }
     if column.type_name in initializers:
         return initializers[column.type_name]
+    if column.ref_target and column.type_name == "name":
+        return " = NAME_None"
     if column.type_name.startswith("E"):
         enum_name = column.type_name[1:]
         first_value = enums[enum_name].values[0].name

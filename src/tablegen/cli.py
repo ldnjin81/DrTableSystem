@@ -9,10 +9,12 @@ from datetime import datetime
 from pathlib import Path
 
 from . import __version__
+from .check import CheckInputError, check_directory
 from .emit_cpp import DEFAULT_ASSET_BASE, emit_cpp
 from .emit_json import emit_json
 from .errors import ValidationErrors
 from .excel import load_model
+from .graph import emit_graph
 from .schema import IDENTIFIER_RE
 
 
@@ -38,17 +40,44 @@ def create_parser() -> argparse.ArgumentParser:
         help="기반 클래스를 바꿀 때 include할 헤더 경로",
     )
 
-    check = subparsers.add_parser("check", help="파일을 쓰지 않고 xlsx를 검증합니다")
-    check.add_argument("--input", required=True, type=Path)
+    graph = subparsers.add_parser("graph", help="Mermaid 참조 그래프를 생성합니다")
+    graph.add_argument("--input", required=True, type=Path)
+    graph.add_argument("--out", required=True, type=Path)
+
+    check = subparsers.add_parser("check", help="생성된 JSON의 참조를 검사합니다")
+    check.add_argument("--client", type=Path)
+    check.add_argument("--server", type=Path)
+    check.add_argument("--input", type=Path, help="기존 엑셀 스키마 검사")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = create_parser()
     args = parser.parse_args(argv)
+    if args.command == "check" and args.client is not None:
+        try:
+            failures = []
+            for directory in (args.client, args.server):
+                if directory is None:
+                    continue
+                found, warnings = check_directory(directory)
+                for warning in warnings:
+                    print(f"{directory}: 경고: {warning}", file=sys.stderr)
+                failures.extend(f"{directory}: {failure}" for failure in found)
+            for failure in failures:
+                print(failure, file=sys.stderr)
+            return 1 if failures else 0
+        except CheckInputError as exc:
+            print(exc, file=sys.stderr)
+            return 2
+    if args.command == "check" and (args.server is not None or args.input is None):
+        parser.error("check에는 --client 또는 --input이 필요합니다")
     try:
         model = load_model(args.input)
         if args.command == "check":
+            return 0
+        if args.command == "graph":
+            emit_graph(model, args.out)
             return 0
         if not IDENTIFIER_RE.fullmatch(args.prefix):
             parser.error("--prefix는 영문자로 시작하는 C++ 식별자여야 합니다")

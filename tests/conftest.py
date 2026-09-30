@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tablegen.i18n import set_language
+from drtable.i18n import set_language
 
 
 @pytest.fixture(autouse=True)

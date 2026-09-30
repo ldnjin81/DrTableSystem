@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tablegen"
+name = "drtablesystem"
 version = "0.1.0"
-description = "엑셀 기반 C++ 및 JSON 데이터 생성기"
+description = "DrTableSystem (Design-to-Runtime Table System): Excel tables to Unreal C++, baked DataAssets and server/client JSON"
 requires-python = ">=3.12"
 dependencies = ["openpyxl>=3.1,<4"]
 
@@ -13,7 +13,7 @@ dependencies = ["openpyxl>=3.1,<4"]
 dev = ["pytest>=8,<9", "ruff>=0.13,<1"]
 
 [project.scripts]
-tablegen = "tablegen.cli:main"
+drtable = "drtable.cli:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
@@ -24,4 +24,4 @@ line-length = 100
 target-version = "py312"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tablegen"]
+packages = ["src/drtable"]

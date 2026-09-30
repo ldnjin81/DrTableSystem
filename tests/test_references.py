@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from tablegen.cli import main
+from drtable.cli import main
 
 
 def _sheet(workbook: Workbook, name: str, headers: list[str], types: list[str],

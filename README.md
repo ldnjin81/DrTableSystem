@@ -1,4 +1,4 @@
-# TableGen
+# DrTableSystem
 
 엑셀 한 벌에서 **서버 JSON · 클라이언트 JSON · 언리얼 C++ 코드**를 뽑는 데이터 생성기.
 
@@ -14,10 +14,10 @@ Tables.xlsx ──┬─→ C++ (USTRUCT 행 구조체, UENUM 열거형, 테이�
 
 ```powershell
 uv sync
-uv run tablegen build --input Data\Tables.xlsx --out-cpp Generated --out-client Data\client --out-server Data\server
-uv run tablegen graph --input Data\Tables.xlsx --out Data\references.md
-uv run tablegen check --client Data\client --server Data\server
-uv run tablegen check --input Data\Tables.xlsx  # 기존 엑셀 스키마 검사
+uv run drtable build --input Data\Tables.xlsx --out-cpp Generated --out-client Data\client --out-server Data\server
+uv run drtable graph --input Data\Tables.xlsx --out Data\references.md
+uv run drtable check --client Data\client --server Data\server
+uv run drtable check --input Data\Tables.xlsx  # 기존 엑셀 스키마 검사
 ```
 
 ## 엑셀 규약 요약
@@ -35,5 +35,5 @@ uv run tablegen check --input Data\Tables.xlsx  # 기존 엑셀 스키마 검사
 자세한 규칙과 산출물 형식은 [docs/SPEC.md](docs/SPEC.md)에 있다.
 
 - Codex 작업 규칙: [AGENTS.md](AGENTS.md)
-- 설치 위치: PC `C:\tools\tablegen`, 맥 `~/Project/tablegen`
+- 설치 위치: PC `C:\tools\drtable`, 맥 `~/Project/drtable`
 - 상태: v0.1 구현

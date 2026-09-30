@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from tablegen.cli import main
+from drtable.cli import main
 
 
 def _book(sheets: dict[str, list[list[object]]]) -> Workbook:
@@ -105,8 +105,8 @@ def test_ue_plugin_preset(tmp_path: Path) -> None:
     _book({"T": [["Id"], ["ID<int32>"], ["all"], [1]]}).save(source)
     assert _build(source, tmp_path, "--ue-plugin", "--prefix", "Gm") == 0
     table = (tmp_path / "cpp" / "GmTTable.h").read_text(encoding="utf-8")
-    assert '#include "TableGenAssetBase.h"' in table
-    assert "class UGmTTable : public UTableGenAssetBase" in table
+    assert '#include "DrTableAssetBase.h"' in table
+    assert "class UGmTTable : public UDrTableAssetBase" in table
     source_cpp = (tmp_path / "cpp" / "GmTRow.cpp").read_text(encoding="utf-8")
-    assert '#include "TableGenRuntime.h"' in source_cpp
+    assert '#include "DrTableRuntime.h"' in source_cpp
     assert (tmp_path / "cpp" / "GmTableRegistration.h").exists()

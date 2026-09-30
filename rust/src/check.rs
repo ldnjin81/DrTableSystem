@@ -15,7 +15,7 @@ pub struct CheckInputError(pub String);
 fn read_json(path: &Path) -> Result<Map<String, J>, CheckInputError> {
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let text = std::fs::read_to_string(path).map_err(|e| match e.kind() {
-        // Python's wording, so both implementations report the same.
+        // The wording this tool has always used for a missing file.
         std::io::ErrorKind::NotFound => format!("[Errno 2] No such file or directory: {}", py_str_repr(&path.display().to_string())),
         _ => e.to_string(),
     });

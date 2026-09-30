@@ -1,7 +1,7 @@
 //! Cell values read from spreadsheets, converted table values, and their text forms.
 //!
-//! Output must match the reference implementation byte for byte, so numbers are printed the
-//! way Python prints them (`repr(float)`), and JSON follows `json.dumps` exactly.
+//! The text forms are fixed: numbers print like Python's `repr(float)` and JSON follows
+//! `json.dumps` exactly, so generated files and content hashes stay byte-for-byte stable.
 
 use std::cmp::Ordering;
 use std::fmt::Write;

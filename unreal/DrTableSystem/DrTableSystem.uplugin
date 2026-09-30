@@ -3,7 +3,7 @@
 	"Version": 1,
 	"VersionName": "0.1.0",
 	"FriendlyName": "DrTableSystem",
-	"Description": "Runtime and editor support for DrTableSystem: spreadsheet tables baked into DataAssets with prebuilt key indices, typed lookups and schema/content drift detection.",
+	"Description": "DrTableSystem (DesignToRuntime Table System) runtime and editor support: spreadsheet tables baked into DataAssets with prebuilt key indices, typed lookups and schema/content drift detection.",
 	"Category": "Data",
 	"CreatedBy": "ldnjin81",
 	"CanContainContent": false,

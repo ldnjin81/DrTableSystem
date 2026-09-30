@@ -1,6 +1,6 @@
 # DrTableSystem 매뉴얼
 
-DrTableSystem(Design-to-Runtime Table System)은 기획자가 엑셀에 적은 데이터를 게임 런타임까지 그대로 옮기는 테이블 시스템입니다. 엑셀 테이블에서 다음을 만듭니다.
+DrTableSystem(DesignToRuntime Table System)은 기획자가 엑셀에 적은 데이터를 게임 런타임까지 그대로 옮기는 테이블 시스템입니다. 엑셀 테이블에서 다음을 만듭니다.
 
 - **언리얼 C++**: `USTRUCT` 행 구조체, `UENUM` 열거형, 테이블마다 DataAsset 클래스 하나. 원하면 타입 안전 조회 함수와 등록 헤더까지.
 - **클라이언트 JSON**: 게임 클라이언트가 쓸 행과, 미리 계산한 키 인덱스. DataAsset으로 굽기 위한 입력입니다.

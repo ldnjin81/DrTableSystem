@@ -5,9 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from harness import main
 from openpyxl import Workbook
-
-from drtable.cli import main
 
 RUNTIME = "TableData/DrTableRuntime.h"
 

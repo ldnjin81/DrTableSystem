@@ -56,7 +56,6 @@ cargo build --release                                  # rust/target/release/drt
 cargo build --release --features gui --bin drtable-gui  # rust/target/release/drtable-gui
 ```
 
-`src/drtable` in the repository is a Python reference implementation of the same behaviour. The tests compare both implementations byte for byte (section 13).
 
 For Unreal, copy `unreal/DrTableSystem` into your project's `Plugins/` folder ([section 10](#10-unreal-plugin)). The plugin is developed and tested with Unreal Engine 5.8.
 
@@ -462,9 +461,8 @@ UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # fails on missing o
 
 On every push, `.github/workflows/ci.yml` runs on Windows, macOS and Linux:
 
-- the tests and lint of the Python reference implementation
-- the Rust build and unit tests
-- the same test suite against the Rust executable (`DRTABLE_BIN`), where every `build`, `graph` and `check` also runs the reference implementation and must match its exit code, messages and written files byte for byte
+- the build of the executable and the GUI, and the unit tests
+- the test suite against the executable (`tests/`; the tests create their input workbooks)
 
 A `v*` tag builds the executables for each platform and attaches them to a Release.
 

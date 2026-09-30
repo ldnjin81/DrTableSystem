@@ -6,10 +6,8 @@ import re
 from pathlib import Path
 
 import pytest
+from harness import main, set_language
 from openpyxl import Workbook
-
-from drtable.cli import main
-from drtable.i18n import set_language
 
 HANGUL = re.compile("[가-힣]")
 

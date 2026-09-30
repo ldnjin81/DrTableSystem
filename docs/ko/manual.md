@@ -9,7 +9,7 @@ DrTableSystem(DesignToRuntime Table System)은 기획자가 엑셀에 적은 데
 **DrTableSystem 언리얼 플러그인**은 클라 JSON을 DataAsset으로 굽고, 런타임에 복사나 인덱스 구축 없이 그대로 읽으며, 오래된 에셋을 잡아냅니다.
 
 ```
-스키마(Schemas/*.schema.xlsx, Enums/*.enum.xlsx) ─┐        ┌─▶ C++ 헤더 ─────────────▶ 컴파일
+스키마(Schema/*.schema.xlsx, Enums/*.enum.xlsx) ─┐        ┌─▶ C++ 헤더 ─────────────▶ 컴파일
                                                     ├▶ drtable build ─┼─▶ 클라 JSON ─▶ DrTableBake ─▶ DA_*.uasset ─▶ 런타임 조회
 데이터 엑셀(*.xlsx, 1행 필드명 + 4행부터 데이터) ─────┘        └─▶ 서버 JSON ─▶ 서버
                  drtable check  ◀─ 클라·서버 JSON   (참조 무결성 검사, CI)
@@ -71,15 +71,16 @@ Design/Tables/                    ← --input (데이터)
   Items.xlsx
   Monsters.xlsx
   event/Summer.xlsx               ← 하위 폴더도 읽습니다
-  Schemas/                        ← --schema (테이블 스키마)
+  Schema/                         ← --schema (테이블 스키마)
     Items.schema.xlsx
     Monsters.schema.xlsx
-    Enums/                        ← --enums (열거형 스키마, 기본값 <스키마>/Enums)
-      ItemType.enum.xlsx
+  Enums/                          ← --enums (열거형 스키마, 기본값: 스키마 폴더 옆 Enums)
+    ItemType.enum.xlsx
 ```
 
 - 스키마는 테이블마다 파일 하나, 열거형은 열거형 폴더에 열거형마다 파일 하나입니다. 파일 이름은 정의한 이름과 같아야 합니다(`Items.schema.xlsx` ↔ 테이블 `Items`).
-- `--schema`를 주지 않으면 입력 폴더 전체에서 `*.schema.xlsx`를 찾습니다. 데이터를 읽을 때 스키마 파일은 건너뜁니다.
+- 열거형 폴더는 테이블 스키마 폴더와 **나란히** 둡니다. `--enums`를 주지 않으면 스키마 폴더 옆의 `Enums`를 씁니다(`Table/Schema` → `Table/Enums`).
+- `--schema`를 주지 않으면 입력 폴더 전체에서 `*.schema.xlsx`를 찾고, 열거형 폴더는 입력 폴더 안의 `Enums`입니다. 데이터를 읽을 때 스키마 파일은 건너뜁니다.
 - 엑셀이 열어 둔 파일의 잠금 파일(`~$…`)과 `.`으로 시작하는 숨김 폴더는 건너뜁니다.
 
 ### 스키마 파일
@@ -114,7 +115,7 @@ Design/Tables/                    ← --input (데이터)
 
 ### 참고 헤더
 
-데이터 시트 2·3행에는 1행 필드명으로 스키마 엑셀 파일에서 자료형과 범위를 찾아 보여 주는 수식을 둡니다. 스키마가 바뀌면 파일을 열 때 반영됩니다. `drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schemas`는 이 수식이 든 **새** 데이터 파일을 만듭니다.
+데이터 시트 2·3행에는 1행 필드명으로 스키마 엑셀 파일에서 자료형과 범위를 찾아 보여 주는 수식을 둡니다. 스키마가 바뀌면 파일을 열 때 반영됩니다. `drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schema`는 이 수식이 든 **새** 데이터 파일을 만듭니다.
 
 ```
 2행: =IFERROR(INDEX('[1]Items'!$B:$B,MATCH(A$1,'[1]Items'!$A:$A,0)),"(스키마에 없음)")
@@ -124,7 +125,7 @@ Design/Tables/                    ← --input (데이터)
 - 도구는 **이미 있는 데이터 파일을 고치지 않습니다**(기획자가 편집 중일 수 있으므로). 기존 파일에 수식을 넣으려면 `drtable new`로 만든 파일의 2·3행을 복사해 붙입니다.
 - 처음 열 때 엑셀이 외부 링크 경고를 띄우면 "콘텐츠 사용"을 누르거나, 데이터 폴더를 엑셀의 **신뢰할 수 있는 위치**에 등록하세요.
 
-**링크 경로 주의.** 엑셀은 스키마 파일이 데이터 파일과 **같은 폴더나 그 하위 폴더**에 있을 때만 링크를 상대 경로로 저장합니다. 그 밖(예: 데이터가 `event/` 하위 폴더에 있고 스키마가 위쪽 `Schemas/`에 있을 때)이면 저장한 사람의 절대 경로가 기록되어, 다른 경로에 저장소를 받은 사람에게는 스키마가 바뀌어도 마지막 저장 때 값이 계속 보입니다. 빌드에는 영향이 없고, 빌드가 이런 파일을 찾아 경고합니다(`참고 헤더가 이 PC에 없는 경로를 가리킵니다`). 엑셀의 데이터 → 링크 편집 → 원본 변경으로 고치거나, `drtable new`로 만든 파일의 2·3행을 다시 복사해 넣으면 됩니다. 팀이 같은 경로에 저장소를 받으면 이 문제는 생기지 않습니다.
+**링크 경로 주의.** 엑셀은 스키마 파일이 데이터 파일과 **같은 폴더나 그 하위 폴더**에 있을 때만 링크를 상대 경로로 저장합니다. 그 밖(예: 데이터가 `event/` 하위 폴더에 있고 스키마가 위쪽 `Schema/`에 있을 때)이면 저장한 사람의 절대 경로가 기록되어, 다른 경로에 저장소를 받은 사람에게는 스키마가 바뀌어도 마지막 저장 때 값이 계속 보입니다. 빌드에는 영향이 없고, 빌드가 이런 파일을 찾아 경고합니다(`참고 헤더가 이 PC에 없는 경로를 가리킵니다`). 엑셀의 데이터 → 링크 편집 → 원본 변경으로 고치거나, `drtable new`로 만든 파일의 2·3행을 다시 복사해 넣으면 됩니다. 팀이 같은 경로에 저장소를 받으면 이 문제는 생기지 않습니다.
 
 ### 나뉜 테이블
 
@@ -192,7 +193,7 @@ Design/Tables/
 
 ## 6. 열거형
 
-열거형의 값(열거자 목록)은 C++ `UENUM`이 되므로 **스키마에 둡니다**. 열거형 폴더(기본 `<스키마>/Enums`)에 열거형마다 파일 하나입니다.
+열거형의 값(열거자 목록)은 C++ `UENUM`이 되므로 **스키마에 둡니다**. 열거형 폴더(기본: 스키마 폴더 옆 `Enums`)에 열거형마다 파일 하나입니다.
 
 `Enums/ItemType.enum.xlsx`, 시트 이름 `ItemType`:
 
@@ -322,7 +323,7 @@ drtable [--lang en|ko] …
 | 옵션 | 뜻 |
 |---|---|
 | `--schema` | 테이블 스키마 폴더. 기본값은 입력 폴더. |
-| `--enums` | 열거형 스키마 폴더. 기본값은 `<스키마>/Enums`. |
+| `--enums` | 열거형 스키마 폴더. 기본값은 스키마 폴더 옆의 `Enums`(`--schema`가 없으면 입력 폴더 안의 `Enums`). |
 | `--prefix` | C++ 타입 접두사(`Dr` → `FDrEffectsRow`, 기본값 `Dr`). |
 | `--ue-plugin` | DrTableSystem 플러그인용 설정: 에셋 기반 `UDrTableAssetBase`, 런타임 헤더 `DrTableRuntime.h`. 플러그인과 함께 쓸 때 권장합니다. |
 | `--asset-base`, `--asset-base-header` | 에셋 클래스의 기반 클래스와 그 헤더. 헤더 없이 기반만 바꾸면 오류입니다(컴파일되지 않는 코드가 나오므로). |
@@ -354,7 +355,7 @@ drtable [--lang en|ko] …
 바로가기에서 프로젝트를 지정해 열 수 있습니다.
 
 ```sh
-drtable-gui --input Design/Tables --schema Design/Tables/Schemas --out-cpp Source/MyGame/TableData/Generated \
+drtable-gui --input Design/Tables --schema Design/Tables/Schema --out-cpp Source/MyGame/TableData/Generated \
   --out-client Intermediate/DrTable/client --out-server Build/ServerData --prefix Gm --lang ko --check
 ```
 
@@ -373,7 +374,7 @@ drtable-gui --input Design/Tables --schema Design/Tables/Schemas --out-cpp Sourc
 2. 게임 모듈의 `PublicDependencyModuleNames`에 `"DrTableRuntime"`을 추가합니다.
 3. 모듈 소스 폴더로 생성합니다.
    ```sh
-   drtable build --input Design/Tables --schema Design/Tables/Schemas --prefix Gm --ue-plugin \
+   drtable build --input Design/Tables --schema Design/Tables/Schema --prefix Gm --ue-plugin \
      --out-cpp Source/MyGame/TableData/Generated \
      --out-client Intermediate/DrTable/client --out-server Build/ServerData
    drtable check --client Intermediate/DrTable/client --server Build/ServerData

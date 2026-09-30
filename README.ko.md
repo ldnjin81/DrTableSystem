@@ -13,21 +13,21 @@
 - 한 테이블을 여러 시트·파일로 나누기, 결정적 산출물, 영어·한국어 메시지.
 
 ```
-Schemas/*.schema.xlsx      ─┐                 ┌─▶ C++ 헤더 ─▶ 컴파일
-Schemas/Enums/*.enum.xlsx  ─┼▶ drtable build ─┼─▶ 클라 JSON ─▶ DrTableBake ─▶ DataAsset ─▶ 런타임 조회
+Schema/*.schema.xlsx       ─┐                 ┌─▶ C++ 헤더 ─▶ 컴파일
+Enums/*.enum.xlsx          ─┼▶ drtable build ─┼─▶ 클라 JSON ─▶ DrTableBake ─▶ DataAsset ─▶ 런타임 조회
 데이터 엑셀(*.xlsx)         ─┘                 └─▶ 서버 JSON ─▶ 서버
 ```
 
 ## 빠른 시작
 
 ```sh
-drtable --lang ko build --input Design/Tables --schema Design/Tables/Schemas --ue-plugin --prefix Gm \
+drtable --lang ko build --input Design/Tables --schema Design/Tables/Schema --ue-plugin --prefix Gm \
   --out-cpp Source/MyGame/TableData/Generated --out-client Intermediate/DrTable/client --out-server Build/ServerData
 drtable --lang ko check --client Intermediate/DrTable/client --server Build/ServerData
-drtable --lang ko new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schemas   # 새 데이터 파일
+drtable --lang ko new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schema   # 새 데이터 파일
 ```
 
-테이블 스키마(`Design/Tables/Schemas/Items.schema.xlsx`, 2행부터 필드 하나에 한 행):
+테이블 스키마(`Design/Tables/Schema/Items.schema.xlsx`, 2행부터 필드 하나에 한 행):
 
 | Field | Type | Scope | Comment |
 |---|---|---|---|

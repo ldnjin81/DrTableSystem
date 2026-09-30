@@ -30,7 +30,7 @@ from .schema import NAME_ROW, SCOPE_ROW, TYPE_ROW
 from .schemafile import SCHEMA_SUFFIXES, Schemas
 
 
-def new_workbook(target: Path, table: str, schema_root: Path, schemas: Schemas, errors: ErrorCollector) -> bool:
+def new_workbook(target: Path, table: str, schemas: Schemas, errors: ErrorCollector) -> bool:
     """Creates a data workbook for table: field names in row 1, reference formulas in rows 2-3.
 
     Refuses to touch an existing file. Returns True when the workbook was written.
@@ -47,9 +47,8 @@ def new_workbook(target: Path, table: str, schema_root: Path, schemas: Schemas, 
             "the file already exists; drtable never changes existing data workbooks",
         ))
         return False
-    base = schema_root.parent if schema_root.is_file() else schema_root
     target.parent.mkdir(parents=True, exist_ok=True)
-    link_target = Path(os.path.relpath((base / schema.file).resolve(), target.parent.resolve())).as_posix()
+    link_target = Path(os.path.relpath(schema.path, target.parent.resolve())).as_posix()
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = table

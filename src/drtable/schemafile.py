@@ -3,7 +3,8 @@
 Tables and enums are defined apart from the data, so editing data never changes generated code.
 
 * Table schemas live in the schema folder: ``<Table>.schema.xlsx``.
-* Enum schemas live in the enum folder (default ``<schema folder>/Enums``): ``<Enum>.enum.xlsx``.
+* Enum schemas live in the enum folder (default: ``Enums`` next to the schema folder):
+  ``<Enum>.enum.xlsx``.
   An enum's values are part of its schema because they become a C++ UENUM.
 
 Table schema: one sheet named after the table; row 1 holds labels, from row 2 each row is a
@@ -51,6 +52,7 @@ class Schema:
     rows: list[Row]
     is_enum: bool = False
     title: str = ""  # sheet name as written
+    path: Path | None = None  # the file on disk
 
     @property
     def where(self) -> str:
@@ -80,11 +82,14 @@ class Schemas:
         return [*self.tables.values(), *self.enums.values()]
 
 
-def enum_folder(schema_root: Path, enum_root: Path | None) -> Path:
+def enum_folder(schema_root: Path, enum_root: Path | None, beside: bool = True) -> Path:
+    """The enum folder: `enum_root` when given, otherwise "Enums" next to the schema folder
+    (Table/Schema -> Table/Enums). When the schema folder is the data folder itself
+    (`beside=False`), "Enums" inside it (Table -> Table/Enums)."""
     if enum_root is not None:
         return enum_root
     base = schema_root.parent if schema_root.is_file() else schema_root
-    return base / DEFAULT_ENUM_FOLDER
+    return (base.parent if beside else base) / DEFAULT_ENUM_FOLDER
 
 
 def load_schemas(schema_root: Path, enum_root: Path, errors: ErrorCollector) -> Schemas:
@@ -103,7 +108,8 @@ def load_schemas(schema_root: Path, enum_root: Path, errors: ErrorCollector) -> 
             ))
     enum_files = []
     if enum_root.exists():
-        base = schema_root.parent if schema_root.is_file() else schema_root
+        # Enum files are named relative to the folder that holds the enum folder ("Enums/Kind.enum.xlsx").
+        base = enum_root.parent
         for path, _ in find_files(enum_root, SCHEMA_SUFFIXES, allow_empty=True):
             relative = _relative(path, base)
             if path.name.lower().endswith(TABLE_SUFFIXES):
@@ -217,7 +223,7 @@ def _read_xlsx(path: Path, relative: str, is_enum: bool, errors: ErrorCollector)
             return None
         sheet = sheets[0]
         name = sheet.title.split("#", 1)[0].strip()
-        schema = Schema(relative, name, [], is_enum=is_enum, title=sheet.title)
+        schema = Schema(relative, name, [], is_enum=is_enum, title=sheet.title, path=path.resolve())
         if not _valid_name(schema, errors):
             return None
         width = 3 if is_enum else 4

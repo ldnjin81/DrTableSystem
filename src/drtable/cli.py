@@ -119,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "new":
         errors = ErrorCollector()
         schemas = load_schemas(args.schema, enum_folder(args.schema, args.enums), errors)
-        if not errors.messages and new_workbook(args.out, args.table, args.schema, schemas, errors):
+        if not errors.messages and new_workbook(args.out, args.table, schemas, errors):
             print(args.out)
         for message in errors.messages:
             print(message, file=sys.stderr)

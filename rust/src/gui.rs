@@ -124,6 +124,12 @@ impl Settings {
     fn enum_root(&self) -> Option<PathBuf> {
         (!self.enums.trim().is_empty()).then(|| PathBuf::from(self.enums.trim()))
     }
+
+    /// The enum folder in use: the one set, or "Enums" next to the schema folder
+    /// (inside the data folder when no schema folder is set).
+    fn enum_folder(&self) -> PathBuf {
+        enum_folder(&self.schema_root(), self.enum_root().as_deref(), !self.schema.trim().is_empty())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -278,9 +284,9 @@ fn check_or_build(settings: &Settings, build: bool) -> Outcome {
         let text = tr("데이터 폴더를 지정하세요", "choose the data folder");
         return Outcome::Checked { model: None, messages: vec![Message::parse(Level::Error, &text)], summary: text };
     }
-    let schema = settings.schema_root();
+    let schema = (!settings.schema.trim().is_empty()).then(|| PathBuf::from(settings.schema.trim()));
     let enums = settings.enum_root();
-    let model = match load_model(&input, Some(&schema), enums.as_deref()) {
+    let model = match load_model(&input, schema.as_deref(), enums.as_deref()) {
         Ok(model) => model,
         Err(ValidationErrors(errors)) => {
             let count = errors.len();
@@ -458,7 +464,7 @@ impl App {
             let s = &mut self.settings;
             path_row(ui, &tr("데이터 폴더", "Data folder"), &mut s.input, Pick::Folder);
             path_row(ui, &tr("스키마 폴더 (비우면 데이터 폴더)", "Schema folder (empty: data folder)"), &mut s.schema, Pick::Folder);
-            path_row(ui, &tr("열거형 폴더 (비우면 <스키마>/Enums)", "Enum folder (empty: <schema>/Enums)"), &mut s.enums, Pick::Folder);
+            path_row(ui, &tr("열거형 폴더 (비우면 스키마 폴더 옆 Enums)", "Enum folder (empty: Enums next to the schema folder)"), &mut s.enums, Pick::Folder);
             path_row(ui, &tr("C++ 출력", "C++ output"), &mut s.out_cpp, Pick::Folder);
             path_row(ui, &tr("클라 JSON 출력", "Client JSON output"), &mut s.out_client, Pick::Folder);
             path_row(ui, &tr("서버 JSON 출력", "Server JSON output"), &mut s.out_server, Pick::Folder);
@@ -546,7 +552,9 @@ impl App {
                 if let Some(name) = selected.strip_prefix("enum:") {
                     if let Some(e) = model.enums.iter().find(|e| e.name == name) {
                         ui.heading(format!("E{}", e.name));
-                        file_line(ui, &tr("스키마", "Schema"), &e.source_name, &schema_root);
+                        // Enum files are named relative to the folder that holds the enum folder.
+                        let enum_base = self.settings.enum_folder().parent().map(Path::to_path_buf).unwrap_or_default();
+                        file_line(ui, &tr("스키마", "Schema"), &e.source_name, &enum_base);
                         egui::Grid::new("enum-values").striped(true).num_columns(3).show(ui, |ui| {
                             ui.strong(tr("이름", "Name"));
                             ui.strong(tr("값", "Value"));
@@ -752,7 +760,7 @@ impl App {
     fn load_schema_list(&mut self) {
         let mut errors = ErrorCollector::default();
         let root = self.settings.schema_root();
-        match load_schemas(&root, &enum_folder(&root, self.settings.enum_root().as_deref()), &mut errors) {
+        match load_schemas(&root, &self.settings.enum_folder(), &mut errors) {
             Ok(schemas) => self.tables_for_new = schemas.tables.keys().cloned().collect(),
             Err(ValidationErrors(messages)) => errors.messages.extend(messages),
         }
@@ -797,8 +805,8 @@ impl App {
                 let root = settings.schema_root();
                 let out = PathBuf::from(settings.new_out.trim());
                 let mut errors = ErrorCollector::default();
-                let created = match load_schemas(&root, &enum_folder(&root, settings.enum_root().as_deref()), &mut errors) {
-                    Ok(schemas) => errors.messages.is_empty() && headers::new_workbook(&out, &settings.new_table, &root, &schemas, &mut errors),
+                let created = match load_schemas(&root, &settings.enum_folder(), &mut errors) {
+                    Ok(schemas) => errors.messages.is_empty() && headers::new_workbook(&out, &settings.new_table, &schemas, &mut errors),
                     Err(ValidationErrors(messages)) => {
                         errors.messages.extend(messages);
                         false

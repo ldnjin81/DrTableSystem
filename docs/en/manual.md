@@ -9,7 +9,7 @@ DrTableSystem (DesignToRuntime Table System) carries the data designers write in
 The **DrTableSystem Unreal plugin** bakes the client JSON into DataAssets, loads them at runtime without copying or building indices, and detects stale assets.
 
 ```
-Schemas (Schemas/*.schema.xlsx, Enums/*.enum.xlsx) ─┐                 ┌─▶ C++ headers ─────────────▶ compile
+Schemas (Schema/*.schema.xlsx, Enums/*.enum.xlsx) ─┐                 ┌─▶ C++ headers ─────────────▶ compile
                                                       ├▶ drtable build ─┼─▶ client JSON ─▶ DrTableBake ─▶ DA_*.uasset ─▶ runtime lookups
 Data workbooks (*.xlsx: field names in row 1, data) ──┘                 └─▶ server JSON ─▶ your server
                  drtable check  ◀─ client/server JSON  (reference integrity, CI)
@@ -71,15 +71,16 @@ Design/Tables/                    ← --input (data)
   Items.xlsx
   Monsters.xlsx
   event/Summer.xlsx               ← subfolders are read too
-  Schemas/                        ← --schema (table schemas)
+  Schema/                         ← --schema (table schemas)
     Items.schema.xlsx
     Monsters.schema.xlsx
-    Enums/                        ← --enums (enum schemas, default <schema>/Enums)
-      ItemType.enum.xlsx
+  Enums/                          ← --enums (enum schemas, default: Enums next to the schema folder)
+    ItemType.enum.xlsx
 ```
 
 - One schema file per table, and one file per enum in the enum folder. The file name must match the name it defines (`Items.schema.xlsx` ↔ table `Items`).
-- Without `--schema`, `*.schema.xlsx` files are looked up anywhere under the input folder. Schema files are skipped when reading data.
+- The enum folder sits **next to** the table schema folder. Without `--enums`, `Enums` next to the schema folder is used (`Table/Schema` → `Table/Enums`).
+- Without `--schema`, `*.schema.xlsx` files are looked up anywhere under the input folder and the enum folder is `Enums` inside it. Schema files are skipped when reading data.
 - Excel lock files (`~$…`) and hidden folders (starting with `.`) are skipped.
 
 ### Schema files
@@ -114,7 +115,7 @@ Design/Tables/                    ← --input (data)
 
 ### Reference headers
 
-Rows 2 and 3 of a data sheet hold formulas that look up each row-1 field name in the table's schema spreadsheet and show its type and scope, so schema changes show up when the workbook is opened. `drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schemas` creates a **new** data workbook with these formulas.
+Rows 2 and 3 of a data sheet hold formulas that look up each row-1 field name in the table's schema spreadsheet and show its type and scope, so schema changes show up when the workbook is opened. `drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schema` creates a **new** data workbook with these formulas.
 
 ```
 row 2: =IFERROR(INDEX('[1]Items'!$B:$B,MATCH(A$1,'[1]Items'!$A:$A,0)),"(not in schema)")
@@ -124,7 +125,7 @@ row 2: =IFERROR(INDEX('[1]Items'!$B:$B,MATCH(A$1,'[1]Items'!$A:$A,0)),"(not in s
 - The tool **never changes existing data workbooks** (designers may be editing them). To add the formulas to one, copy rows 2-3 from a workbook made by `drtable new`.
 - If Excel warns about external links when opening, choose "Enable Content", or add the data folder to Excel's **Trusted Locations**.
 
-**Link paths.** Excel keeps a link relative only when the schema file sits in the data workbook's **folder or below it**. Otherwise (for example data in `event/` and schemas in `Schemas/` next to it) the link stores the absolute path of whoever saved the workbook, and someone who checked out the repository elsewhere keeps seeing the values from that save even after the schema changes. This never affects the build, and the build reports such workbooks (`the reference headers link to a path that does not exist here`). Fix the link in Excel (Data → Edit Links → Change Source) or paste rows 2-3 again from a workbook made by `drtable new`. Teams that check out to the same path never hit this.
+**Link paths.** Excel keeps a link relative only when the schema file sits in the data workbook's **folder or below it**. Otherwise (for example data in `event/` and schemas in `Schema/` next to it) the link stores the absolute path of whoever saved the workbook, and someone who checked out the repository elsewhere keeps seeing the values from that save even after the schema changes. This never affects the build, and the build reports such workbooks (`the reference headers link to a path that does not exist here`). Fix the link in Excel (Data → Edit Links → Change Source) or paste rows 2-3 again from a workbook made by `drtable new`. Teams that check out to the same path never hit this.
 
 ### Split tables
 
@@ -192,7 +193,7 @@ In a schema, fields numbered `Field[0]`, `Field[1]`, … form one fixed-size arr
 
 ## 6. Enums
 
-An enum's values become a C++ `UENUM`, so they **belong to the schema**. Each enum is one file in the enum folder (default `<schema>/Enums`).
+An enum's values become a C++ `UENUM`, so they **belong to the schema**. Each enum is one file in the enum folder (default: `Enums` next to the schema folder).
 
 `Enums/ItemType.enum.xlsx`, sheet `ItemType`:
 
@@ -322,7 +323,7 @@ drtable [--lang en|ko] …
 | Option | Meaning |
 |---|---|
 | `--schema` | Table schema folder. Default: the input folder. |
-| `--enums` | Enum schema folder. Default: `<schema>/Enums`. |
+| `--enums` | Enum schema folder. Default: `Enums` next to the schema folder (`Enums` inside the input folder without `--schema`). |
 | `--prefix` | C++ type prefix (`Dr` → `FDrEffectsRow`, default `Dr`). |
 | `--ue-plugin` | Settings for the DrTableSystem plugin: asset base `UDrTableAssetBase`, runtime header `DrTableRuntime.h`. Recommended with the plugin. |
 | `--asset-base`, `--asset-base-header` | Base class of the asset classes and the header declaring it. Changing the base without its header is an error, since the code would not compile. |
@@ -354,7 +355,7 @@ Exit codes: `build`, `graph`, `check --input` and `new` return 0 on success, 1 o
 A shortcut can open a project directly:
 
 ```sh
-drtable-gui --input Design/Tables --schema Design/Tables/Schemas --out-cpp Source/MyGame/TableData/Generated \
+drtable-gui --input Design/Tables --schema Design/Tables/Schema --out-cpp Source/MyGame/TableData/Generated \
   --out-client Intermediate/DrTable/client --out-server Build/ServerData --prefix Gm --lang en --check
 ```
 
@@ -373,7 +374,7 @@ drtable-gui --input Design/Tables --schema Design/Tables/Schemas --out-cpp Sourc
 2. Add `"DrTableRuntime"` to your game module's `PublicDependencyModuleNames`.
 3. Generate into the module's source folder:
    ```sh
-   drtable build --input Design/Tables --schema Design/Tables/Schemas --prefix Gm --ue-plugin \
+   drtable build --input Design/Tables --schema Design/Tables/Schema --prefix Gm --ue-plugin \
      --out-cpp Source/MyGame/TableData/Generated \
      --out-client Intermediate/DrTable/client --out-server Build/ServerData
    drtable check --client Intermediate/DrTable/client --server Build/ServerData

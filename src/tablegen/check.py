@@ -121,8 +121,10 @@ def check_directory(directory: Path) -> tuple[list[str], list[str]]:
                     continue
                 if item not in target_keys:
                     suffix = f"({index})" if index is not None else ""
+                    # 서브키 참조는 행 묶음을 가리키므로 "그 값을 가진 행이 없다"고 적는다.
+                    missing = "에 해당 값 없음" if target_key else " 테이블에 없음"
                     failures.append(
-                        f"{source}.{field}[{row[primary]}]{suffix} = {item} → {target_label} 테이블에 없음"
+                        f"{source}.{field}[{row[primary]}]{suffix} = {item} → {target_label}{missing}"
                     )
     return failures, warnings
 

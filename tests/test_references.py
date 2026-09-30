@@ -220,7 +220,7 @@ def test_subkey_ref_outputs_and_check(tmp_path: Path, capsys: pytest.CaptureFixt
     payload["rows"][0]["Groups"][0] = 404
     path.write_text(json.dumps(payload), encoding="utf-8")
     assert main(["check", "--client", str(tmp_path / "client")]) == 1
-    assert "DropTable.GroupId 테이블에 없음" in capsys.readouterr().err
+    assert "DropTable.GroupId에 해당 값 없음" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(("field", "decl", "scope", "message"), [

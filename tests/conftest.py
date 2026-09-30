@@ -109,7 +109,7 @@ def _rust_main(argv: list[str] | None = None) -> int:
         # These only create files; the Python run would create them first. The tests check
         # the Rust output themselves.
         env = dict(os.environ, DRTABLE_LANG=lang)
-        result = subprocess.run([os.environ["DRTABLE_BIN"], *argv], capture_output=True, text=True, env=env, check=False)
+        result = subprocess.run([os.environ["DRTABLE_BIN"], *argv], capture_output=True, text=True, encoding="utf-8", env=env, check=False)
         sys.stdout.write(result.stdout)
         sys.stderr.write(result.stderr)
         if result.returncode == 2 and "drtable: error:" in result.stderr:
@@ -127,7 +127,7 @@ def _rust_main(argv: list[str] | None = None) -> int:
     shutil.rmtree(scratch, ignore_errors=True)
 
     env = dict(os.environ, DRTABLE_LANG=lang)
-    result = subprocess.run([os.environ["DRTABLE_BIN"], *argv], capture_output=True, text=True, env=env, check=False)
+    result = subprocess.run([os.environ["DRTABLE_BIN"], *argv], capture_output=True, text=True, encoding="utf-8", env=env, check=False)
     sys.stdout.write(result.stdout)
     sys.stderr.write(result.stderr)
     rust_exit: object = result.returncode

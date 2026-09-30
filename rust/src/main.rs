@@ -1,35 +1,15 @@
 //! DrTableSystem (DesignToRuntime Table System) command line:
 //! `drtable build | graph | check | migrate | new`.
 
-mod check;
-mod emit_cpp;
-mod emit_json;
-mod errors;
-mod excel;
-mod graph;
-mod headers;
-mod i18n;
-mod migrate;
-mod reader;
-mod schema;
-mod schemafile;
-mod sources;
-mod value;
-mod values;
-
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use emit_cpp::{DEFAULT_ASSET_BASE, DEFAULT_ASSET_NAME};
-use errors::{ErrorCollector, ValidationErrors};
-use i18n::tr;
-use schema::{in_scopes, CLIENT_SCOPES};
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-const PLUGIN_ASSET_BASE: &str = "UDrTableAssetBase";
-const PLUGIN_ASSET_BASE_HEADER: &str = "DrTableAssetBase.h";
-const PLUGIN_RUNTIME_HEADER: &str = "DrTableRuntime.h";
+use drtable::commands::{self, BuildError, BuildOptions};
+use drtable::emit_cpp::{DEFAULT_ASSET_BASE, DEFAULT_ASSET_NAME};
+use drtable::errors::{ErrorCollector, ValidationErrors};
+use drtable::i18n::{self, tr};
+use drtable::{check, excel, graph, headers, migrate, schemafile, VERSION};
 
 const HELP: &str = "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,migrate,new} ...
 
@@ -305,113 +285,28 @@ fn run(args: Args) -> ExitCode {
 }
 
 fn build(args: &Args, model: &excel::DataModel, usage: impl Fn(String) -> ExitCode) -> ExitCode {
-    let prefix = args.get("prefix").unwrap_or("Dt");
-    if !sources::is_identifier(prefix) {
-        return usage(tr("--prefix는 영문자로 시작하는 C++ 식별자여야 합니다", "--prefix must be a C++ identifier starting with a letter"));
-    }
-    let outputs: Vec<PathBuf> = ["out-cpp", "out-client", "out-server"].iter().map(|o| args.path(o).unwrap()).collect();
-    let resolved: HashSet<PathBuf> = outputs.iter().map(|p| normalize(&schemafile::absolute(p))).collect();
-    if resolved.len() != outputs.len() {
-        return usage(tr("출력 디렉터리는 서로 달라야 합니다", "the output folders must be different"));
-    }
-    let mut asset_base = args.get("asset-base").unwrap_or(DEFAULT_ASSET_BASE).to_string();
-    let mut asset_base_header = args.get("asset-base-header").map(str::to_string);
-    let mut runtime_header = args.get("runtime-header").map(str::to_string);
-    if args.flags.contains("ue-plugin") {
-        // Explicit options win; only unset ones take the plugin defaults.
-        if asset_base == DEFAULT_ASSET_BASE {
-            asset_base = PLUGIN_ASSET_BASE.to_string();
-        }
-        asset_base_header.get_or_insert_with(|| PLUGIN_ASSET_BASE_HEADER.to_string());
-        runtime_header.get_or_insert_with(|| PLUGIN_RUNTIME_HEADER.to_string());
-    }
-    if asset_base != DEFAULT_ASSET_BASE && asset_base_header.is_none() {
-        // Changing the base class without its header would emit code that does not compile.
-        return usage(tr("--asset-base를 바꾸면 --asset-base-header도 필요합니다", "--asset-base requires --asset-base-header"));
-    }
-    let asset_name = args.get("asset-name").unwrap_or(DEFAULT_ASSET_NAME);
-    if !asset_name.contains("{table}") {
-        return usage(tr("--asset-name에는 {table}이 들어가야 합니다", "--asset-name must contain {table}"));
-    }
-    if runtime_header.is_some() {
-        if let Err(ValidationErrors(messages)) = check_member_names(model) {
-            print_errors(&messages);
-            return ExitCode::from(1);
-        }
-    }
-    for output in &outputs {
-        if let Err(ValidationErrors(messages)) = clear_output(output) {
-            print_errors(&messages);
-            return ExitCode::from(1);
-        }
-    }
-    let written = emit_cpp::emit_cpp(model, &outputs[0], prefix, &asset_base, asset_base_header.as_deref(), runtime_header.as_deref(), asset_name)
-        .and_then(|_| emit_json::emit_json(model, &outputs[1], &outputs[2], args.get("stamp"), prefix, asset_name));
-    match written {
+    let options = BuildOptions {
+        out_cpp: args.path("out-cpp").unwrap(),
+        out_client: args.path("out-client").unwrap(),
+        out_server: args.path("out-server").unwrap(),
+        prefix: args.get("prefix").unwrap_or("Dt").to_string(),
+        stamp: args.get("stamp").map(str::to_string),
+        asset_base: args.get("asset-base").unwrap_or(DEFAULT_ASSET_BASE).to_string(),
+        asset_base_header: args.get("asset-base-header").map(str::to_string),
+        runtime_header: args.get("runtime-header").map(str::to_string),
+        asset_name: args.get("asset-name").unwrap_or(DEFAULT_ASSET_NAME).to_string(),
+        ue_plugin: args.flags.contains("ue-plugin"),
+    };
+    match commands::build(model, &options) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("{error}");
+        Err(BuildError::Usage(message)) => usage(message),
+        Err(BuildError::Invalid(messages)) => {
+            print_errors(&messages);
+            ExitCode::from(1)
+        }
+        Err(BuildError::Io(message)) => {
+            eprintln!("{message}");
             ExitCode::from(1)
         }
     }
-}
-
-/// Generated member functions must not clash with fields or with each other.
-fn check_member_names(model: &excel::DataModel) -> Result<(), ValidationErrors> {
-    let mut errors = ErrorCollector::default();
-    for table in &model.tables {
-        let fields: HashSet<&str> =
-            table.columns.iter().filter(|c| in_scopes(&c.scope, &CLIENT_SCOPES)).map(|c| c.name.as_str()).collect();
-        let mut seen: HashMap<String, String> = HashMap::new();
-        for (name, cell) in emit_cpp::generated_member_names(table) {
-            if fields.contains(name.as_str()) {
-                errors.add(&table.header_location(), &cell, tr(
-                    format!("생성할 함수 '{name}'이 같은 이름의 필드와 겹칩니다"),
-                    format!("generated function '{name}' clashes with a field of the same name"),
-                ));
-            } else if let Some(first) = seen.get(&name) {
-                errors.add(&table.header_location(), &cell, tr(
-                    format!("생성할 함수 '{name}'이 {first}에서 만든 함수와 겹칩니다"),
-                    format!("generated function '{name}' clashes with the one generated for {first}"),
-                ));
-            } else {
-                seen.insert(name, cell);
-            }
-        }
-    }
-    errors.raise_if_any()
-}
-
-fn clear_output(path: &Path) -> Result<(), ValidationErrors> {
-    if path.exists() {
-        if !path.is_dir() {
-            return Err(ValidationErrors(vec![tr(
-                format!("출력!A1: 출력 경로가 디렉터리가 아닙니다: {}", path.display()),
-                format!("output!A1: the output path is not a folder: {}", path.display()),
-            )]));
-        }
-        if let Ok(entries) = std::fs::read_dir(path) {
-            for entry in entries.flatten() {
-                let child = entry.path();
-                let _ = if child.is_dir() { std::fs::remove_dir_all(&child) } else { std::fs::remove_file(&child) };
-            }
-        }
-    }
-    let _ = std::fs::create_dir_all(path);
-    Ok(())
-}
-
-/// Removes `.` and `..` components without touching the file system.
-fn normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other),
-        }
-    }
-    out
 }

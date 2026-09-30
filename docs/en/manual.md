@@ -108,17 +108,17 @@ Design/Tables/                    ← --input (data)
 
 ### Reference headers
 
-`drtable headers` writes formulas into rows 2 and 3 of the data sheets. They look up each row-1 field name in the table's schema spreadsheet, so schema changes show up when the workbook is opened.
+Rows 2 and 3 of a data sheet hold formulas that look up each row-1 field name in the table's schema spreadsheet and show its type and scope, so schema changes show up when the workbook is opened. `drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schemas` creates a **new** data workbook with these formulas.
 
 ```
 row 2: =IFERROR(INDEX('[1]Items'!$B:$B,MATCH(A$1,'[1]Items'!$A:$A,0)),"(not in schema)")
 ```
 
 - When you add a column, drag the formulas from the next column. Unknown names show `(not in schema)`.
-- The command saves the data workbook again. Workbooks with pictures, charts or pivots are left alone and reported, because openpyxl cannot keep that content (copy the formulas in by hand).
+- The tool **never changes existing data workbooks** (designers may be editing them). To add the formulas to one, copy rows 2-3 from a workbook made by `drtable new`.
 - If Excel warns about external links when opening, choose "Enable Content", or add the data folder to Excel's **Trusted Locations**.
 
-**Link paths.** Excel keeps a link relative only when the schema file sits in the data workbook's **folder or below it**. Otherwise (for example data in `event/` and schemas in `Schemas/` next to it) the link stores the absolute path of whoever saved the workbook, and someone who checked out the repository elsewhere keeps seeing the values from that save even after the schema changes. This never affects the build, and the build reports such workbooks (`the reference headers link to a path that does not exist here`). Running `drtable headers` again relinks them for your machine. Teams that check out to the same path never hit this.
+**Link paths.** Excel keeps a link relative only when the schema file sits in the data workbook's **folder or below it**. Otherwise (for example data in `event/` and schemas in `Schemas/` next to it) the link stores the absolute path of whoever saved the workbook, and someone who checked out the repository elsewhere keeps seeing the values from that save even after the schema changes. This never affects the build, and the build reports such workbooks (`the reference headers link to a path that does not exist here`). Fix the link in Excel (Data → Edit Links → Change Source) or paste rows 2-3 again from a workbook made by `drtable new`. Teams that check out to the same path never hit this.
 
 ### Split tables
 
@@ -309,7 +309,7 @@ drtable build --input <xlsx|folder> --out-cpp <dir> --out-client <dir> --out-ser
 drtable graph --input <xlsx|folder> --out references.md [--schema …] [--enums …]
 drtable check --client <client JSON folder> [--server <server JSON folder>]
 drtable check --input <xlsx|folder> [--schema …] [--enums …]   # validate only, write nothing
-drtable headers --input <xlsx|folder> [--schema …] [--enums …]  # reference formulas in rows 2-3
+drtable new --table <Table> --out <new xlsx> --schema <folder> [--enums …]  # new data workbook with reference formulas
 drtable migrate --input <xlsx|folder> [--schema …] [--enums …] [--overwrite]
 drtable [--lang en|ko] …
 ```
@@ -329,7 +329,7 @@ drtable [--lang en|ko] …
 - `check --client/--server` reads only the generated JSON, so it runs in CI. It lists every broken reference (e.g. `Quests.Next[2002](0) = 9999 → not in Quests`), skips empty references, and warns when a target table has a key equal to the "no reference" value (0 or an empty name).
 - Warnings (`warning: …`) go to standard error and do not change the exit code.
 
-Exit codes: `build`, `graph`, `check --input`, `headers` and `migrate` return 0 on success, 1 on validation errors, 2 on usage errors. `check --client` returns 0 when clean, 1 on broken references, 2 on input errors.
+Exit codes: `build`, `graph`, `check --input`, `new` and `migrate` return 0 on success, 1 on validation errors, 2 on usage errors. `check --client` returns 0 when clean, 1 on broken references, 2 on input errors.
 
 ## 10. Unreal plugin
 
@@ -438,12 +438,11 @@ The old layout kept the field name, type and scope in rows 1-3 of each data shee
 
 ```sh
 drtable migrate --input Design/Tables --schema Design/Tables/Schemas
-drtable headers --input Design/Tables --schema Design/Tables/Schemas            # rows 2-3 as reference formulas
 ```
 
 - Each table sheet's header → `<Table>.schema.xlsx`. When a table spans several sheets, the first one (by file path, then sheet order) is used.
 - Each `<enum>Name` sheet → `<Name>.enum.xlsx` in the enum folder. Columns other than `Id`, `Value` and `Comment` become a `<Name>Info` table: its schema and a **new data workbook** `<Name>Info.xlsx`.
-- **Existing data workbooks are not modified.** The build ignores old `<enum>` sheets with a warning, so delete them once you have checked the result. The build does not read the old rows 2-3 either; keep them or turn them into reference formulas with `drtable headers`.
+- **Existing data workbooks are not modified.** The build ignores old `<enum>` sheets with a warning, so delete them once you have checked the result. The build does not read the old rows 2-3 either; keep them, or paste the reference formulas from a workbook made by `drtable new`.
 - Existing schema files are kept (`--overwrite` replaces them).
 
 ## 15. Troubleshooting
@@ -454,7 +453,7 @@ drtable headers --input Design/Tables --schema Design/Tables/Schemas            
 | `field 'X' is not in the schema …` | Row 1 has a name the schema does not define. Fix the typo or add the field to the schema (programmers). For a note column, start the name with `#`. |
 | `no column for field 'X'` | A schema field has no column in the data sheet. Add the column. |
 | `enum values are now defined in enum schemas …` (warning) | An old `<enum>` sheet. Values are read from the enum schema; delete the sheet. |
-| `the reference headers link to a path that does not exist here` (warning) | The link was saved on another path. Relink with `drtable headers` (see Link paths in section 2). |
+| `the reference headers link to a path that does not exist here` (warning) | The link was saved on another path. Fix it with Edit Links in Excel or paste rows 2-3 again (see Link paths in section 2). |
 | `enum schemas belong in the enum folder (…)` | Move the `*.enum.xlsx` file into the enum folder. |
 | `Schema mismatch, re-bake required` | The asset was baked with an older structure. Generate → build → bake. |
 | `Class U…Table is not compiled into the editor` | Build the editor after `drtable build`, then bake. |

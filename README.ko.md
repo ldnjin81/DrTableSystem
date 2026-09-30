@@ -24,7 +24,7 @@ uv sync
 uv run drtable --lang ko build --input Design/Tables --schema Design/Tables/Schemas --ue-plugin --prefix Gm \
   --out-cpp Source/MyGame/TableData/Generated --out-client Intermediate/DrTable/client --out-server Build/ServerData
 uv run drtable --lang ko check --client Intermediate/DrTable/client --server Build/ServerData
-uv run drtable --lang ko headers --input Design/Tables --schema Design/Tables/Schemas   # 2·3행에 스키마 표시
+uv run drtable --lang ko new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schemas   # 새 데이터 파일
 ```
 
 테이블 스키마(`Design/Tables/Schemas/Items.schema.xlsx`, 2행부터 필드 하나에 한 행):

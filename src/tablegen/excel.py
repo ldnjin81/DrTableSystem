@@ -32,9 +32,6 @@ from .schema import (
 from .values import convert_value
 
 ENUM_SHEET_RE = re.compile(r"^<enum>(?P<name>[A-Za-z][A-Za-z0-9_]*)$")
-# A table may be split over several sheets and files: "Items", "Items@Weapons", "Items@Armor".
-# The text after '@' only labels the part; every part belongs to the table named before it.
-PART_SEPARATOR = "@"
 
 
 @dataclass(frozen=True)
@@ -66,10 +63,14 @@ class _RowState:
 
 
 def table_name_of(sheet_title: str) -> str | None:
-    """Table name for a table sheet ('Items@Armor' -> 'Items'), or None for notes and enums."""
+    """Table name for a table sheet, or None for notes and enums.
+
+    The sheet name is the table name. Sheets with the same name in different files are parts
+    of one table, so a large table can be split over several workbooks.
+    """
     if sheet_title.startswith("#") or sheet_title.startswith("<enum>"):
         return None
-    return sheet_title.split(PART_SEPARATOR, 1)[0].strip()
+    return sheet_title
 
 
 def load_model(input_path: Path) -> DataModel:
@@ -94,15 +95,15 @@ def load_model(input_path: Path) -> DataModel:
                 match = ENUM_SHEET_RE.fullmatch(sheet.title)
                 if not match:
                     errors.add(ref.where, "A1", tr(
-                        f"올바르지 않은 열거형 시트 이름 '{sheet.title}' (열거형은 나눌 수 없습니다)",
-                        f"invalid enum sheet name '{sheet.title}' (enums cannot be split)",
+                        f"올바르지 않은 열거형 시트 이름 '{sheet.title}'",
+                        f"invalid enum sheet name '{sheet.title}'",
                     ))
                     continue
                 name = match.group("name")
                 if name in enum_sheets:
                     errors.add(ref.where, "A1", tr(
-                        f"열거형 '{name}'이 {enum_sheets[name].where}에도 정의되어 있습니다",
-                        f"enum '{name}' is also defined in {enum_sheets[name].where}",
+                        f"열거형 '{name}'이 {enum_sheets[name].where}에도 정의되어 있습니다 (열거형은 나눌 수 없습니다)",
+                        f"enum '{name}' is also defined in {enum_sheets[name].where} (enums cannot be split)",
                     ))
                 else:
                     enum_sheets[name] = ref
@@ -368,15 +369,15 @@ def _same_fields(
     ok = True
     for field_name in expected.keys() - actual.keys():
         errors.add(part.where, "A1", tr(
-            f"필드 '{field_name}'이 없습니다. 나뉜 테이블의 모든 시트는 {first.where}와 같은 필드를 가져야 합니다",
-            f"field '{field_name}' is missing. Every part of a split table needs the same fields as {first.where}",
+            f"필드 '{field_name}'이 없습니다. 같은 이름의 시트는 모두 {first.where}와 같은 필드를 가져야 합니다",
+            f"field '{field_name}' is missing. Every sheet of a split table needs the same fields as {first.where}",
         ))
         ok = False
     for field_name, column in actual.items():
         if field_name not in expected:
             errors.add(part.where, column.header_cells[0], tr(
-                f"필드 '{field_name}'이 {first.where}에 없습니다. 나뉜 테이블의 모든 시트는 같은 필드를 가져야 합니다",
-                f"field '{field_name}' is not in {first.where}. Every part of a split table needs the same fields",
+                f"필드 '{field_name}'이 {first.where}에 없습니다. 같은 이름의 시트는 모두 같은 필드를 가져야 합니다",
+                f"field '{field_name}' is not in {first.where}. Every sheet of a split table needs the same fields",
             ))
             ok = False
         elif _field_signature(column) != expected[field_name]:

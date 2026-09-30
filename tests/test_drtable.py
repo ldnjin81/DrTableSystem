@@ -4,9 +4,8 @@ import json
 from pathlib import Path
 
 import pytest
+from harness import main
 from openpyxl import Workbook
-
-from drtable.cli import main
 
 
 def add_enum(workbook: Workbook) -> None:

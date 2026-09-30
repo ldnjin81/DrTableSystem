@@ -10,10 +10,8 @@ from pathlib import Path
 
 import pytest
 from conftest import plain_save
+from harness import Schema, main, render_xlsx
 from openpyxl import Workbook
-
-from drtable.cli import main
-from drtable.schemafile import Schema, render_xlsx
 
 FIELDS = [("Id", "ID<int32>", "all"), ("Name", "name", "all"), ("Cost", "int32", "server")]
 NAMES = [name for name, _, _ in FIELDS]

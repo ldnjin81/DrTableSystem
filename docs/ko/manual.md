@@ -56,7 +56,6 @@ cargo build --release                                  # rust/target/release/drt
 cargo build --release --features gui --bin drtable-gui  # rust/target/release/drtable-gui
 ```
 
-저장소의 `src/drtable`은 같은 동작의 파이썬 기준 구현입니다. 테스트가 두 구현의 결과를 바이트 단위로 비교합니다(13절).
 
 언리얼 쪽은 `unreal/DrTableSystem`을 프로젝트의 `Plugins/` 폴더에 복사합니다([10절](#10-언리얼-플러그인)). 플러그인은 Unreal Engine 5.8에서 개발·검증했습니다.
 
@@ -462,9 +461,8 @@ UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # 빠졌거나 오�
 
 `.github/workflows/ci.yml`은 push마다 윈도우·맥·리눅스에서 다음을 돌립니다.
 
-- 파이썬 기준 구현의 테스트와 린트
-- Rust 빌드와 단위 테스트
-- 같은 테스트 모음을 Rust 실행 파일로 다시 돌리기(`DRTABLE_BIN`). 이때 `build`·`graph`·`check`는 매번 두 구현의 종료 코드, 메시지, 생성 파일을 바이트 단위로 비교합니다.
+- 실행 파일·GUI 빌드와 단위 테스트
+- 실행 파일을 대상으로 한 테스트 모음(`tests/`, 입력 엑셀은 테스트 안에서 만듭니다)
 
 `v*` 태그를 달면 운영체제별 실행 파일을 빌드해 Release에 올립니다.
 

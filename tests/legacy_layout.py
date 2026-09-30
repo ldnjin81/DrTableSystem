@@ -13,11 +13,19 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from harness import (
+    DATA_ROW,
+    IDENTIFIER_RE,
+    NAME_ROW,
+    SCHEMA_SUFFIXES,
+    SCOPE_ROW,
+    Schema,
+    find_files,
+    render_xlsx,
+    strip_sheet_comment,
+    table_name_of,
+)
 from openpyxl import Workbook, load_workbook
-
-from drtable.schema import DATA_ROW, IDENTIFIER_RE, NAME_ROW, SCOPE_ROW
-from drtable.schemafile import SCHEMA_SUFFIXES, Schema, render_xlsx
-from drtable.sources import find_files, strip_sheet_comment, table_name_of
 
 ENUM_SHEET_RE = re.compile(r"^<enum>(?P<name>[A-Za-z][A-Za-z0-9_]*)$")
 

@@ -9,10 +9,8 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from harness import Schema, main, render_xlsx
 from openpyxl import load_workbook
-
-from drtable.cli import main
-from drtable.schemafile import Schema, render_xlsx
 
 FIELDS = [("Id", "ID<int32>", "all"), ("Cost", "int32", "server")]
 

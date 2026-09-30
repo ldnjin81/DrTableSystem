@@ -6,9 +6,8 @@ import json
 from pathlib import Path
 
 import pytest
+from harness import main
 from openpyxl import Workbook
-
-from drtable.cli import main
 
 
 def _sheet(workbook: Workbook, name: str, headers: list[str], types: list[str],

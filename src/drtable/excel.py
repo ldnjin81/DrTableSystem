@@ -28,8 +28,8 @@ from .schema import (
     calculate_schema_hash,
     parse_type,
 )
-from .schemafile import SCHEMA_SUFFIXES, Schema, load_schemas, stale_views
-from .sources import ENUM_SHEET_RE, find_files, strip_sheet_comment, table_name_of
+from .schemafile import SCHEMA_SUFFIXES, Schema, enum_folder, load_schemas, stale_views
+from .sources import find_files, table_name_of
 from .values import convert_value
 
 
@@ -62,10 +62,17 @@ class _RowState:
     name_spellings: dict[tuple[str, str], tuple[str, str]] = field(default_factory=dict)
 
 
-def load_model(input_path: Path, schema_path: Path | None = None) -> DataModel:
+def load_model(
+    input_path: Path, schema_path: Path | None = None, enum_path: Path | None = None,
+) -> DataModel:
+    """Tables and enums from their schema files, rows from the data workbooks under input_path.
+
+    The schema folder defaults to the input folder and the enum folder to <schema>/Enums.
+    """
     schema_root = schema_path or (input_path if input_path.is_dir() else input_path.parent)
     errors = ErrorCollector()
-    schemas = load_schemas(schema_root, errors)
+    warnings: list[str] = []
+    schemas = load_schemas(schema_root, enum_folder(schema_root, enum_path), errors)
     files = [
         item for item in find_files(input_path, allow_empty=True)
         if not item[0].name.lower().endswith(SCHEMA_SUFFIXES)
@@ -78,7 +85,6 @@ def load_model(input_path: Path, schema_path: Path | None = None) -> DataModel:
             errors.add(f"[{relative}]", "A1", tr(f"xlsx 파일을 읽을 수 없습니다: {exc}", f"cannot read the xlsx file: {exc}"))
     errors.raise_if_any()
 
-    enum_sheets: dict[str, SheetRef] = {}
     table_parts: dict[str, list[SheetRef]] = {}
     for relative, workbook in workbooks:
         for sheet in workbook.worksheets:
@@ -86,23 +92,12 @@ def load_model(input_path: Path, schema_path: Path | None = None) -> DataModel:
             if sheet.title.startswith("#"):
                 continue
             if sheet.title.startswith("<enum>"):
-                match = ENUM_SHEET_RE.fullmatch(strip_sheet_comment(sheet.title))
-                if not match:
-                    errors.add(ref.where, "A1", tr(
-                        f"올바르지 않은 열거형 시트 이름 '{sheet.title}'",
-                        f"invalid enum sheet name '{sheet.title}'",
-                    ))
-                    continue
-                name = match.group("name")
-                if name in enum_sheets:
-                    errors.add(ref.where, "A1", tr(
-                        f"열거형 '{name}'이 {enum_sheets[name].where}에도 정의되어 있습니다 (열거형은 나눌 수 없습니다)",
-                        f"enum '{name}' is also defined in {enum_sheets[name].where} (enums cannot be split)",
-                    ))
-                elif f"<enum>{name}" not in schemas:
-                    errors.add(ref.where, "A1", _no_schema_message(f"<enum>{name}", name))
-                else:
-                    enum_sheets[name] = ref
+                warnings.append(tr(
+                    f"{ref.where}: 열거형 값은 이제 열거형 스키마(.enum.xlsx/.enum.yaml)에 정의합니다. "
+                    "이 시트는 읽지 않으니 지워도 됩니다(옮기기: drtable migrate)",
+                    f"{ref.where}: enum values are now defined in enum schemas (.enum.xlsx/.enum.yaml). "
+                    "This sheet is not read and can be deleted (to convert: drtable migrate)",
+                ))
                 continue
             name = table_name_of(sheet.title)
             if not name or not IDENTIFIER_RE.fullmatch(name):
@@ -111,36 +106,23 @@ def load_model(input_path: Path, schema_path: Path | None = None) -> DataModel:
                     f"invalid table name '{sheet.title}'",
                 ))
                 continue
-            if name not in schemas:
-                errors.add(ref.where, "A1", _no_schema_message(name, name))
+            if name not in schemas.tables:
+                errors.add(ref.where, "A1", tr(
+                    f"스키마가 없습니다. '{name}.schema.xlsx' 또는 '{name}.schema.yaml'에 필드를 정의하세요",
+                    f"no schema. Define the fields in '{name}.schema.xlsx' or '{name}.schema.yaml'",
+                ))
                 continue
             table_parts.setdefault(name, []).append(ref)
 
-    enum_schemas = {key[len("<enum>"):]: schema for key, schema in schemas.items() if key.startswith("<enum>")}
-    table_schemas = {key: schema for key, schema in schemas.items() if not key.startswith("<enum>")}
-    for name, schema in enum_schemas.items():
-        if name not in enum_sheets:
-            errors.add(schema.where, "A1", tr(
-                f"열거형 '{name}'의 값을 적을 데이터 시트 '<enum>{name}'가 없습니다",
-                f"enum '{name}' has no data sheet '<enum>{name}' with its values",
-            ))
-
-    # Register every enum name first so that enum definitions can reference each other.
-    enum_names = {
-        name: EnumSchema(name, ref.sheet.title, ref.file, ())
-        for name, ref in enum_sheets.items()
-    }
     enums: dict[str, EnumSchema] = {}
-    enum_columns: dict[str, list[ColumnSchema]] = {}
-    for name, ref in enum_sheets.items():
-        enum, columns = _parse_enum(enum_schemas[name], ref, name, enum_names, errors)
+    for name, schema in sorted(schemas.enums.items()):
+        enum = _parse_enum(schema, errors)
         if enum:
             enums[name] = enum
-            enum_columns[name] = columns
 
-    # Resolve every table's primary key type before reading rows (Ref<T> needs them).
+    # Resolve every table's key types before reading rows (Ref<T> needs them).
     table_keys: dict[str, tuple[str, str, str]] = {}
-    for name, schema in table_schemas.items():
+    for name, schema in schemas.tables.items():
         for row, raw_name, raw_type, raw_scope in schema.raw_columns():
             scope = str(raw_scope).strip().lower()
             if scope == "#":
@@ -155,53 +137,12 @@ def load_model(input_path: Path, schema_path: Path | None = None) -> DataModel:
                 table_keys[f"{name}.{raw_name}"] = (parsed.type_name, "id", scope)
             elif parsed and parsed.role == "subkey":
                 table_keys[f"{name}.{raw_name}"] = (parsed.type_name, "subkey", scope)
-    for name, columns in enum_columns.items():
-        if any(column.role != "id" and column.name != "Value" for column in columns):
-            info_name = f"{name}Info"
-            table_keys[info_name] = (f"E{name}", "id", "all")
-            for column in columns:
-                if column.role == "id":
-                    table_keys[f"{info_name}.{column.name}"] = (f"E{name}", "id", "all")
-                elif column.name != "Value":
-                    table_keys[f"{info_name}.{column.name}"] = (
-                        column.type_name, column.role or "field", column.scope
-                    )
 
     tables: list[TableSchema] = []
-    for name, schema in sorted(table_schemas.items()):
+    for name, schema in sorted(schemas.tables.items()):
         table = _parse_table(name, schema, table_parts.get(name, []), enums, table_keys, errors)
         if table:
             tables.append(table)
-
-    table_names = set(table_schemas)
-    for name, ref in enum_sheets.items():
-        if name not in enum_columns:
-            continue
-        schema = enum_schemas[name]
-        columns = build_columns(schema.raw_columns(), schema.where, enums, errors, table_keys, schema.cell)
-        info_columns = [column for column in columns if column.name != "Value"]
-        extras = [column for column in info_columns if column.role != "id"]
-        if not extras:
-            continue
-        info_name = f"{name}Info"
-        if info_name in table_names:
-            errors.add(schema.where, "A1", tr(f"Info 테이블 이름 '{info_name}'이 중복되었습니다", f"Info table name '{info_name}' is already used"))
-            continue
-        table_names.add(info_name)
-        transformed = [
-            replace(column, type_name=f"E{name}") if column.role == "id" else column
-            for column in info_columns
-        ]
-        info_table = TableSchema(
-            name=info_name, sheet=ref.sheet.title, source_name=ref.file, columns=transformed,
-            schema_location=schema.where, schema_file=schema.file,
-        )
-        bound = _bind(schema, transformed, ref, errors)
-        if bound is not None:
-            rows = _read_rows(info_table, ref, bound, enums, errors, _RowState())
-            info_table.sources.append(TableSource(ref.file, ref.sheet.title, rows))
-        info_table.schema_hash = calculate_schema_hash(transformed, enums)
-        tables.append(info_table)
 
     for _, workbook in workbooks:
         workbook.close()
@@ -210,14 +151,7 @@ def load_model(input_path: Path, schema_path: Path | None = None) -> DataModel:
         tuple(relative for relative, _ in workbooks),
         tuple(sorted(enums.values(), key=lambda item: item.name)),
         tuple(sorted(tables, key=lambda item: item.name)),
-        tuple(stale_views(schemas)),
-    )
-
-
-def _no_schema_message(key: str, name: str) -> str:
-    return tr(
-        f"스키마가 없습니다. '{name}.schema.xlsx'('{key}' 시트) 또는 '{name}.schema.yaml'에 필드를 정의하세요",
-        f"no schema. Define the fields in '{name}.schema.xlsx' (sheet '{key}') or '{name}.schema.yaml'",
+        (*stale_views(schemas), *warnings),
     )
 
 
@@ -271,102 +205,41 @@ def _bind(
     ]
 
 
-def _comment_column(schema: Schema, ref: SheetRef) -> int | None:
-    """The data column of an enum's 'Comment' field (scope '#'), if the sheet has one."""
-    if not any(
-        str(raw_name).strip() == "Comment" and str(raw_scope).strip() == "#"
-        for _, raw_name, _, raw_scope in schema.raw_columns()
-    ):
-        return None
-    return next(
-        (index for index, raw_name in _header_names(ref.sheet) if str(raw_name).strip() == "Comment"),
-        None,
-    )
-
-
-def _parse_enum(
-    schema: Schema,
-    ref: SheetRef,
-    name: str,
-    enum_names: dict[str, EnumSchema],
-    errors: ErrorCollector,
-) -> tuple[EnumSchema | None, list[ColumnSchema]]:
-    columns = build_columns(schema.raw_columns(), schema.where, enum_names, errors, None, schema.cell)
-    ids = [column for column in columns if column.role == "id"]
-    if len(ids) != 1:
-        return None, columns
-    if ids[0].type_name != "name" or ids[0].is_array:
-        errors.add(schema.where, schema.cell(ids[0].source_columns[0], TYPE_ROW), tr("열거형 기본키는 ID<name>이어야 합니다", "an enum sheet key must be ID<name>"))
-    value_definition = next((column for column in columns if column.name == "Value"), None)
-    if value_definition and (
-        value_definition.type_name != "int32" or value_definition.role is not None or value_definition.is_array
-    ):
-        errors.add(schema.where, schema.cell(value_definition.source_columns[0], TYPE_ROW), tr("Value 열은 int32 일반 필드여야 합니다", "the Value column must be a plain int32 field"))
-    bound = _bind(schema, columns, ref, errors)
-    if bound is None:
-        return None, columns
-    sheet = ref.sheet
-    where = ref.where
-    primary = next(column for column in bound if column.role == "id")
-    value_column = next((column for column in bound if column.name == "Value"), None)
-    comment_column = _comment_column(schema, ref)
+def _parse_enum(schema: Schema, errors: ErrorCollector) -> EnumSchema | None:
+    """An enum's values from its schema: name, value (default: previous + 1) and comment."""
     values: list[EnumValue] = []
     used_names: set[str] = set()
     used_values: set[int] = set()
     next_value = 0
-    active_columns = {source for column in bound for source in column.source_columns}
-    if comment_column:
-        active_columns.add(comment_column)
-    for row in range(DATA_ROW, sheet.max_row + 1):
-        if all(sheet.cell(row, column).value in (None, "") for column in active_columns):
-            continue
-        raw_name = sheet.cell(row, primary.source_columns[0]).value
-        raw_value = (
-            sheet.cell(row, value_column.source_columns[0]).value if value_column else None
-        )
-        raw_comment = sheet.cell(row, comment_column).value if comment_column else None
-        item_name = "" if raw_name is None else str(raw_name).strip()
+    for row, raw_name, raw_value, raw_comment in schema.enumerators():
+        item_name = str(raw_name).strip()
         if not IDENTIFIER_RE.fullmatch(item_name):
-            errors.add(
-                where,
-                f"{get_column_letter(primary.source_columns[0])}{row}",
-                tr(f"올바르지 않은 열거자 이름 '{item_name}'", f"invalid enumerator name '{item_name}'"),
-            )
+            errors.add(schema.where, schema.cell(row, 1), tr(f"올바르지 않은 열거자 이름 '{item_name}'", f"invalid enumerator name '{item_name}'"))
             continue
         if item_name in used_names:
-            errors.add(
-                where,
-                f"{get_column_letter(primary.source_columns[0])}{row}",
-                tr(f"열거자 이름 '{item_name}'이 중복되었습니다", f"enumerator '{item_name}' appears twice"),
-            )
+            errors.add(schema.where, schema.cell(row, 1), tr(f"열거자 이름 '{item_name}'이 중복되었습니다", f"enumerator '{item_name}' appears twice"))
         used_names.add(item_name)
         if raw_value in (None, ""):
-            if value_column and value_column.default_values[0] is not None:
-                value = int(value_column.default_values[0])
-            else:
-                value = next_value
+            value = next_value
         else:
             try:
-                value = int(raw_value)
+                value = int(raw_value) if not isinstance(raw_value, str) else int(raw_value.strip())
                 if isinstance(raw_value, float) and not raw_value.is_integer():
                     raise ValueError
             except (TypeError, ValueError):
-                cell = _cell_for(value_column, row) if value_column else "A1"
-                errors.add(where, cell, tr(f"열거형 값 '{raw_value}'은 정수가 아닙니다", f"enum value '{raw_value}' is not an integer"))
+                errors.add(schema.where, schema.cell(row, 2), tr(f"열거형 값 '{raw_value}'은 정수가 아닙니다", f"enum value '{raw_value}' is not an integer"))
                 continue
         if not 0 <= value <= 255:
-            cell = _cell_for(value_column, row) if value_column else _cell_for(primary, row)
-            errors.add(where, cell, tr("열거형 값은 uint8 범위(0~255)여야 합니다", "enum values must fit in uint8 (0-255)"))
+            errors.add(schema.where, schema.cell(row, 2), tr("열거형 값은 uint8 범위(0~255)여야 합니다", "enum values must fit in uint8 (0-255)"))
         if value in used_values:
-            cell = _cell_for(value_column, row) if value_column else _cell_for(primary, row)
-            errors.add(where, cell, tr(f"열거형 값 {value}가 중복되었습니다", f"enum value {value} appears twice"))
+            errors.add(schema.where, schema.cell(row, 2), tr(f"열거형 값 {value}가 중복되었습니다", f"enum value {value} appears twice"))
         used_values.add(value)
         next_value = value + 1
         values.append(EnumValue(item_name, value, "" if raw_comment is None else str(raw_comment)))
     if not values:
-        errors.add(where, "A4", tr("열거형에는 항목이 하나 이상 필요합니다", "an enum needs at least one value"))
-        return None, columns
-    return EnumSchema(name, sheet.title, ref.file, tuple(values)), columns
+        errors.add(schema.where, "A2" if schema.kind == "xlsx" else "1", tr("열거형에는 항목이 하나 이상 필요합니다", "an enum needs at least one value"))
+        return None
+    return EnumSchema(schema.name, schema.title or schema.name, schema.file, tuple(values))
 
 
 def _parse_table(

@@ -138,6 +138,7 @@ def test_cpp_array_property_is_not_exposed_to_blueprint(tmp_path: Path) -> None:
 
 
 def test_enum_info_table_and_stamp(tmp_path: Path) -> None:
+    # 열거형 시트의 부가 열은 migrate가 ItemTypeInfo 테이블(스키마 + 새 데이터 파일)로 옮긴다.
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "<enum>ItemType"
@@ -151,7 +152,7 @@ def test_enum_info_table_and_stamp(tmp_path: Path) -> None:
         [
             "build",
             "--input",
-            str(source),
+            str(tmp_path),
             "--out-cpp",
             str(tmp_path / "cpp"),
             "--out-client",
@@ -544,59 +545,6 @@ def test_manifest_has_no_stamp_by_default(tmp_path: Path) -> None:
     assert "generated_at" not in manifest
     assert "generated_at_utc" not in manifest
     assert manifest["source_files"] == ["Tables.xlsx"]
-
-
-@pytest.mark.parametrize(
-    ("mutate", "location", "message"),
-    [
-        (lambda sheet: sheet.__setitem__("A2", "name"), "[Element.schema.xlsx]<enum>Element!B2", "기본키"),
-        (
-            lambda sheet: sheet.__setitem__("B2", "ID<int32>"),
-            "[Element.schema.xlsx]<enum>Element!B2",
-            "기본키",
-        ),
-        (lambda sheet: sheet.__setitem__("A4", "Bad-Name"), "<enum>Element!A4", "열거자"),
-        (lambda sheet: sheet.__setitem__("A5", "Fire"), "<enum>Element!A5", "중복"),
-    ],
-)
-def test_enum_validation_errors(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    mutate: object,
-    location: str,
-    message: str,
-) -> None:
-    workbook = Workbook()
-    add_enum(workbook)
-    mutate(workbook.active)
-    source = tmp_path / "bad-enum.xlsx"
-    workbook.save(source)
-    assert main(["check", "--input", str(source)]) == 1
-    stderr = capsys.readouterr().err
-    assert location in stderr
-    assert message in stderr
-
-
-def test_enum_info_name_collision(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    workbook = Workbook()
-    add_enum(workbook)
-    enum_sheet = workbook.active
-    enum_sheet["D1"] = "Label"
-    enum_sheet["D2"] = "string"
-    enum_sheet["D3"] = "all"
-    enum_sheet["D4"] = "불"
-    enum_sheet["D5"] = "물"
-    table = workbook.create_sheet("ElementInfo")
-    table.append(["Id"])
-    table.append(["ID<int32>"])
-    table.append(["all"])
-    table.append([1])
-    source = tmp_path / "collision.xlsx"
-    workbook.save(source)
-    assert main(["check", "--input", str(source)]) == 1
-    stderr = capsys.readouterr().err
-    assert "<enum>Element!A1" in stderr
-    assert "ElementInfo" in stderr
 
 
 def test_sub_keys_can_be_empty(tmp_path: Path) -> None:

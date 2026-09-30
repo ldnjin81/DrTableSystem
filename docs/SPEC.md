@@ -127,6 +127,16 @@ JSON에서는 실제 배열로 나간다: `"Reward": [10, 20, 30]`.
 - 숫자 칸에 숫자가 아닌 값이 있으면 오류다(시트·셀 주소를 찍는다).
 - 배열은 1.2.1의 `필드명[번호]` 표기로 지원한다. **중첩 구조체**는 v0.1 범위 밖이다.
 
+### 1.3.1 테이블 참조 `Ref<T>`
+
+2행의 `Ref<Items>`는 같은 입력에 포함된 `Items` 테이블의 기본키를 가리킨다. `ref` 키워드는 대소문자를 가리지 않지만 테이블 이름은 정확히 일치해야 한다. `<enum>` 시트나 `#` 시트는 대상이 아니다. 부가 열을 가진 열거형에서 생성된 `이름Info` 테이블은 대상이 될 수 있다. 대상 확인은 `build` 시 스키마 해석 단계에서 한다.
+
+참조 필드의 실제 자료형은 대상 기본키의 자료형(`int32`·`int64`·`name`·열거형)이다. 대상 키 자료형을 바꾸면 참조 필드의 C++·JSON 자료형도 함께 바뀐다. 선언 표기 `Ref<Items>`는 `schema_hash`에 들어간다. 자기 참조와 순환 참조, 배열 열, `SubKey<Ref<T>>`를 허용한다. `ID<Ref<T>>`와 `Ref<T>=값`은 금지한다.
+
+빈 참조 셀은 없음으로 해석한다. 숫자 키 대상은 `0`, `name` 키 대상은 빈 이름(JSON의 `""`, C++의 `NAME_None`)을 쓴다. 열거형 키 대상 참조는 비울 수 없다. 생성 시 참조 값의 실제 존재 여부는 검사하지 않는다. 생성된 JSON을 `tablegen check --client`로 검사한다.
+
+`Ref<DropTable.GroupId>`는 `DropTable`의 `SubKey<>` 필드 `GroupId`를 참조한다. 값 하나가 그 서브키를 공유하는 행 묶음(1:N)을 가리킨다. 일반 필드·기본키·없는 필드는 대상으로 쓸 수 없다. 기본키는 필드명을 쓰지 않는 `Ref<DropTable>` 형식만 쓴다. 참조 필드가 나가는 범위는 대상 서브키가 나가는 범위에 포함되어야 한다. 예를 들어 대상 서브키가 `C`이면 참조 필드는 `C`여야 한다. `SubKey<Ref<T.K>>`와 배열도 허용하며 빈 셀·기본값 금지 규칙은 기본키 참조와 같다. 대상 서브키 자체가 참조이면 최종 자료형까지 연쇄로 따라간다. 각 단계의 범위 규칙을 검사하며, 자료형을 결정할 수 없는 순환은 전체 경로를 보여 주는 스키마 오류다. 값의 자기 참조·순환은 허용한다. manifest와 검사기는 직접 대상으로 선언한 `T.K`를 사용한다.
+
 ### 1.4 열거형 시트 (`<enum>이름`)
 
 **포맷은 테이블과 같다** — 1행 필드명, 2행 자료형, 3행 범위, 4행부터 데이터. 다른 점은 시트 이름에 `<enum>`이 붙고, **기본키가 곧 열거자 이름**이라는 것뿐이다.
@@ -249,11 +259,14 @@ int32 StartValues[2] = {10, 20}; // 각 물리 열이 int32=10, int32=20
 {
   "source_files": ["Tables.xlsx"],
   "tables": [{"name": "Effects", "rows": 42, "schema_hash": "sha256:..."}],
-  "enums": [{"name": "Element", "values": 6}]
+  "enums": [{"name": "Element", "values": 6}],
+  "references": [{"table": "Effects", "field": "Item", "target": "Items", "target_key": null, "cardinality": "one", "key_type": "int32", "array_length": 1, "subkey": false}]
 }
 ```
 
 **타임스탬프는 기본적으로 넣지 않는다.** 생성 시각을 넣으면 같은 입력인데도 결과 바이트가 달라져 결정성 규칙과 충돌하기 때문이다. 이력이 필요하면 호출자가 `--stamp <ISO8601>`로 값을 주입하고, 그때만 `generated_at` 항목이 추가된다(CI가 빌드 시각이나 커밋 해시를 넘기는 용도). 값을 주입한 경우는 결정성 검사 대상에서 제외한다.
+
+`references`에는 해당 출력 범위(C/S)에 실제로 나가는 참조 필드만 들어간다. `target_key`는 기본키 참조면 `null`, 서브키 참조면 필드명이다. `cardinality`는 각각 `one`·`many`다. `array_length`에는 원소 수를 기록하고, 참조 필드 자체가 서브키이면 `subkey: true`로 표시한다. 테이블명·필드명 순으로 정렬한다. 생성 C++의 참조 `UPROPERTY`에는 `meta = (TableRef = "Items")`가 붙는다. 서브키 참조에는 `meta = (TableRef = "DropTable", TableRefKey = "GroupId")`가 붙는다. 고정 배열의 블루프린트 비노출 규칙은 그대로다.
 
 `source_files`는 입력 경로 전체가 아니라 **파일 이름만** 넣는다(작업 디렉터리가 달라도 산출물이 같도록).
 
@@ -265,17 +278,21 @@ int32 StartValues[2] = {10, 20}; // 각 물리 열이 int32=10, int32=20
 
 ```
 tablegen build  --input <xlsx 파일 또는 폴더> --out-cpp <dir> --out-client <dir> --out-server <dir> [--prefix Dt] [--stamp <ISO8601>] [--asset-base UPrimaryDataAsset] [--asset-base-header <경로>]
-tablegen check  --input <xlsx 파일 또는 폴더>        # 파일을 쓰지 않고 검증만
+tablegen graph --input <xlsx 파일 또는 폴더> --out <file.md>
+tablegen check --client <생성된 클라 JSON 디렉터리> [--server <생성된 서버 JSON 디렉터리>]
+tablegen check --input <xlsx 파일 또는 폴더>         # 기존 스키마 검사
 tablegen --version
 ```
 
-- 종료 코드: 0 성공, 1 검증 실패, 2 사용 오류(`--asset-base`를 바꾸고 `--asset-base-header`를 빠뜨린 경우 포함).
+- `graph`는 참조가 없는 테이블도 포함하는 Mermaid `flowchart LR` Markdown을 쓴다. 노드에 기본키 자료형, 화살표에 필드명·배열 길이·참조 필드의 서브키 여부를 표시한다. 대상 서브키를 참조하는 화살표에는 대상 키 이름과 `1:N`을 표시한다.
+- `check --client`는 엑셀을 읽지 않고 생성된 JSON과 manifest만 검사한다. 모든 끊긴 참조를 `테이블.필드[행 기본키](배열 인덱스) = 값 → 대상 테이블에 없음` 형태로 출력한다. 없음 값(숫자 `0`·빈 이름)은 건너뛴다. 대상 기본키나 대상 서브키가 없음 값과 충돌하면 경고한다. 서브키 참조는 대상 키 값 집합에 값이 하나라도 있으면 통과하고, 실패 시 대상 테이블·서브키 이름을 함께 출력한다. 서버 경로를 주면 양쪽을 각각 검사한다.
+- 종료 코드: `build`·`graph`·기존 스키마 검사에서 0 성공, 1 검증 실패, 2 사용 오류. 참조 검사에서 0 통과, 1 끊긴 참조, 2 입력 오류.
 - 오류는 **시트 이름과 셀 주소**(`Effects!C7`)를 반드시 포함한다.
 - 출력 디렉터리는 생성 전에 기존 산출물을 지우고 새로 쓴다(삭제된 테이블이 남지 않도록).
 
 ## 4. v0.1 검증 범위
 
-생성기 자체가 잡는 것만 한다. **테이블 간 참조 검증은 범위 밖**이며 이후 CI/CD 단계에서 별도 도구로 만든다.
+생성기는 스키마 오류를 검사한다. 테이블 간 참조 값의 검증은 별도 명령 `tablegen check --client`가 맡는다.
 
 - 기본키 없음 / 2개 이상 / 기본키 범위가 `B`가 아님
 - 기본키 값 중복, 빈 값
@@ -295,7 +312,6 @@ tablegen --version
 
 ## 5. 범위 밖(지금은 안 함)
 
-- 테이블 간 참조 무결성 검증(CI/CD로 분리)
 - 지역화 처리(정책 미정)
 - 바이너리 페이로드(JSON으로 시작, 필요해지면 교체)
 - `.uasset` 생성 — **생성기는 하지 않는다.** UE 에디터 커밋릿이 이 생성기의 클라 JSON을 읽어 `UPrimaryDataAsset`을 굽는다(2026-09-17 확정). 엔진이 직렬화를 책임져야 UE 버전이 포맷을 바꿔도 깨지지 않기 때문이다. 파이프라인은 `Tables.xlsx → tablegen(C++ 헤더 + JSON) → 에디터 커밋릿 → DA_*.uasset → 쿠킹`이다.

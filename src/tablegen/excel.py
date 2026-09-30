@@ -21,6 +21,7 @@ from .schema import (
     TableSchema,
     build_columns,
     calculate_schema_hash,
+    parse_type,
 )
 from .values import convert_value
 
@@ -70,6 +71,40 @@ def load_model(input_path: Path) -> DataModel:
             enums[name] = enum
             enum_columns[name] = columns
 
+    # 행을 읽기 전에 모든 테이블의 기본키 자료형을 확정한다.
+    table_keys: dict[str, tuple[str, str, str]] = {}
+    for _, workbook in workbooks:
+        for sheet in workbook.worksheets:
+            if sheet.title.startswith("#") or ENUM_SHEET_RE.fullmatch(sheet.title):
+                continue
+            if not IDENTIFIER_RE.fullmatch(sheet.title):
+                continue
+            for index, raw_name, raw_type, raw_scope in _raw_columns(sheet):
+                scope = str(raw_scope).strip().upper()
+                if scope == "#":
+                    continue
+                if not re.match(r"^(id|subkey)\s*<", str(raw_type).strip(), re.IGNORECASE):
+                    if IDENTIFIER_RE.fullmatch(str(raw_name)):
+                        table_keys[f"{sheet.title}.{raw_name}"] = (str(raw_type), "field", scope)
+                    continue
+                parsed = parse_type(raw_type, sheet.title, f"{get_column_letter(index)}2", errors)
+                if parsed and parsed.role == "id":
+                    table_keys[sheet.title] = (parsed.type_name, "id", scope)
+                    table_keys[f"{sheet.title}.{raw_name}"] = (parsed.type_name, "id", scope)
+                elif parsed and parsed.role == "subkey":
+                    table_keys[f"{sheet.title}.{raw_name}"] = (parsed.type_name, "subkey", scope)
+    for name, columns in enum_columns.items():
+        if any(column.role != "id" and column.name != "Value" for column in columns):
+            info_name = f"{name}Info"
+            table_keys[info_name] = (f"E{name}", "id", "B")
+            for column in columns:
+                if column.role == "id":
+                    table_keys[f"{info_name}.{column.name}"] = (f"E{name}", "id", "B")
+                elif column.name != "Value":
+                    table_keys[f"{info_name}.{column.name}"] = (
+                        column.type_name, column.role or "field", column.scope
+                    )
+
     tables: list[TableSchema] = []
     table_names: set[str] = set()
     for path, workbook in workbooks:
@@ -83,7 +118,7 @@ def load_model(input_path: Path) -> DataModel:
                 errors.add(sheet.title, "A1", f"테이블 '{sheet.title}'이 중복되었습니다")
                 continue
             table_names.add(sheet.title)
-            table = _parse_table(path.name, sheet, enums, errors)
+            table = _parse_table(path.name, sheet, enums, table_keys, errors)
             if table:
                 tables.append(table)
 
@@ -92,6 +127,7 @@ def load_model(input_path: Path) -> DataModel:
         columns = enum_columns.get(name)
         if enum is None or columns is None:
             continue
+        columns = build_columns(_raw_columns(sheet), sheet.title, enums, errors, table_keys)
         info_columns = [column for column in columns if column.name != "Value"]
         extras = [column for column in info_columns if column.role != "id"]
         if not extras:
@@ -111,6 +147,8 @@ def load_model(input_path: Path) -> DataModel:
                 column.header_cells,
                 column.array_size,
                 column.default_values,
+                column.ref_target,
+                column.ref_key,
             )
             for column in info_columns
         ]
@@ -235,10 +273,11 @@ def _parse_table(
     source_name: str,
     sheet: object,
     enums: dict[str, EnumSchema],
+    table_keys: dict[str, tuple[str, str, str]],
     errors: ErrorCollector,
 ) -> TableSchema | None:
     raw_columns = _raw_columns(sheet)
-    columns = build_columns(raw_columns, sheet.title, enums, errors)
+    columns = build_columns(raw_columns, sheet.title, enums, errors, table_keys)
     if not columns or not any(column.role == "id" for column in columns):
         return None
     return _read_table_rows(source_name, sheet, sheet.title, columns, enums, errors)
@@ -264,6 +303,14 @@ def _read_table_rows(
         converted: dict[str, object] = {}
         for column in columns:
             if column.is_array:
+                for source_column in column.source_columns:
+                    raw_value = sheet.cell(row, source_column).value
+                    if column.ref_target and column.type_name.startswith("E") and raw_value in (None, ""):
+                        errors.add(
+                            sheet.title,
+                            f"{get_column_letter(source_column)}{row}",
+                            "열거형 기본키를 참조하는 셀은 비울 수 없습니다",
+                        )
                 converted[column.name] = [
                     convert_value(
                         _value_with_default(
@@ -281,6 +328,12 @@ def _read_table_rows(
             else:
                 source_column = column.source_columns[0]
                 raw_value = sheet.cell(row, source_column).value
+                if column.ref_target and column.type_name.startswith("E") and raw_value in (None, ""):
+                    errors.add(
+                        sheet.title,
+                        f"{get_column_letter(source_column)}{row}",
+                        "열거형 기본키를 참조하는 셀은 비울 수 없습니다",
+                    )
                 if column.role == "id" and raw_value in (None, ""):
                     errors.add(
                         sheet.title,

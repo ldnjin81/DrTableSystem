@@ -28,18 +28,35 @@ def emit_json(
             server_output / f"{table.name}.json",
             _table_payload(table, rows, {"B", "S"}, enums, with_index=False),
         )
-    manifest: dict[str, object] = {
-        "source_files": list(model.source_files),
-        "tables": [
-            {"name": table.name, "rows": len(table.rows), "schema_hash": table.schema_hash}
-            for table in model.tables
-        ],
-        "enums": [{"name": enum.name, "values": len(enum.values)} for enum in model.enums],
-    }
-    if stamp is not None:
-        manifest["generated_at"] = stamp
-    _write_json(client_output / "manifest.json", manifest)
-    _write_json(server_output / "manifest.json", manifest)
+    for scopes, output in (({"B", "C"}, client_output), ({"B", "S"}, server_output)):
+        references = []
+        for table in model.tables:
+            for column in table.columns:
+                if column.ref_target is None or column.scope not in scopes:
+                    continue
+                references.append({
+                    "table": table.name,
+                    "field": column.name,
+                    "target": column.ref_target,
+                    "target_key": column.ref_key,
+                    "cardinality": "many" if column.ref_key else "one",
+                    "key_type": column.type_name,
+                    "array_length": column.array_size or 1,
+                    "subkey": column.role == "subkey",
+                })
+        references.sort(key=lambda item: (item["table"], item["field"]))
+        manifest: dict[str, object] = {
+            "source_files": list(model.source_files),
+            "tables": [
+                {"name": table.name, "rows": len(table.rows), "schema_hash": table.schema_hash}
+                for table in model.tables
+            ],
+            "enums": [{"name": enum.name, "values": len(enum.values)} for enum in model.enums],
+            "references": references,
+        }
+        if stamp is not None:
+            manifest["generated_at"] = stamp
+        _write_json(output / "manifest.json", manifest)
 
 
 def _sort_value(

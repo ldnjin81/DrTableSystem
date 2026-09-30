@@ -13,6 +13,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.utils.exceptions import InvalidFileException
 
 from .errors import ErrorCollector
+from .headers import link_warnings
 from .i18n import tr
 from .schema import (
     DATA_ROW,
@@ -84,6 +85,17 @@ def load_model(
         except (BadZipFile, InvalidFileException, KeyError, OSError, ParseError, ValueError) as exc:
             errors.add(f"[{relative}]", "A1", tr(f"xlsx 파일을 읽을 수 없습니다: {exc}", f"cannot read the xlsx file: {exc}"))
     errors.raise_if_any()
+
+    # Reference headers that point at a schema path missing on this machine stop updating.
+    base = schema_root if schema_root.is_dir() else schema_root.parent
+    schema_files = {
+        (base / item.file).resolve()
+        for schema in schemas.all()
+        for item in (schema, schema.view)
+        if item is not None and item.kind == "xlsx"
+    }
+    for path, relative in files:
+        warnings.extend(link_warnings(path, relative, schema_files))
 
     table_parts: dict[str, list[SheetRef]] = {}
     for relative, workbook in workbooks:

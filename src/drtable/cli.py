@@ -1,4 +1,4 @@
-"""Command line interface: ``drtable build | graph | check | migrate | schema-export``."""
+"""Command line interface: ``drtable build | graph | check | migrate | headers | schema-export``."""
 
 from __future__ import annotations
 
@@ -15,10 +15,11 @@ from .emit_json import emit_json
 from .errors import ErrorCollector, ValidationErrors
 from .excel import load_model
 from .graph import emit_graph
+from .headers import write_headers
 from .i18n import SUPPORTED, set_language, tr
 from .migrate import extract_schemas
 from .schema import CLIENT_SCOPES, IDENTIFIER_RE
-from .schemafile import enum_folder, export_views
+from .schemafile import enum_folder, export_views, load_schemas
 
 PLUGIN_ASSET_BASE = "UDrTableAssetBase"
 PLUGIN_ASSET_BASE_HEADER = "DrTableAssetBase.h"
@@ -95,6 +96,13 @@ def create_parser() -> argparse.ArgumentParser:
                          help="xlsx: <Name>.schema.xlsx is the source; yaml: <Name>.schema.yaml is the source")
     migrate.add_argument("--overwrite", action="store_true", help="replace existing schema files")
 
+    headers = subparsers.add_parser(
+        "headers", help="write reference formulas into rows 2-3 of data sheets (shows the schema in Excel)"
+    )
+    headers.add_argument("--input", required=True, type=Path, help="an .xlsx file or a folder of them")
+    headers.add_argument("--schema", type=Path, help="folder of table schemas (default: the input folder)")
+    headers.add_argument("--enums", type=Path, help="folder of enum schemas (default: <schema>/Enums)")
+
     export = subparsers.add_parser(
         "schema-export", help="write the .xlsx view next to every .schema.yaml and .enum.yaml"
     )
@@ -139,6 +147,16 @@ def main(argv: list[str] | None = None) -> int:
         for path in written:
             print(path)
         return 0
+    if args.command == "headers":
+        schema_root = args.schema or (args.input if args.input.is_dir() else args.input.parent)
+        errors = ErrorCollector()
+        schemas = load_schemas(schema_root, enum_folder(schema_root, args.enums), errors)
+        changed = [] if errors.messages else write_headers(args.input, schema_root, schemas, errors)
+        for message in errors.messages:
+            print(message, file=sys.stderr)
+        for path in changed:
+            print(path)
+        return 1 if errors.messages else 0
     if args.command == "schema-export":
         changed, errors = export_views(args.schema, check=args.check)
         for message in errors:

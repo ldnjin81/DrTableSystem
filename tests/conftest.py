@@ -13,9 +13,9 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from drtable.schemafile import SCHEMA_SUFFIXES
 from drtable.i18n import set_language
 from drtable.migrate import extract_schemas
+from drtable.schemafile import SCHEMA_SUFFIXES
 
 plain_save = Workbook.save
 

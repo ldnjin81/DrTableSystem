@@ -25,7 +25,7 @@ def _save(path: Path, rows: list[list[object]]) -> None:
 
 def test_lang_en_prints_english_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     source = tmp_path / "in.xlsx"
-    _save(source, [["Id"], ["ID<int32>"], ["B"], [1], [1]])
+    _save(source, [["all"], ["ID<int32>"], ["Id"], [1], [1]])
     code = main(["--lang", "en", "build", "--input", str(source), "--out-cpp", str(tmp_path / "c"),
                  "--out-client", str(tmp_path / "cl"), "--out-server", str(tmp_path / "s")])
     assert code == 1
@@ -36,7 +36,7 @@ def test_lang_en_prints_english_errors(tmp_path: Path, capsys: pytest.CaptureFix
 
 def test_lang_ko_prints_korean_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     source = tmp_path / "in.xlsx"
-    _save(source, [["Id"], ["ID<int32>"], ["B"], [1], [1]])
+    _save(source, [["all"], ["ID<int32>"], ["Id"], [1], [1]])
     set_language("en")
     code = main(["--lang", "ko", "build", "--input", str(source), "--out-cpp", str(tmp_path / "c"),
                  "--out-client", str(tmp_path / "cl"), "--out-server", str(tmp_path / "s")])
@@ -46,7 +46,7 @@ def test_lang_ko_prints_korean_errors(tmp_path: Path, capsys: pytest.CaptureFixt
 
 def test_generated_output_is_english(tmp_path: Path) -> None:
     source = tmp_path / "in.xlsx"
-    _save(source, [["Id", "Name", "Next"], ["ID<int32>", "string", "Ref<Items>"], ["B", "B", "B"],
+    _save(source, [["all", "all", "all"], ["ID<int32>", "string", "Ref<Items>"], ["Id", "Name", "Next"],
                    [1, "검", 0]])
     assert main(["build", "--input", str(source), "--out-cpp", str(tmp_path / "cpp"),
                  "--out-client", str(tmp_path / "client"), "--out-server", str(tmp_path / "server"),
@@ -54,3 +54,29 @@ def test_generated_output_is_english(tmp_path: Path) -> None:
     assert main(["graph", "--input", str(source), "--out", str(tmp_path / "graph.md")]) == 0
     for path in [*(tmp_path / "cpp").iterdir(), tmp_path / "graph.md"]:
         assert not HANGUL.search(path.read_text(encoding="utf-8")), path.name
+
+
+def test_folder_input_skips_excel_lock_files(tmp_path: Path) -> None:
+    folder = tmp_path / "in"
+    folder.mkdir()
+    _save(folder / "Data.xlsx", [["all"], ["ID<int32>"], ["Id"], [1]])
+    (folder / "~$Data.xlsx").write_bytes(b"lock")  # what Excel leaves while the book is open
+    assert main(["build", "--input", str(folder), "--out-cpp", str(tmp_path / "c"),
+                 "--out-client", str(tmp_path / "cl"), "--out-server", str(tmp_path / "s")]) == 0
+
+
+def test_legacy_scope_codes_are_rejected_with_hint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = tmp_path / "in.xlsx"
+    _save(source, [["B"], ["ID<int32>"], ["Id"], [1]])
+    code = main(["--lang", "en", "check", "--input", str(source)])
+    assert code == 1
+    assert "Items!A1: use 'all' instead of the old scope code 'B'" in capsys.readouterr().err
+
+
+def test_scope_words_are_case_insensitive(tmp_path: Path) -> None:
+    source = tmp_path / "in.xlsx"
+    _save(source, [["All", "Client", "SERVER", "#"], ["ID<int32>", "int32", "int32", "string"],
+                   ["Id", "A", "B", "Note"], [1, 2, 3, "memo"]])
+    assert main(["check", "--input", str(source)]) == 0

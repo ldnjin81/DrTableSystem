@@ -21,30 +21,30 @@ def _sheet(workbook: Workbook, name: str, rows: list[list[object]]) -> None:
 def _source(path: Path) -> None:
     workbook = Workbook()
     workbook.remove(workbook.active)
-    _sheet(workbook, "<enum>Kind", [["Id", "Value"], ["ID<name>", "int32"], ["B", "B"],
+    _sheet(workbook, "<enum>Kind", [["all", "all"], ["ID<name>", "int32"], ["Id", "Value"],
                                     ["A", 0], ["B", 1]])
     _sheet(workbook, "Items", [
-        ["Id", "Kind", "Quest", "ServerQuest"],
+        ["all", "all", "all", "server"],
         ["ID<int32>", "SubKey<EKind>", "Ref<Quests>", "Ref<Quests>"],
-        ["B", "B", "B", "S"],
+        ["Id", "Kind", "Quest", "ServerQuest"],
         [1001, "A", 1, 1],
     ])
     _sheet(workbook, "Quests", [
-        ["Id", "Reward", "Next[0]", "Next[1]"],
+        ["all", "all", "all", "all"],
         ["ID<int32>", "SubKey<Ref<Items>>", "Ref<Quests>", "Ref<Quests>"],
-        ["B", "B", "B", "B"],
+        ["Id", "Reward", "Next[0]", "Next[1]"],
         [1, 1001, 2, None], [2, None, None, None],
     ])
     _sheet(workbook, "DropTable", [
-        ["Id", "GroupId", "KindKey"],
+        ["all", "all", "all"],
         ["ID<int32>", "SubKey<int32>", "SubKey<EKind>"],
-        ["B", "B", "B"],
+        ["Id", "GroupId", "KindKey"],
         [1, 10, "A"],
     ])
     _sheet(workbook, "Monsters", [
-        ["Id", "DropGroup", "ByKind", "Name"],
+        ["all", "all", "all", "all"],
         ["ID<name>", "Ref<DropTable.GroupId>", "Ref<DropTable.KindKey>", "Ref<Monsters>"],
-        ["B", "B", "B", "B"],
+        ["Id", "DropGroup", "ByKind", "Name"],
         ["Wolf", 10, "A", None],
     ])
     workbook.save(path)
@@ -186,7 +186,7 @@ def test_member_name_collisions_are_errors(
 ) -> None:
     workbook = Workbook()
     workbook.remove(workbook.active)
-    _sheet(workbook, "T", [headers, types, ["B"] * len(headers), [1] + [None] * (len(headers) - 1)])
+    _sheet(workbook, "T", [["all"] * len(headers), types, headers, [1] + [None] * (len(headers) - 1)])
     source = tmp_path / "in.xlsx"
     workbook.save(source)
     assert _build(source, tmp_path, "--runtime-header", RUNTIME) == 1
@@ -199,7 +199,7 @@ def test_member_name_collisions_are_errors(
 def test_member_name_collision_is_ignored_without_runtime_header(tmp_path: Path) -> None:
     workbook = Workbook()
     workbook.remove(workbook.active)
-    _sheet(workbook, "T", [["Id", "Find"], ["ID<int32>", "int32"], ["B", "B"], [1, 2]])
+    _sheet(workbook, "T", [["all", "all"], ["ID<int32>", "int32"], ["Id", "Find"], [1, 2]])
     source = tmp_path / "in.xlsx"
     workbook.save(source)
     assert _build(source, tmp_path) == 0

@@ -15,7 +15,11 @@ from openpyxl.utils.exceptions import InvalidFileException
 from .errors import ErrorCollector, ValidationErrors
 from .i18n import tr
 from .schema import (
+    DATA_ROW,
     IDENTIFIER_RE,
+    NAME_ROW,
+    SCOPE_ROW,
+    TYPE_ROW,
     ColumnSchema,
     EnumSchema,
     EnumValue,
@@ -81,7 +85,7 @@ def load_model(input_path: Path) -> DataModel:
             if not IDENTIFIER_RE.fullmatch(sheet.title):
                 continue
             for index, raw_name, raw_type, raw_scope in _raw_columns(sheet):
-                scope = str(raw_scope).strip().upper()
+                scope = str(raw_scope).strip().lower()
                 if scope == "#":
                     continue
                 if not re.match(r"^(id|subkey)\s*<", str(raw_type).strip(), re.IGNORECASE):
@@ -97,10 +101,10 @@ def load_model(input_path: Path) -> DataModel:
     for name, columns in enum_columns.items():
         if any(column.role != "id" and column.name != "Value" for column in columns):
             info_name = f"{name}Info"
-            table_keys[info_name] = (f"E{name}", "id", "B")
+            table_keys[info_name] = (f"E{name}", "id", "all")
             for column in columns:
                 if column.role == "id":
-                    table_keys[f"{info_name}.{column.name}"] = (f"E{name}", "id", "B")
+                    table_keys[f"{info_name}.{column.name}"] = (f"E{name}", "id", "all")
                 elif column.name != "Value":
                     table_keys[f"{info_name}.{column.name}"] = (
                         column.type_name, column.role or "field", column.scope
@@ -173,7 +177,11 @@ def _find_files(input_path: Path) -> list[Path]:
         return [input_path]
     if input_path.is_dir():
         files = sorted(
-            (path for path in input_path.iterdir() if path.suffix.lower() == ".xlsx"),
+            # Skip Excel lock files (~$Book.xlsx) that exist while a workbook is open.
+            (
+                path for path in input_path.iterdir()
+                if path.suffix.lower() == ".xlsx" and not path.name.startswith("~$")
+            ),
             key=lambda path: path.name,
         )
         if files:
@@ -195,13 +203,13 @@ def _parse_enum(
         return None, columns
     primary = ids[0]
     if primary.type_name != "name" or primary.is_array:
-        errors.add(sheet.title, _cell_for(primary, 2), tr("열거형 기본키는 ID<name>이어야 합니다", "an enum sheet key must be ID<name>"))
+        errors.add(sheet.title, _cell_for(primary, TYPE_ROW), tr("열거형 기본키는 ID<name>이어야 합니다", "an enum sheet key must be ID<name>"))
     value_columns = [column for column in columns if column.name == "Value"]
     value_column = value_columns[0] if value_columns else None
     if value_column and (
         value_column.type_name != "int32" or value_column.role is not None or value_column.is_array
     ):
-        errors.add(sheet.title, _cell_for(value_column, 2), tr("Value 열은 int32 일반 필드여야 합니다", "the Value column must be a plain int32 field"))
+        errors.add(sheet.title, _cell_for(value_column, TYPE_ROW), tr("Value 열은 int32 일반 필드여야 합니다", "the Value column must be a plain int32 field"))
     comment_column = next(
         (
             column_index
@@ -218,7 +226,7 @@ def _parse_enum(
     active_columns = {source for column in columns for source in column.source_columns}
     if comment_column:
         active_columns.add(comment_column)
-    for row in range(4, sheet.max_row + 1):
+    for row in range(DATA_ROW, sheet.max_row + 1):
         if all(sheet.cell(row, column).value in (None, "") for column in active_columns):
             continue
         raw_name = sheet.cell(row, primary.source_columns[0]).value
@@ -301,7 +309,7 @@ def _read_table_rows(
     data_source_columns = {
         source_column for column in columns for source_column in column.source_columns
     }
-    for row in range(4, sheet.max_row + 1):
+    for row in range(DATA_ROW, sheet.max_row + 1):
         if all(sheet.cell(row, index).value in (None, "") for index in data_source_columns):
             continue
         converted: dict[str, object] = {}
@@ -406,11 +414,11 @@ def _value_with_default(value: object, declared_default: object | None) -> objec
 def _raw_columns(sheet: object) -> list[tuple[int, object, object, object]]:
     columns: list[tuple[int, object, object, object]] = []
     for column in range(1, sheet.max_column + 1):
-        name = sheet.cell(1, column).value
+        name = sheet.cell(NAME_ROW, column).value
         if name in (None, ""):
             break
         columns.append(
-            (column, name, sheet.cell(2, column).value, sheet.cell(3, column).value)
+            (column, name, sheet.cell(TYPE_ROW, column).value, sheet.cell(SCOPE_ROW, column).value)
         )
     return columns
 

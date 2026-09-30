@@ -1,4 +1,4 @@
-﻿"""테이블 참조와 참조 검사 명령의 종단 테스트."""
+"""테이블 참조와 참조 검사 명령의 종단 테스트."""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ from tablegen.cli import main
 def _sheet(workbook: Workbook, name: str, headers: list[str], types: list[str],
            scopes: list[str], rows: list[list[object]]) -> None:
     sheet = workbook.create_sheet(name)
-    for record in (headers, types, scopes, *rows):
+    # Header rows: 1 scope, 2 type, 3 field name.
+    for record in (scopes, types, headers, *rows):
         sheet.append(record)
 
 
@@ -23,13 +24,13 @@ def _source(path: Path) -> None:
     workbook.remove(workbook.active)
     _sheet(workbook, "Quests", ["Id", "Item", "Next[0]", "Next[1]", "ServerItem"],
            ["ID<int32>", "SubKey<Ref<Items>>", "Ref<Quests>", "Ref<Quests>",
-            "Ref<Items>"], ["B", "B", "C", "C", "S"],
+            "Ref<Items>"], ["all", "all", "client", "client", "server"],
            [[1, 1001, 2, None, 1001], [2, None, None, None, None]])
     _sheet(workbook, "Items", ["Id", "Quest"], ["ID<int32>", "Ref<Quests>"],
-           ["B", "B"], [[1001, 1]])
-    _sheet(workbook, "Names", ["Id"], ["ID<name>"], ["B"], [["Sword"]])
+           ["all", "all"], [[1001, 1]])
+    _sheet(workbook, "Names", ["Id"], ["ID<name>"], ["all"], [["Sword"]])
     _sheet(workbook, "Links", ["Id", "NameRef"], ["ID<int64>", "ref<Names>"],
-           ["B", "B"], [[3, None]])
+           ["all", "all"], [[3, None]])
     workbook.save(path)
 
 
@@ -117,11 +118,11 @@ def test_ref_schema_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str],
     workbook = Workbook()
     workbook.active.title = "Quests"
     q = workbook.active
-    q.append(["Id", "Item"])
+    q.append(["all", "all"])
     q.append([decl, "Ref<Items>"] if decl.startswith("ID<") else ["ID<int32>", decl])
-    q.append(["B", "B"])
+    q.append(["Id", "Item"])
     q.append([1, 1001])
-    _sheet(workbook, "Items", ["Id"], ["ID<int32>"], ["B"], [[1001]])
+    _sheet(workbook, "Items", ["Id"], ["ID<int32>"], ["all"], [[1001]])
     workbook.create_sheet("#Notes")
     source = tmp_path / "bad.xlsx"
     workbook.save(source)
@@ -135,13 +136,13 @@ def test_enum_ref_empty_is_error_and_info_is_target(
     workbook = Workbook()
     enum = workbook.active
     enum.title = "<enum>Kind"
-    enum.append(["Id", "Value", "Label"])
+    enum.append(["all", "all", "all"])
     enum.append(["ID<name>", "int32", "string"])
-    enum.append(["B", "B", "B"])
+    enum.append(["Id", "Value", "Label"])
     enum.append(["Sword", 0, "검"])
     _sheet(workbook, "Uses", ["Id", "Kind", "Info"],
            ["ID<int32>", "Ref<KindInfo>", "Ref<KindInfo>"],
-           ["B", "B", "B"], [[1, "Sword", None]])
+           ["all", "all", "all"], [[1, "Sword", None]])
     source = tmp_path / "enum.xlsx"
     workbook.save(source)
     assert _build(source, tmp_path) == 1
@@ -172,17 +173,17 @@ def _subkey_source(path: Path) -> None:
     workbook = Workbook()
     workbook.remove(workbook.active)
     _sheet(workbook, "<enum>Kind", ["Id", "Value"], ["ID<name>", "int32"],
-           ["B", "B"], [["A", 0], ["B", 1]])
+           ["all", "all"], [["A", 0], ["B", 1]])
     _sheet(workbook, "Monsters",
            ["Id", "DropGroup", "Groups[0]", "Groups[1]", "ByGroup", "Kind", "NameGroup"],
            ["ID<name>", "Ref<DropTable.GroupId>", "Ref<DropTable.GroupId>",
             "Ref<DropTable.GroupId>", "SubKey<Ref<DropTable.GroupId>>",
             "Ref<DropTable.KindKey>", "Ref<DropTable.NameKey>"],
-           ["B", "B", "B", "B", "B", "B", "C"],
+           ["all", "all", "all", "all", "all", "all", "client"],
            [["Wolf", 10, 10, None, 10, "A", "Common"]])
     _sheet(workbook, "DropTable", ["Id", "GroupId", "NameKey", "KindKey", "Description"],
            ["ID<int32>", "SubKey<int32>", "SubKey<name>", "SubKey<EKind>", "string"],
-           ["B", "B", "C", "B", "B"],
+           ["all", "all", "client", "all", "all"],
            [[1, 10, "Common", "A", "첫째"], [2, 10, "Common", "A", "둘째"]])
     workbook.save(path)
 
@@ -224,12 +225,12 @@ def test_subkey_ref_outputs_and_check(tmp_path: Path, capsys: pytest.CaptureFixt
 
 
 @pytest.mark.parametrize(("field", "decl", "scope", "message"), [
-    ("DropGroup", "Ref<DropTable.Id>", "B", "Ref<DropTable>를 쓰세요"),
-    ("DropGroup", "Ref<DropTable.Description>", "B", "SubKey로 선언하세요"),
-    ("DropGroup", "Ref<DropTable.Missing>", "B", "없습니다"),
-    ("DropGroup", "Ref<DropTable.NameKey>", "B", "범위"),
-    ("DropGroup", "ID<Ref<DropTable.GroupId>>", "B", "기본키"),
-    ("DropGroup", "Ref<DropTable.GroupId>=10", "B", "기본값"),
+    ("DropGroup", "Ref<DropTable.Id>", "all", "Ref<DropTable>를 쓰세요"),
+    ("DropGroup", "Ref<DropTable.Description>", "all", "SubKey로 선언하세요"),
+    ("DropGroup", "Ref<DropTable.Missing>", "all", "없습니다"),
+    ("DropGroup", "Ref<DropTable.NameKey>", "all", "범위"),
+    ("DropGroup", "ID<Ref<DropTable.GroupId>>", "all", "기본키"),
+    ("DropGroup", "Ref<DropTable.GroupId>=10", "all", "기본값"),
 ])
 def test_subkey_ref_schema_errors(
     tmp_path: Path, capsys: pytest.CaptureFixture[str],
@@ -242,7 +243,7 @@ def test_subkey_ref_schema_errors(
     workbook = load_workbook(source)
     sheet = workbook["Monsters"]
     sheet["B2"] = decl
-    sheet["B3"] = scope
+    sheet["B1"] = scope
     workbook.save(source)
     assert _build(source, tmp_path) == 1
     output = capsys.readouterr().err
@@ -278,12 +279,12 @@ def test_chained_subkey_ref_resolves_final_type(tmp_path: Path) -> None:
     workbook = Workbook()
     workbook.remove(workbook.active)
     _sheet(workbook, "Uses", ["Id", "Value"], ["ID<int32>", "Ref<Top.Key>"],
-           ["B", "B"], [[1, 7]])
+           ["all", "all"], [[1, 7]])
     _sheet(workbook, "Top", ["Id", "Key"], ["ID<int32>", "SubKey<Ref<Middle.Key>>"],
-           ["B", "B"], [[1, 7]])
+           ["all", "all"], [[1, 7]])
     _sheet(workbook, "Middle", ["Id", "Key"], ["ID<int32>", "SubKey<Ref<Base>>"],
-           ["B", "B"], [[1, 7]])
-    _sheet(workbook, "Base", ["Id"], ["ID<int64>"], ["B"], [[7]])
+           ["all", "all"], [[1, 7]])
+    _sheet(workbook, "Base", ["Id"], ["ID<int64>"], ["all"], [[7]])
     source = tmp_path / "chain.xlsx"
     workbook.save(source)
     assert _build(source, tmp_path) == 0
@@ -301,9 +302,9 @@ def test_chained_subkey_type_cycle_reports_path(
     workbook = Workbook()
     workbook.remove(workbook.active)
     _sheet(workbook, "First", ["Id", "Key"], ["ID<int32>", "SubKey<Ref<Second.Key>>"],
-           ["B", "B"], [[1, 1]])
+           ["all", "all"], [[1, 1]])
     _sheet(workbook, "Second", ["Id", "Key"], ["ID<int32>", "SubKey<Ref<First.Key>>"],
-           ["B", "B"], [[1, 1]])
+           ["all", "all"], [[1, 1]])
     source = tmp_path / "cycle.xlsx"
     workbook.save(source)
     assert _build(source, tmp_path) == 1

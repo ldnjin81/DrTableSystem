@@ -343,3 +343,11 @@ def test_migrate_moves_old_headers_into_schema_files(tmp_path: Path, fmt: str) -
     assert _rows(tmp_path / "out", "client", "KindInfo") == [
         {"Id": "A", "Label": "에이"}, {"Id": "B", "Label": "비"}]
     assert "B = 3" in (tmp_path / "out" / "cpp" / "EDtKind.h").read_text(encoding="utf-8")
+
+
+def test_migrate_into_a_new_schema_folder_puts_enums_below_it(tmp_path: Path) -> None:
+    old = [["Id"], ["ID<name>"], ["all"], ["A"]]
+    _data(tmp_path / "Tables" / "T.xlsx", {"<enum>Kind": old})
+    schemas = tmp_path / "Tables" / "Schemas"  # 아직 없는 폴더
+    assert main(["migrate", "--input", str(tmp_path / "Tables"), "--schema", str(schemas)]) == 0
+    assert (schemas / "Enums" / "Kind.enum.xlsx").exists()

@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
             print(exc, file=sys.stderr)
             return 2
     if args.command == "migrate":
-        root = args.input if args.input.is_dir() else args.input.parent
+        root = args.input.parent if args.input.is_file() else args.input
         try:
             schema_dir = args.schema or root
             written = extract_schemas(
@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
             print(path)
         return 0
     if args.command == "headers":
-        schema_root = args.schema or (args.input if args.input.is_dir() else args.input.parent)
+        schema_root = args.schema or (args.input.parent if args.input.is_file() else args.input)
         errors = ErrorCollector()
         schemas = load_schemas(schema_root, enum_folder(schema_root, args.enums), errors)
         changed = [] if errors.messages else write_headers(args.input, schema_root, schemas, errors)

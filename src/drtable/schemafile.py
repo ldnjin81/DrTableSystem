@@ -112,7 +112,7 @@ class Schemas:
 def enum_folder(schema_root: Path, enum_root: Path | None) -> Path:
     if enum_root is not None:
         return enum_root
-    base = schema_root if schema_root.is_dir() else schema_root.parent
+    base = schema_root.parent if schema_root.is_file() else schema_root
     return base / DEFAULT_ENUM_FOLDER
 
 
@@ -132,7 +132,7 @@ def load_schemas(schema_root: Path, enum_root: Path, errors: ErrorCollector) -> 
             ))
     enum_files = []
     if enum_root.exists():
-        base = schema_root if schema_root.is_dir() else schema_root.parent
+        base = schema_root.parent if schema_root.is_file() else schema_root
         for path, _ in find_files(enum_root, SCHEMA_SUFFIXES, allow_empty=True):
             relative = _relative(path, base)
             if path.name.lower().endswith(TABLE_SUFFIXES):

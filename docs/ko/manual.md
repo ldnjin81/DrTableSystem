@@ -108,17 +108,17 @@ Design/Tables/                    ← --input (데이터)
 
 ### 참고 헤더
 
-`drtable headers`는 데이터 시트 2·3행에 스키마를 찾아 보여 주는 수식을 넣습니다. 1행 필드명으로 스키마 엑셀 파일을 찾아오므로, 스키마가 바뀌면 파일을 열 때 반영됩니다.
+데이터 시트 2·3행에는 1행 필드명으로 스키마 엑셀 파일에서 자료형과 범위를 찾아 보여 주는 수식을 둡니다. 스키마가 바뀌면 파일을 열 때 반영됩니다. `drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schemas`는 이 수식이 든 **새** 데이터 파일을 만듭니다.
 
 ```
 2행: =IFERROR(INDEX('[1]Items'!$B:$B,MATCH(A$1,'[1]Items'!$A:$A,0)),"(스키마에 없음)")
 ```
 
 - 새 열을 추가하면 옆 칸 수식을 끌어 채우면 됩니다. 스키마에 없는 이름은 `(스키마에 없음)`으로 보입니다.
-- 이 명령은 데이터 파일을 다시 저장합니다. 그림·차트·피벗이 있는 파일은 openpyxl이 보존하지 못하므로 건드리지 않고 알려 줍니다(수식은 손으로 복사).
+- 도구는 **이미 있는 데이터 파일을 고치지 않습니다**(기획자가 편집 중일 수 있으므로). 기존 파일에 수식을 넣으려면 `drtable new`로 만든 파일의 2·3행을 복사해 붙입니다.
 - 처음 열 때 엑셀이 외부 링크 경고를 띄우면 "콘텐츠 사용"을 누르거나, 데이터 폴더를 엑셀의 **신뢰할 수 있는 위치**에 등록하세요.
 
-**링크 경로 주의.** 엑셀은 스키마 파일이 데이터 파일과 **같은 폴더나 그 하위 폴더**에 있을 때만 링크를 상대 경로로 저장합니다. 그 밖(예: 데이터가 `event/` 하위 폴더에 있고 스키마가 위쪽 `Schemas/`에 있을 때)이면 저장한 사람의 절대 경로가 기록되어, 다른 경로에 저장소를 받은 사람에게는 스키마가 바뀌어도 마지막 저장 때 값이 계속 보입니다. 빌드에는 영향이 없고, 빌드가 이런 파일을 찾아 경고합니다(`참고 헤더가 이 PC에 없는 경로를 가리킵니다`). `drtable headers`를 다시 돌리면 이 PC 기준으로 다시 연결됩니다. 팀이 같은 경로에 저장소를 받으면 이 문제는 생기지 않습니다.
+**링크 경로 주의.** 엑셀은 스키마 파일이 데이터 파일과 **같은 폴더나 그 하위 폴더**에 있을 때만 링크를 상대 경로로 저장합니다. 그 밖(예: 데이터가 `event/` 하위 폴더에 있고 스키마가 위쪽 `Schemas/`에 있을 때)이면 저장한 사람의 절대 경로가 기록되어, 다른 경로에 저장소를 받은 사람에게는 스키마가 바뀌어도 마지막 저장 때 값이 계속 보입니다. 빌드에는 영향이 없고, 빌드가 이런 파일을 찾아 경고합니다(`참고 헤더가 이 PC에 없는 경로를 가리킵니다`). 엑셀의 데이터 → 링크 편집 → 원본 변경으로 고치거나, `drtable new`로 만든 파일의 2·3행을 다시 복사해 넣으면 됩니다. 팀이 같은 경로에 저장소를 받으면 이 문제는 생기지 않습니다.
 
 ### 나뉜 테이블
 
@@ -309,7 +309,7 @@ drtable build --input <xlsx|폴더> --out-cpp <dir> --out-client <dir> --out-ser
 drtable graph --input <xlsx|폴더> --out references.md [--schema …] [--enums …]
 drtable check --client <클라 JSON 폴더> [--server <서버 JSON 폴더>]
 drtable check --input <xlsx|폴더> [--schema …] [--enums …]   # 검사만 하고 아무것도 쓰지 않음
-drtable headers --input <xlsx|폴더> [--schema …] [--enums …]  # 데이터 2·3행에 참고 수식
+drtable new --table <테이블> --out <새 xlsx> --schema <폴더> [--enums …]  # 참고 수식이 든 새 데이터 파일
 drtable migrate --input <xlsx|폴더> [--schema …] [--enums …] [--overwrite]
 drtable [--lang en|ko] …
 ```
@@ -329,7 +329,7 @@ drtable [--lang en|ko] …
 - `check --client/--server`는 생성된 JSON만 읽으므로 CI에서 돌릴 수 있습니다. 끊긴 참조를 전부 출력합니다(예: `Quests.Next[2002](0) = 9999 → Quests 테이블에 없음`). 빈 참조는 건너뛰고, 대상에 "참조 없음" 값(0이나 빈 이름)과 같은 키가 있으면 경고합니다.
 - 경고(`경고: …`)는 표준 오류로 나가고 종료 코드에 영향을 주지 않습니다.
 
-종료 코드: `build`·`graph`·`check --input`·`headers`·`migrate`는 0 성공, 1 검증 오류, 2 사용 오류. `check --client`는 0 통과, 1 끊긴 참조, 2 입력 오류.
+종료 코드: `build`·`graph`·`check --input`·`new`·`migrate`는 0 성공, 1 검증 오류, 2 사용 오류. `check --client`는 0 통과, 1 끊긴 참조, 2 입력 오류.
 
 ## 10. 언리얼 플러그인
 
@@ -438,12 +438,11 @@ UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # 빠졌거나 오�
 
 ```sh
 drtable migrate --input Design/Tables --schema Design/Tables/Schemas
-drtable headers --input Design/Tables --schema Design/Tables/Schemas            # 2·3행을 참고 수식으로
 ```
 
 - 테이블 시트의 헤더 → `<테이블>.schema.xlsx`. 같은 테이블이 여러 시트에 있으면 첫 시트(파일 경로 순, 파일 안에서는 시트 순)를 씁니다.
 - `<enum>이름` 시트 → 열거형 폴더의 `<이름>.enum.xlsx`. `Id`·`Value`·`Comment` 말고 다른 열이 있으면 `<이름>Info` 테이블의 스키마와 **새 데이터 파일** `<이름>Info.xlsx`를 만듭니다.
-- **기존 데이터 파일은 고치지 않습니다.** 옛 `<enum>` 시트는 빌드가 읽지 않고 경고만 하니 확인한 뒤 지우세요. 옛 2·3행은 빌드가 읽지 않으니 그대로 두거나 `drtable headers`로 참고 수식으로 바꿉니다.
+- **기존 데이터 파일은 고치지 않습니다.** 옛 `<enum>` 시트는 빌드가 읽지 않고 경고만 하니 확인한 뒤 지우세요. 옛 2·3행은 빌드가 읽지 않으니 그대로 두거나, 참고 수식이 필요하면 `drtable new`로 만든 파일에서 복사해 붙입니다.
 - 이미 있는 스키마 파일은 건너뜁니다(`--overwrite`로 덮어쓰기).
 
 ## 15. 문제 해결
@@ -454,7 +453,7 @@ drtable headers --input Design/Tables --schema Design/Tables/Schemas            
 | `필드 'X'이 스키마 …에 없습니다` | 데이터 1행에 스키마에 없는 이름이 있습니다. 오타를 고치거나 스키마에 필드를 추가하세요(프로그래머). 메모 열이면 이름을 `#`으로 시작하세요. |
 | `필드 'X'의 열이 없습니다` | 스키마의 필드가 데이터 시트에 없습니다. 열을 추가하세요. |
 | `열거형 값은 이제 열거형 스키마…에 정의합니다` (경고) | 옛 `<enum>` 시트입니다. 값은 열거형 폴더의 스키마에서 읽으니 시트를 지우세요. |
-| `참고 헤더가 이 PC에 없는 경로를 가리킵니다` (경고) | 다른 경로에서 저장된 링크입니다. `drtable headers`로 다시 연결하세요(2절 링크 경로 주의). |
+| `참고 헤더가 이 PC에 없는 경로를 가리킵니다` (경고) | 다른 경로에서 저장된 링크입니다. 엑셀의 링크 편집으로 원본을 바꾸거나 2·3행을 다시 복사해 넣으세요(2절 링크 경로 주의). |
 | `열거형 스키마는 열거형 폴더(…)에 두어야 합니다` | `*.enum.xlsx` 파일을 열거형 폴더로 옮기세요. |
 | `Schema mismatch, re-bake required` | 옛 구조로 구운 에셋입니다. 생성 → 빌드 → 굽기. |
 | `Class U…Table is not compiled into the editor` | `drtable build` 뒤에 에디터를 빌드하고 굽습니다. |

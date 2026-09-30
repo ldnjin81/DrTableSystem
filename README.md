@@ -24,7 +24,7 @@ uv sync
 uv run drtable build --input Design/Tables --schema Design/Tables/Schemas --ue-plugin --prefix Gm \
   --out-cpp Source/MyGame/TableData/Generated --out-client Intermediate/DrTable/client --out-server Build/ServerData
 uv run drtable check --client Intermediate/DrTable/client --server Build/ServerData
-uv run drtable headers --input Design/Tables --schema Design/Tables/Schemas   # show the schema in rows 2-3
+uv run drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schemas   # new data workbook
 ```
 
 A table schema (`Design/Tables/Schemas/Items.schema.xlsx`, one field per row from row 2):

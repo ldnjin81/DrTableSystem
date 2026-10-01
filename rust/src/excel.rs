@@ -69,6 +69,14 @@ pub fn load_model(input: &Path, schema_path: Option<&Path>, enum_path: Option<&P
             !SCHEMA_SUFFIXES.iter().any(|s| name.ends_with(s))
         })
         .collect();
+    // An input folder with nothing in it is almost always a wrong path; building it would
+    // replace the generated code with an empty set.
+    if files.is_empty() && schemas.all().next().is_none() {
+        return Err(ValidationErrors(vec![tr(
+            format!("입력!A1: 스키마도 데이터 파일도 없습니다: {}", input.display()),
+            format!("input!A1: no schema or data workbook found: {}", input.display()),
+        )]));
+    }
     let read: Vec<Result<Vec<Sheet>, String>> = files
         .par_iter()
         .map(|(path, _)| read_workbook(path, |title| !title.starts_with('#')))

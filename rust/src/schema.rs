@@ -296,11 +296,10 @@ fn resolve(
 }
 
 pub fn validate_enum_type(type_name: &str, enums: &Enums, sheet: &str, cell: &str, errors: &mut ErrorCollector) {
-    if let Some(name) = enum_of(type_name) {
-        if !enums.contains_key(name) {
+    if let Some(name) = enum_of(type_name)
+        && !enums.contains_key(name) {
             errors.add(sheet, cell, tr(format!("정의되지 않은 열거형 '{name}'"), format!("undefined enum '{name}'")));
         }
-    }
 }
 
 /// (index, name, type, scope) of one field definition.
@@ -450,8 +449,8 @@ pub fn build_columns(
             ));
         }
         for part in &by_index[1..] {
-            if let (Some(parsed), Some(first_type)) = (&part.parsed, first_type) {
-                if (&parsed.type_name, &parsed.ref_target, &parsed.ref_key)
+            if let (Some(parsed), Some(first_type)) = (&part.parsed, first_type)
+                && (&parsed.type_name, &parsed.ref_target, &parsed.ref_key)
                     != (&first_type.type_name, &first_type.ref_target, &first_type.ref_key)
                 {
                     errors.add(sheet, &cell_of(part.column, TYPE_ROW), tr(
@@ -459,7 +458,6 @@ pub fn build_columns(
                         format!("array '{name}' elements have different types"),
                     ));
                 }
-            }
             if part.parsed.as_ref().is_some_and(|p| p.role.is_some()) {
                 errors.add(sheet, &cell_of(part.column, TYPE_ROW), tr(
                     format!("배열 '{name}'은 키로 지정할 수 없습니다"),

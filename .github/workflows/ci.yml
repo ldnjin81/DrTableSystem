@@ -67,7 +67,7 @@ jobs:
           mkdir "$NAME"
           cp "rust/target/${{ matrix.target }}/release/${{ matrix.binary }}" "$NAME/"
           cp "rust/target/${{ matrix.target }}/release/${{ matrix.gui }}" "$NAME/"
-          cp -r unreal README.md README.ko.md docs "$NAME/"
+          cp -r unreal README.md README.ko.md CHANGELOG.md docs "$NAME/"
           if [ "$RUNNER_OS" = "Windows" ]; then 7z a "$NAME.zip" "$NAME"; else zip -qr "$NAME.zip" "$NAME"; fi
       - uses: softprops/action-gh-release@v2
         with:

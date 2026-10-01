@@ -2,13 +2,13 @@
 //!
 //! * Table schemas: `<Table>.schema.xlsx` in the schema folder.
 //! * Enum schemas: `<Enum>.enum.xlsx` in the enum folder (default: `Enums` next to the schema folder).
-//! * String table schemas: `<Name>.string.xlsx` in the schema folder. They define the table
-//!   `<Name>String`: an `Id` name key and one column per language.
+//! * String table schemas: `<Name>String.string.xlsx` in the schema folder (the name ends with
+//!   `String`). They define the table `<Name>String`: an `Id` name key and one column per language.
 //!
 //! Table schema: one sheet named after the table; row 1 labels, from row 2 one field per row
 //! (A name, B type, C scope, D comment). Enum schema: one sheet named after the enum; from
 //! row 2 one enumerator per row (A name, B value, C comment). String table schema: one sheet
-//! named `<Name>`; from row 2 one language per row (A language code, B base language mark,
+//! named `<Name>String`; from row 2 one language per row (A language code, B base language mark,
 //! C scope (default client), D comment).
 
 use std::collections::BTreeMap;
@@ -25,7 +25,7 @@ pub const TABLE_SUFFIXES: [&str; 1] = [".schema.xlsx"];
 pub const ENUM_SUFFIXES: [&str; 1] = [".enum.xlsx"];
 pub const STRING_SUFFIXES: [&str; 1] = [".string.xlsx"];
 pub const SCHEMA_SUFFIXES: [&str; 3] = [".schema.xlsx", ".enum.xlsx", ".string.xlsx"];
-/// A string table `UI` (UI.string.xlsx, data sheets `UI`) is the table `UIString`.
+/// String table names end with this (UIString.string.xlsx); data sheets may leave it out (`UI`).
 pub const STRING_TABLE_SUFFIX: &str = "String";
 pub const DEFAULT_ENUM_FOLDER: &str = "Enums";
 pub const DEFAULT_STRINGS_FOLDER: &str = "Strings";
@@ -39,7 +39,7 @@ pub struct Schema {
     pub name: String,
     pub rows: Vec<Row>,
     pub is_enum: bool,
-    /// A string table schema (`.string.xlsx`); `name` is `<title>String`.
+    /// A string table schema (`.string.xlsx`); its name ends with `String`.
     pub is_strings: bool,
     /// Sheet name as written.
     pub title: String,
@@ -52,8 +52,8 @@ impl Schema {
         format!("[{}]{}", self.file, if self.title.is_empty() { &self.name } else { &self.title })
     }
 
-    /// The name as written in the file (`UI` for the string table `UIString`).
-    pub fn defined_name(&self) -> String {
+    /// The name a data sheet may use: `UI` for the string table `UIString`, otherwise the name.
+    pub fn short_name(&self) -> String {
         if self.is_strings {
             self.name.strip_suffix(STRING_TABLE_SUFFIX).unwrap_or(&self.name).to_string()
         } else {
@@ -208,7 +208,7 @@ fn collect(
         let Some(schema) = read_schema(path, relative, kind, errors) else { continue };
         let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let stem = &file_name[..file_name.len() - suffix.len()];
-        let defined = schema.defined_name();
+        let defined = schema.name.clone();
         if defined != stem {
             errors.add(&schema.where_(), "A1", tr(
                 format!("이름 '{defined}'과 파일 이름 '{file_name}'이 다릅니다. 파일 이름은 '{defined}{suffix}'여야 합니다"),
@@ -258,6 +258,14 @@ fn read_schema(path: &Path, relative: &str, kind: Kind, errors: &mut ErrorCollec
         ));
         return None;
     }
+    if is_strings && (schema.name.len() <= STRING_TABLE_SUFFIX.len() || !schema.name.ends_with(STRING_TABLE_SUFFIX)) {
+        let example = format!("{}{STRING_TABLE_SUFFIX}", schema.name);
+        errors.add(&schema.where_(), "A1", tr(
+            format!("스트링테이블 이름은 String으로 끝나야 합니다 (예: {example}.string.xlsx, 시트 {example})"),
+            format!("a string table name must end with String (e.g. {example}.string.xlsx, sheet {example})"),
+        ));
+        return None;
+    }
     let grid = sheet.grid?;
     let width = if is_enum { 3 } else { 4 };
     for row in 2..=grid.max_row() {
@@ -298,7 +306,6 @@ fn read_schema(path: &Path, relative: &str, kind: Kind, errors: &mut ErrorCollec
     if is_strings {
         // The key is implicit: Id, a name, in every output.
         schema.rows.insert(0, (1, Cell::Str("Id".into()), Cell::Str("ID<name>".into()), Cell::Str("all".into()), Cell::Empty));
-        schema.name = format!("{}{STRING_TABLE_SUFFIX}", schema.name);
     }
     Some(schema)
 }

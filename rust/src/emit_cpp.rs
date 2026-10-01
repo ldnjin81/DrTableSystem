@@ -1,9 +1,10 @@
 //! Unreal C++ output. Generated code depends on the schemas only, never on data values.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::excel::DataModel;
+use crate::i18n::tr;
 use crate::schema::{enum_of, in_scopes, ColumnSchema, EnumSchema, Enums, TableSchema, CLIENT_SCOPES};
 use crate::value::{json_string, py_float_repr, Value};
 use crate::values::default_value;
@@ -57,7 +58,7 @@ pub fn emit_cpp(
         write(&output.join(format!("E{prefix}{}.h", e.name)), &enum_header(e, prefix))?;
     }
     let enums = model.enum_map();
-    for table in &model.tables {
+    for table in model.data_tables() {
         write(&output.join(format!("{prefix}{}Row.h", table.name)), &table_header(table, prefix, &enums, runtime_header.is_some()))?;
         write(&output.join(format!("{prefix}{}Table.h", table.name)), &asset_header(table, prefix, asset_base, header))?;
         if let Some(runtime) = runtime_header {
@@ -191,12 +192,20 @@ fn client_sub_keys(table: &TableSchema) -> Vec<&ColumnSchema> {
     table.columns.iter().filter(|c| c.is_role("subkey") && in_scopes(&c.scope, &CLIENT_SCOPES)).collect()
 }
 
-/// Other tables this row references (excluding itself), sorted by name.
+/// Other tables this row references (excluding itself and string tables), sorted by name.
 fn ref_targets(table: &TableSchema) -> BTreeSet<String> {
-    client_refs(table).into_iter().filter_map(|c| c.ref_target.clone()).filter(|t| *t != table.name).collect()
+    client_refs(table)
+        .into_iter()
+        .filter(|c| !c.ref_strings)
+        .filter_map(|c| c.ref_target.clone())
+        .filter(|t| *t != table.name)
+        .collect()
 }
 
 fn ref_return(column: &ColumnSchema, prefix: &str) -> String {
+    if column.ref_strings {
+        return "FText".into();
+    }
     let row = format!("F{prefix}{}Row", column.ref_target.as_deref().unwrap_or(""));
     if column.ref_key.is_some() { format!("TArray<const {row}*>") } else { format!("const {row}*") }
 }
@@ -274,7 +283,13 @@ fn row_source(table: &TableSchema, prefix: &str, runtime_header: &str) -> String
     ]);
     for column in client_refs(table) {
         let target_row = format!("F{prefix}{}Row", column.ref_target.as_deref().unwrap_or(""));
-        let empty = if column.ref_key.is_some() { "{}" } else { "nullptr" };
+        let empty = if column.ref_strings {
+            "FText::GetEmpty()"
+        } else if column.ref_key.is_some() {
+            "{}"
+        } else {
+            "nullptr"
+        };
         let lookup = match &column.ref_key {
             Some(key) => format!("FindBy{key}"),
             None => "Find".to_string(),
@@ -297,7 +312,13 @@ fn row_source(table: &TableSchema, prefix: &str, runtime_header: &str) -> String
                 "    }".into(),
             ]);
         }
-        lines.extend([format!("    return {target_row}::{lookup}({value});"), "}".into(), String::new()]);
+        let result = if column.ref_strings {
+            // Text of the current language, through the string table runtime.
+            format!("    return DrTableRuntime::GetText(FName(TEXT(\"{}\")), {value});", column.ref_target.as_deref().unwrap_or(""))
+        } else {
+            format!("    return {target_row}::{lookup}({value});")
+        };
+        lines.extend([result, "}".into(), String::new()]);
     }
     lines.join("\n")
 }
@@ -310,7 +331,7 @@ fn registration_header(model: &DataModel, prefix: &str, asset_name: &str) -> Str
         "#include \"CoreMinimal.h\"".into(),
         format!("#include \"{prefix}GeneratedTables.h\""),
     ];
-    lines.extend(model.tables.iter().map(|t| format!("#include \"{prefix}{}Table.h\"", t.name)));
+    lines.extend(model.data_tables().map(|t| format!("#include \"{prefix}{}Table.h\"", t.name)));
     lines.extend([
         String::new(),
         format!("namespace {prefix}GeneratedTables"),
@@ -322,7 +343,7 @@ fn registration_header(model: &DataModel, prefix: &str, asset_name: &str) -> Str
         "    void RegisterAll(TRegistry& Registry)".into(),
         "    {".into(),
     ]);
-    for table in &model.tables {
+    for table in model.data_tables() {
         let row = format!("F{prefix}{}Row", table.name);
         let asset = format!("U{prefix}{}Table", table.name);
         let name = asset_name.replace("{table}", &table.name);
@@ -406,7 +427,7 @@ fn tables_header(model: &DataModel, prefix: &str) -> String {
         format!("namespace {prefix}GeneratedTables"),
         "{".into(),
     ];
-    for table in &model.tables {
+    for table in model.data_tables() {
         let sub_keys: Vec<&str> = table.sub_keys().iter().map(|c| c.name.as_str()).collect();
         lines.extend([
             format!("    inline constexpr TCHAR {0}Name[] = TEXT(\"{0}\");", table.name),
@@ -492,4 +513,48 @@ fn cpp_comment(value: &str) -> String {
 
 fn write(path: &Path, content: &str) -> std::io::Result<()> {
     std::fs::write(path, content)
+}
+
+/// Key constants of a string table (`--string-keys`): `<Prefix><Table>Keys::<Key>`. The keys come
+/// from the data, so this header changes whenever a key is added or removed. Keys that are not
+/// C++ identifiers have other characters replaced with '_'; keys that would share a constant are
+/// errors.
+pub fn string_keys_header(table: &TableSchema, prefix: &str) -> Result<String, Vec<String>> {
+    let key_index = table.columns.iter().position(|c| c.is_role("id")).expect("a primary key");
+    let mut keys: Vec<String> = table.rows.iter().filter_map(|row| row[key_index].as_str().map(str::to_string)).collect();
+    keys.sort();
+    let mut constants: BTreeMap<String, String> = BTreeMap::new();
+    let mut errors = Vec::new();
+    for key in &keys {
+        let mut constant: String = key.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect();
+        if !constant.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
+            constant.insert(0, '_');
+        }
+        if let Some(first) = constants.get(&constant) {
+            errors.push(tr(
+                format!("{}: 키 '{first}'와 '{key}'가 같은 상수 이름 {constant}이 됩니다", table.header_location()),
+                format!("{}: keys '{first}' and '{key}' would share the constant name {constant}", table.header_location()),
+            ));
+            continue;
+        }
+        constants.insert(constant, key.clone());
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    let mut lines = vec![
+        table_source_line(table),
+        "// Key constants come from the data (--string-keys): this file changes when keys change.".into(),
+        "#pragma once".into(),
+        String::new(),
+        "#include \"CoreMinimal.h\"".into(),
+        String::new(),
+        format!("namespace {prefix}{}Keys", table.name),
+        "{".into(),
+    ];
+    for (constant, key) in &constants {
+        lines.push(format!("    inline constexpr TCHAR {constant}[] = TEXT({});", json_string(key)));
+    }
+    lines.extend(["}".into(), String::new()]);
+    Ok(lines.join("\n"))
 }

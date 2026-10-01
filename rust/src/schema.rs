@@ -12,8 +12,8 @@ use crate::sources::is_identifier;
 use crate::value::{object, Cell, Json, Value};
 use crate::values::convert_value;
 
-pub const PRIMITIVES: [&str; 10] =
-    ["int32", "int64", "float", "double", "bool", "name", "string", "text", "tag", "path"];
+pub const PRIMITIVES: [&str; 11] =
+    ["int32", "int64", "float", "double", "bool", "name", "string", "text", "tag", "path", "lang"];
 pub const KEY_PRIMITIVES: [&str; 3] = ["int32", "int64", "name"];
 pub const SCOPES: [&str; 4] = ["all", "client", "server", "#"];
 pub const CLIENT_SCOPES: [&str; 2] = ["all", "client"];
@@ -32,8 +32,17 @@ static REF_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^ref\s*<\s*([^<>\s]+)\s*>$").unwrap());
 static REF_ROLE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^(id|subkey)\s*<\s*(ref\s*<[^<>]+>)\s*>$").unwrap());
+/// `Base<lang>`: the base language column of a string table.
+static BASE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^base\s*<\s*lang\s*>$").unwrap());
 pub static KEY_ROLE_PREFIX_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^(id|subkey)\s*<").unwrap());
+
+/// Whether a schema type cell declares a language column (`lang` or `Base<lang>`).
+pub fn is_lang_type(text: &str) -> bool {
+    let text = text.split('=').next().unwrap_or("").trim();
+    text.eq_ignore_ascii_case("lang") || BASE_RE.is_match(text)
+}
 
 /// The enum name of an `E<Name>` type.
 pub fn enum_of(type_name: &str) -> Option<&str> {
@@ -74,6 +83,8 @@ pub struct ColumnSchema {
     pub default_values: Vec<Option<Value>>,
     pub ref_target: Option<String>,
     pub ref_key: Option<String>,
+    /// The reference points at a string table (its accessor returns the text in the current language).
+    pub ref_strings: bool,
 }
 
 impl ColumnSchema {
@@ -83,6 +94,16 @@ impl ColumnSchema {
 
     pub fn is_role(&self, role: &str) -> bool {
         self.role.as_deref() == Some(role)
+    }
+
+    /// A language column of a string table (`lang` or `Base<lang>`).
+    pub fn is_lang(&self) -> bool {
+        self.type_name == "lang"
+    }
+
+    /// The culture code a language column stands for: its name with '_' read as '-' (zh_Hans -> zh-Hans).
+    pub fn culture(&self) -> String {
+        self.name.replace('_', "-")
     }
 }
 
@@ -136,6 +157,20 @@ impl TableSchema {
     pub fn sub_keys(&self) -> Vec<&ColumnSchema> {
         self.columns.iter().filter(|c| c.is_role("subkey")).collect()
     }
+
+    /// A string table has language columns; it is loaded one language at a time.
+    pub fn is_strings(&self) -> bool {
+        self.columns.iter().any(ColumnSchema::is_lang)
+    }
+
+    /// The language columns, in schema order.
+    pub fn languages(&self) -> Vec<&ColumnSchema> {
+        self.columns.iter().filter(|c| c.is_lang()).collect()
+    }
+
+    pub fn base_language(&self) -> Option<&ColumnSchema> {
+        self.columns.iter().find(|c| c.is_lang() && c.is_role("base"))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -168,6 +203,10 @@ pub fn parse_type(
         default_text = Some(tail.trim().to_string());
     }
     let mut role: Option<String> = None;
+    if BASE_RE.is_match(&text) {
+        role = Some("base".into());
+        text = "lang".into();
+    }
     let captures = REF_ROLE_RE.captures(&text).or_else(|| ROLE_RE.captures(&text));
     if let Some(captures) = captures {
         role = Some(captures[1].to_lowercase());
@@ -240,6 +279,7 @@ pub fn parse_type(
         return None;
     }
     if role.is_some()
+        && role.as_deref() != Some("base")
         && !KEY_PRIMITIVES.contains(&text.as_str())
         && enum_of(&text).is_none()
         && ref_target.is_none()
@@ -395,6 +435,7 @@ pub fn build_columns(
                     default_values: vec![default_value],
                     ref_target: parsed.ref_target.clone(),
                     ref_key: parsed.ref_key.clone(),
+                    ref_strings: false,
                 },
             ));
         }
@@ -492,6 +533,7 @@ pub fn build_columns(
                     default_values: defaults,
                     ref_target: first_type.ref_target.clone(),
                     ref_key: first_type.ref_key.clone(),
+                    ref_strings: false,
                 },
             ));
         }

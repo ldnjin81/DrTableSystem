@@ -29,6 +29,8 @@ pub struct BuildOptions {
     pub runtime_header: Option<String>,
     pub asset_name: String,
     pub ue_plugin: bool,
+    /// Also write a header of key constants per string table (it changes whenever a key is added).
+    pub string_keys: bool,
 }
 
 impl Default for BuildOptions {
@@ -44,6 +46,7 @@ impl Default for BuildOptions {
             runtime_header: None,
             asset_name: DEFAULT_ASSET_NAME.into(),
             ue_plugin: false,
+            string_keys: false,
         }
     }
 }
@@ -96,6 +99,19 @@ pub fn build(model: &DataModel, options: &BuildOptions) -> Result<(), BuildError
     if runtime_header.is_some() {
         check_member_names(model).map_err(|e| BuildError::Invalid(e.0))?;
     }
+    let mut key_headers = Vec::new();
+    if options.string_keys {
+        let mut failures = Vec::new();
+        for table in model.string_tables() {
+            match emit_cpp::string_keys_header(table, &options.prefix) {
+                Ok(text) => key_headers.push((format!("{}{}Keys.h", options.prefix, table.name), text)),
+                Err(mut errors) => failures.append(&mut errors),
+            }
+        }
+        if !failures.is_empty() {
+            return Err(BuildError::Invalid(failures));
+        }
+    }
     for output in outputs {
         clear_output(output).map_err(|e| BuildError::Invalid(e.0))?;
     }
@@ -118,13 +134,14 @@ pub fn build(model: &DataModel, options: &BuildOptions) -> Result<(), BuildError
             &options.asset_name,
         )
     })
+    .and_then(|_| key_headers.iter().try_for_each(|(name, text)| std::fs::write(options.out_cpp.join(name), text)))
     .map_err(|e| BuildError::Io(e.to_string()))
 }
 
 /// Generated member functions must not clash with fields or with each other.
 pub fn check_member_names(model: &DataModel) -> Result<(), ValidationErrors> {
     let mut errors = ErrorCollector::default();
-    for table in &model.tables {
+    for table in model.data_tables() {
         let fields: HashSet<&str> =
             table.columns.iter().filter(|c| in_scopes(&c.scope, &CLIENT_SCOPES)).map(|c| c.name.as_str()).collect();
         let mut seen: HashMap<String, String> = HashMap::new();

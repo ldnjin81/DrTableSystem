@@ -5,7 +5,7 @@ use crate::i18n::tr;
 use crate::schema::{enum_of, Enums};
 use crate::value::{Cell, Value};
 
-const STRING_TYPES: [&str; 5] = ["name", "string", "text", "tag", "path"];
+const STRING_TYPES: [&str; 6] = ["name", "string", "text", "tag", "path", "lang"];
 
 /// Converts a cell to `type_name`. On failure reports an error and returns the type default.
 /// With `use_default_for_empty`, blank cells take the type default.
@@ -81,6 +81,9 @@ pub fn convert_value(
         },
         t if STRING_TYPES.contains(&t) => match value {
             Cell::Str(s) => Some(Value::Str(s.clone())),
+            // A translation that is just a number ("100") is still text.
+            Cell::Int(_) | Cell::Float(_) if t == "lang" => Some(Value::Str(value.py_str())),
+            Cell::Bool(b) if t == "lang" => Some(Value::Str(if *b { "TRUE" } else { "FALSE" }.into())),
             _ => failed(errors),
         },
         t => match enum_of(t) {

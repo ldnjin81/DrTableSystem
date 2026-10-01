@@ -462,7 +462,7 @@ UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # fails on missing o
 On every push, `.github/workflows/ci.yml` runs on Windows, macOS and Linux:
 
 - the build of the executable and the GUI, and the unit tests
-- the test suite against the executable (`tests/`; the tests create their input workbooks)
+- the test suite against the executable (`rust/tests/`; the tests create their input workbooks)
 
 A `v*` tag builds the executables for each platform and attaches them to a Release.
 

@@ -462,7 +462,7 @@ UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # 빠졌거나 오�
 `.github/workflows/ci.yml`은 push마다 윈도우·맥·리눅스에서 다음을 돌립니다.
 
 - 실행 파일·GUI 빌드와 단위 테스트
-- 실행 파일을 대상으로 한 테스트 모음(`tests/`, 입력 엑셀은 테스트 안에서 만듭니다)
+- 실행 파일을 대상으로 한 테스트 모음(`rust/tests/`, 입력 엑셀은 테스트 안에서 만듭니다)
 
 `v*` 태그를 달면 운영체제별 실행 파일을 빌드해 Release에 올립니다.
 

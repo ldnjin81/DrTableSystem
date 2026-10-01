@@ -239,11 +239,11 @@ DropTable:  Id: ID<int32>       GroupId: SubKey<int32>      Item: Ref<Items>
 
 UI 문구, 아이템 이름처럼 **언어마다 다른 글**은 스트링테이블에 둡니다. 게임은 **설정된 언어 하나만** 메모리에 올리고, 언어를 바꾸면 새 언어를 불러온 뒤 한 번에 교체합니다. 교체가 끝나면 델리게이트로 알리므로 UI가 다시 그릴 수 있습니다.
 
-### 스키마: `<이름>.string.xlsx`
+### 스키마: `<이름>String.string.xlsx`
 
-스트링테이블 스키마는 **언어 목록**뿐입니다. 자료형은 적지 않습니다. 스키마 폴더에 `<이름>.string.xlsx`로 두고, 시트 이름도 `<이름>`으로 합니다. 이 파일이 정의하는 테이블 이름은 **`<이름>String`**입니다(`UI.string.xlsx` → `UIString`). 그래서 일반 테이블 `UI`와 이름이 겹치지 않습니다.
+스트링테이블 스키마는 **언어 목록**뿐입니다. 자료형은 적지 않습니다. 스키마 폴더에 **테이블 이름 그대로** `<이름>.string.xlsx`로 두고, 시트 이름도 같게 합니다. 스트링테이블 이름은 **`String`으로 끝나야** 합니다(`UIString.string.xlsx`, 시트 `UIString`). 그래서 일반 테이블 `UI`와 이름이 겹치지 않습니다.
 
-`Schema/UI.string.xlsx`, 시트 `UI`:
+`Schema/UIString.string.xlsx`, 시트 `UIString`:
 
 | | A 언어 | B 기준 | C 범위 | D 설명 |
 |---|---|---|---|---|
@@ -267,10 +267,10 @@ Design/Tables/          일반 데이터
 Design/Tables/Schema/   스키마 (스트링테이블 스키마도 여기)
 Design/Tables/Enums/    열거형
 Design/Tables/Strings/  스트링테이블 데이터 (--strings, 기본: 스키마 폴더 옆 Strings)
-  UI.xlsx               시트 UI (= 테이블 UIString): 1행 Id ko en zh-Hans, 4행부터 데이터
+  UI.xlsx               시트 UI (= UIString): 1행 Id ko en zh-Hans, 4행부터 데이터
 ```
 
-- 시트 이름은 스키마의 `<이름>`(`UI`)입니다. 스트링 폴더 안의 시트는 자동으로 `<이름>String` 테이블이 됩니다.
+- 스트링 폴더의 시트 이름에는 `String`을 생략해도 됩니다. 시트 `UI`는 `UIString` 테이블이 되고, `UIString`이라고 다 써도 됩니다.
 - `--schema`를 주지 않으면 입력 폴더 안의 `Strings`입니다. 시트·파일 나누기(`UI#메뉴`)는 일반 테이블과 같습니다.
 - 스트링테이블 시트가 스트링 폴더 밖에 있거나, 일반 테이블 시트가 스트링 폴더 안에 있으면 오류입니다.
 - 기준 언어 칸이 비면 오류입니다. **다른 언어 칸이 비면 빌드할 때 기준 언어 글로 채우고** 언어마다 경고를 한 줄 냅니다. 그래서 게임은 설정 언어 하나만 올려도 빈 글이 없습니다.
@@ -291,7 +291,7 @@ client/manifest.json               "string_tables": 테이블마다 기준 언�
 
 ### 다른 테이블에서 가리키기
 
-`Name: Ref<ItemString>`처럼(스키마 `Item.string.xlsx`) 일반 테이블에서 스트링테이블 키를 가리키면, 생성되는 접근자가 **현재 언어의 글**을 돌려줍니다.
+`Name: Ref<ItemString>`처럼(스키마 `ItemString.string.xlsx`) 일반 테이블에서 스트링테이블 키를 가리키면, 생성되는 접근자가 **현재 언어의 글**을 돌려줍니다.
 
 ```cpp
 const FGmItemsRow* Sword = FGmItemsRow::Find(1001);
@@ -579,8 +579,9 @@ UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # 빠졌거나 오�
 | `Table asset not found` | 등록은 됐지만 굽지 않았거나, 굽기와 로드의 `AssetRoot`·`--asset-name`이 다릅니다. |
 | `Row type is registered for more than one table` | 같은 행 구조체로 두 번 등록했습니다. 테이블 ID로 조회하세요(`FindRowByKey<TRow>(TableId, Key)`). |
 | `스트링테이블 'X'의 데이터는 스트링 폴더(…)에 두어야 합니다` | 스트링테이블 데이터 엑셀을 스트링 폴더로 옮기세요(반대로 일반 테이블은 그 폴더 밖으로). |
-| `기준 언어를 하나 표시하세요` | `<이름>.string.xlsx`에서 기준 언어 하나의 B칸(Base)에 ✓ 등을 적으세요. |
-| `스트링테이블 스키마가 없습니다` | 스트링 폴더의 시트 이름에 맞는 `<이름>.string.xlsx`가 없습니다. |
+| `기준 언어를 하나 표시하세요` | `<이름>String.string.xlsx`에서 기준 언어 하나의 B칸(Base)에 ✓ 등을 적으세요. |
+| `스트링테이블 스키마가 없습니다` | 스트링 폴더의 시트 이름에 맞는 `<이름>String.string.xlsx`가 없습니다. |
+| `스트링테이블 이름은 String으로 끝나야 합니다` | 스키마 파일과 시트 이름을 `<이름>String`으로 바꾸세요. |
 | `… 번역 N칸이 비어 기준 언어(…) 값으로 채웠습니다` (경고) | 아직 번역하지 않은 칸입니다. 게임에는 기준 언어 글이 나옵니다. |
 | `No text for Table.Key` (언리얼 경고) | 그 키가 스트링테이블에 없거나 굽지 않았습니다. 생성 → 굽기. |
 | `--asset-base를 바꾸면 --asset-base-header도 필요합니다` | 기반 클래스를 선언한 헤더를 주거나 `--ue-plugin`을 쓰세요. |

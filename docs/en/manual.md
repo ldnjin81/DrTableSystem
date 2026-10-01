@@ -239,11 +239,11 @@ DropTable:  Id: ID<int32>       GroupId: SubKey<int32>      Item: Ref<Items>
 
 Text that differs per language, such as UI text and item names, lives in string tables. The game keeps **only the current language** in memory. Switching languages loads the new one, swaps it in at once, and then fires a delegate so the UI can redraw.
 
-### Schema: `<Name>.string.xlsx`
+### Schema: `<Name>String.string.xlsx`
 
-A string table schema is just a **list of languages**, with no types. It goes in the schema folder as `<Name>.string.xlsx`, with a sheet named `<Name>`. The table it defines is **`<Name>String`** (`UI.string.xlsx` → `UIString`), so it never clashes with a regular table `UI`.
+A string table schema is just a **list of languages**, with no types. It goes in the schema folder named **after the table** (`<Name>.string.xlsx`, with a sheet of the same name). A string table name **must end with `String`** (`UIString.string.xlsx`, sheet `UIString`), so it never clashes with a regular table `UI`.
 
-`Schema/UI.string.xlsx`, sheet `UI`:
+`Schema/UIString.string.xlsx`, sheet `UIString`:
 
 | | A Language | B Base | C Scope | D Comment |
 |---|---|---|---|---|
@@ -267,10 +267,10 @@ Design/Tables/          data
 Design/Tables/Schema/   schemas (string table schemas too)
 Design/Tables/Enums/    enums
 Design/Tables/Strings/  string table data (--strings, default: Strings next to the schema folder)
-  UI.xlsx               sheet UI (= table UIString): row 1 Id ko en zh-Hans, data from row 4
+  UI.xlsx               sheet UI (= UIString): row 1 Id ko en zh-Hans, data from row 4
 ```
 
-- The sheet is named like the schema (`UI`). Sheets in the strings folder belong to the `<Name>String` table.
+- Sheets in the strings folder may leave out `String`: sheet `UI` belongs to `UIString` (writing `UIString` works too).
 - Without `--schema`, the strings folder is `Strings` inside the input folder. Splitting sheets and files (`UI#Menu`) works as for other tables.
 - These are errors:
   - a string table sheet outside the strings folder
@@ -294,7 +294,7 @@ client/manifest.json               "string_tables": base language, languages, co
 
 ### Pointing at strings from other tables
 
-When a regular table points at a string table key, as in `Name: Ref<ItemString>` (schema `Item.string.xlsx`), the generated accessor returns **the text in the current language**:
+When a regular table points at a string table key, as in `Name: Ref<ItemString>` (schema `ItemString.string.xlsx`), the generated accessor returns **the text in the current language**:
 
 ```cpp
 const FGmItemsRow* Sword = FGmItemsRow::Find(1001);
@@ -582,8 +582,9 @@ A `v*` tag builds the executables for each platform and attaches them to a Relea
 | `Table asset not found` | Registered but never baked, or `AssetRoot`/`--asset-name` differ between bake and load. |
 | `Row type is registered for more than one table` | The same row struct was registered twice. Look it up by table id (`FindRowByKey<TRow>(TableId, Key)`). |
 | `string table 'X' data belongs in the strings folder (…)` | Move the string table workbook into the strings folder (and other tables' workbooks out of it). |
-| `mark one base language` | In `<Name>.string.xlsx`, put a mark (✓) in column B (Base) of one language. |
-| `no string table schema` | No `<Name>.string.xlsx` matches the sheet name in the strings folder. |
+| `mark one base language` | In `<Name>String.string.xlsx`, put a mark (✓) in column B (Base) of one language. |
+| `no string table schema` | No `<Name>String.string.xlsx` matches the sheet name in the strings folder. |
+| `a string table name must end with String` | Rename the schema file and sheet to `<Name>String`. |
 | `… empty … translation(s) filled from the base language` (warning) | Cells not translated yet; the game shows the base language text. |
 | `No text for Table.Key` (Unreal warning) | The key is not in the string table, or it was not baked. Generate → bake. |
 | `--asset-base requires --asset-base-header` | Pass the header that declares the base class, or use `--ue-plugin`. |

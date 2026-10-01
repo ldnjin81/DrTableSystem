@@ -53,8 +53,8 @@ pub fn new_workbook(target: &Path, table: &str, schemas: &Schemas, errors: &mut 
     let mut workbook = Workbook::new();
     let sheet = workbook.add_worksheet();
     let written = (|| -> Result<(), rust_xlsxwriter::XlsxError> {
-        // A string table's data sheet is named like its schema sheet (UI), not the table (UIString).
-        sheet.set_name(&sheet_name)?;
+        // A string table's data sheet uses the short name (UI for UIString).
+        sheet.set_name(schema.short_name())?;
         for (index, (schema_row, name, _, _)) in schema.raw_columns().iter().enumerate() {
             let column = index as u16;
             let letter = column_letter(index + 1);

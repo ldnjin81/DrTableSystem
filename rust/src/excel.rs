@@ -107,7 +107,7 @@ pub fn load_model(
     }
     // An input folder with nothing in it is almost always a wrong path; building it would
     // replace the generated code with an empty set.
-    if files.is_empty() && schemas.all().next().is_none() {
+    if files.is_empty() && schemas.all().next().is_none() && errors.messages.is_empty() {
         return Err(ValidationErrors(vec![tr(
             format!("입력!A1: 스키마도 데이터 파일도 없습니다: {}", input.display()),
             format!("input!A1: no schema or data workbook found: {}", input.display()),
@@ -153,31 +153,42 @@ pub fn load_model(
                 ));
                 continue;
             }
-            // Sheets in the strings folder belong to string tables: sheet UI is the table UIString.
-            let string_name = format!("{name}{STRING_TABLE_SUFFIX}");
+            // Sheets in the strings folder belong to string tables; the sheet may leave out the
+            // String suffix (UI for UIString).
+            let string_name = if name.ends_with(STRING_TABLE_SUFFIX) && schemas.tables.get(name).is_some_and(|s| s.is_strings) {
+                name.to_string()
+            } else {
+                format!("{name}{STRING_TABLE_SUFFIX}")
+            };
             let table = if in_strings_folder { string_name.as_str() } else { name };
             let folder = strings_root.display();
+            let wrong_place = |is_strings: bool| if is_strings {
+                tr(
+                    format!("스트링테이블 '{string_name}'의 데이터는 스트링 폴더({folder})에 두어야 합니다"),
+                    format!("string table '{string_name}' data belongs in the strings folder ({folder})"),
+                )
+            } else {
+                tr(
+                    format!("일반 테이블 '{name}'의 데이터는 스트링 폴더({folder})에 둘 수 없습니다"),
+                    format!("table '{name}' is not a string table; its data cannot be in the strings folder ({folder})"),
+                )
+            };
             match schemas.tables.get(table) {
                 Some(schema) if schema.is_strings == in_strings_folder => {
                     if let Some(grid) = &sheet.grid {
                         table_parts.entry(table.to_string()).or_default().push(SheetRef { file: relative, grid });
                     }
                 }
-                Some(_) => errors.add(&where_, "A1", tr(
-                    format!("일반 테이블 '{name}'의 데이터는 스트링 폴더({folder})에 둘 수 없습니다"),
-                    format!("table '{name}' is not a string table; its data cannot be in the strings folder ({folder})"),
-                )),
-                None if !in_strings_folder && schemas.tables.get(&string_name).is_some_and(|s| s.is_strings) => errors.add(&where_, "A1", tr(
-                    format!("스트링테이블 '{name}'의 데이터는 스트링 폴더({folder})에 두어야 합니다"),
-                    format!("string table '{name}' data belongs in the strings folder ({folder})"),
-                )),
-                None if in_strings_folder && schemas.tables.get(name).is_some_and(|s| !s.is_strings) => errors.add(&where_, "A1", tr(
-                    format!("일반 테이블 '{name}'의 데이터는 스트링 폴더({folder})에 둘 수 없습니다"),
-                    format!("table '{name}' is not a string table; its data cannot be in the strings folder ({folder})"),
-                )),
+                Some(schema) => errors.add(&where_, "A1", wrong_place(schema.is_strings)),
+                None if !in_strings_folder && schemas.tables.get(&string_name).is_some_and(|s| s.is_strings) => {
+                    errors.add(&where_, "A1", wrong_place(true))
+                }
+                None if in_strings_folder && schemas.tables.get(name).is_some_and(|s| !s.is_strings) => {
+                    errors.add(&where_, "A1", wrong_place(false))
+                }
                 None if in_strings_folder => errors.add(&where_, "A1", tr(
-                    format!("스트링테이블 스키마가 없습니다. 언어 목록을 '{name}.string.xlsx'에 정의하세요"),
-                    format!("no string table schema. List the languages in '{name}.string.xlsx'"),
+                    format!("스트링테이블 스키마가 없습니다. 언어 목록을 '{string_name}.string.xlsx'에 정의하세요"),
+                    format!("no string table schema. List the languages in '{string_name}.string.xlsx'"),
                 )),
                 None => errors.add(&where_, "A1", tr(
                     format!("스키마가 없습니다. '{name}.schema.xlsx'에 필드를 정의하세요"),

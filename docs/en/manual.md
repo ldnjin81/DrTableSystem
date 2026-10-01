@@ -162,7 +162,6 @@ File paths are relative to the input folder (data) or the schema folder.
 | `tag` | `FGameplayTag` | string | string |
 | `path` | `FSoftObjectPath` | string | string |
 | `E<Enum>` | `E<Prefix><Enum>` | enumerator name | enumerator name |
-| `lang`, `Base<lang>` | (string tables only, section 8) | one file per language | one file per language |
 | `Ref<Table>` / `Ref<Table.SubKey>` | type of the target key | same as the target | same as the target |
 
 - The server is not assumed to be Unreal: `name`, `string`, `text`, `tag` and `path` are plain strings in server JSON.
@@ -240,22 +239,24 @@ DropTable:  Id: ID<int32>       GroupId: SubKey<int32>      Item: Ref<Items>
 
 Text that differs per language, such as UI text and item names, lives in string tables. The game keeps **only the current language** in memory. Switching languages loads the new one, swaps it in at once, and then fires a delegate so the UI can redraw.
 
-### Schema
+### Schema: `<Name>.string.xlsx`
 
-`Schema/UIStrings.schema.xlsx`:
+A string table schema is just a **list of languages**, with no types. It goes in the schema folder as `<Name>.string.xlsx`, with a sheet named `<Name>`. The table it defines is **`<Name>String`** (`UI.string.xlsx` → `UIString`), so it never clashes with a regular table `UI`.
 
-| | A Field | B Type | C Scope |
-|---|---|---|---|
-| **1** | `Field` | `Type` | `Scope` |
-| **2** | `Id` | `ID<name>` | `all` |
-| **3** | `ko` | `Base<lang>` | `client` |
-| **4** | `en` | `lang` | `client` |
-| **5** | `zh_Hans` | `lang` | `client` |
+`Schema/UI.string.xlsx`, sheet `UI`:
 
-- A table with any `lang` column is a string table. It holds only its primary key (`ID<name>`) and `lang` columns.
-- **The field name is the language (culture) code.** Identifiers cannot contain `-`, so `_` reads as `-` (`zh_Hans` → `zh-Hans`, `pt_BR` → `pt-BR`).
-- **The base language** is the one language column written as `Base<lang>`. A table has exactly one, and it may differ between tables (for example `en` for system messages).
-- Scope is set per language column. Text the server also needs (mail titles, say) can be `all` so that it reaches the server JSON.
+| | A Language | B Base | C Scope | D Comment |
+|---|---|---|---|---|
+| **1** | `Language` | `Base` | `Scope` | `Comment` |
+| **2** | `ko` | `✓` | | |
+| **3** | `en` | | | |
+| **4** | `zh-Hans` | | | Simplified |
+
+- **The language code is the column name in the data** (`ko`, `en`, `zh-Hans`, `pt-BR` …). `zh_Hans` with `_` means the same.
+- **Base**: mark one language with any value in column B (✓, O, TRUE …). Exactly one is required, and it may differ between tables (for example `en` for system messages). An empty cell, FALSE or 0 is not a mark.
+- **Scope**: empty means `client`. Text the server also needs (mail titles, say) can be `all` so that it reaches the server JSON.
+- The key is always `Id` (a name), so it is not listed.
+- Regular schemas (`.schema.xlsx`) cannot have language columns.
 
 ### Data: the strings folder
 
@@ -266,10 +267,11 @@ Design/Tables/          data
 Design/Tables/Schema/   schemas (string table schemas too)
 Design/Tables/Enums/    enums
 Design/Tables/Strings/  string table data (--strings, default: Strings next to the schema folder)
-  UI.xlsx               sheet UIStrings: row 1 Id ko en zh_Hans, data from row 4
+  UI.xlsx               sheet UI (= table UIString): row 1 Id ko en zh-Hans, data from row 4
 ```
 
-- Without `--schema`, the strings folder is `Strings` inside the input folder. Splitting sheets and files (`UIStrings#Menu`) works as for other tables.
+- The sheet is named like the schema (`UI`). Sheets in the strings folder belong to the `<Name>String` table.
+- Without `--schema`, the strings folder is `Strings` inside the input folder. Splitting sheets and files (`UI#Menu`) works as for other tables.
 - These are errors:
   - a string table sheet outside the strings folder
   - another table's sheet inside the strings folder
@@ -281,22 +283,22 @@ Design/Tables/Strings/  string table data (--strings, default: Strings next to t
 ### Outputs
 
 ```
-client/Strings/ko/UIStrings.json   {"table", "language", "base_language", "schema_hash", "content_hash", "keys", "values"}
-client/Strings/en/UIStrings.json
+client/Strings/ko/UIString.json    {"table", "language", "base_language", "schema_hash", "content_hash", "keys", "values"}
+client/Strings/en/UIString.json
 client/manifest.json               "string_tables": base language, languages, content hash per language, data sources
 ```
 
 - Keys are sorted like primary keys; `values` holds the text in the same order.
 - String tables get no row struct or asset class. **Editing text or adding keys never changes C++ code.**
-- `--string-keys` also writes key constants (`<Prefix><Table>Keys.h`, e.g. `DrUIStringsKeys::Btn_OK`). The keys come from the data, so this header changes whenever a key is added. It is off by default.
+- `--string-keys` also writes key constants (`<Prefix><Table>Keys.h`, e.g. `DrUIStringKeys::Btn_OK`). The keys come from the data, so this header changes whenever a key is added. It is off by default.
 
 ### Pointing at strings from other tables
 
-When a regular table points at a string table key, as in `Name: Ref<ItemStrings>`, the generated accessor returns **the text in the current language**:
+When a regular table points at a string table key, as in `Name: Ref<ItemString>` (schema `Item.string.xlsx`), the generated accessor returns **the text in the current language**:
 
 ```cpp
 const FGmItemsRow* Sword = FGmItemsRow::Find(1001);
-FText Name = Sword->GetName();   // ItemStrings text in the current language
+FText Name = Sword->GetName();   // ItemString text in the current language
 ```
 
 `drtable check` checks string table keys too. The GUI lists string tables separately in the Tables tab (language columns and the base language), and the strings folder is set in the Build & check tab.
@@ -316,7 +318,7 @@ FText Name = Sword->GetName();   // ItemStrings text in the current language
 UDrStringSubsystem* Strings = GetGameInstance()->GetSubsystem<UDrStringSubsystem>();
 Strings->OnLanguageChanged.AddDynamic(this, &UMyWidget::HandleLanguageChanged);   // also bindable in Blueprint
 Strings->SetLanguage(TEXT("en"));                                                  // asynchronous
-FText Title = Strings->GetText(TEXT("UIStrings"), TEXT("Title_Main"));
+FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
 ```
 
 - `SetLanguage` loads the new language's assets **asynchronously**. The previous language stays on screen until they have loaded.
@@ -580,7 +582,8 @@ A `v*` tag builds the executables for each platform and attaches them to a Relea
 | `Table asset not found` | Registered but never baked, or `AssetRoot`/`--asset-name` differ between bake and load. |
 | `Row type is registered for more than one table` | The same row struct was registered twice. Look it up by table id (`FindRowByKey<TRow>(TableId, Key)`). |
 | `string table 'X' data belongs in the strings folder (…)` | Move the string table workbook into the strings folder (and other tables' workbooks out of it). |
-| `a string table needs one base language column (Base<lang>)` | In the schema, make one language column `Base<lang>`. |
+| `mark one base language` | In `<Name>.string.xlsx`, put a mark (✓) in column B (Base) of one language. |
+| `no string table schema` | No `<Name>.string.xlsx` matches the sheet name in the strings folder. |
 | `… empty … translation(s) filled from the base language` (warning) | Cells not translated yet; the game shows the base language text. |
 | `No text for Table.Key` (Unreal warning) | The key is not in the string table, or it was not baked. Generate → bake. |
 | `--asset-base requires --asset-base-header` | Pass the header that declares the base class, or use `--ue-plugin`. |

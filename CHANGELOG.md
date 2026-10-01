@@ -2,7 +2,7 @@
 
 ## 0.3.0
 
-- String tables: `lang` columns with one `Base<lang>`, data in the strings folder (`--strings`, default `Strings` next to the schema folder). Empty translations take the base text at build time; format arguments that differ from the base text are warned. Output per language (`Strings/<culture>/<Table>.json`), no generated code for string tables (`--string-keys` adds optional key constants).
+- String tables: `<Name>.string.xlsx` lists the languages (code, base mark, scope) and defines the table `<Name>String`; data sheets `<Name>` in the strings folder (`--strings`, default `Strings` next to the schema folder). Empty translations take the base text at build time; format arguments that differ from the base text are warned. Output per language (`Strings/<culture>/<Table>.json`), no generated code for string tables (`--string-keys` adds optional key constants).
 - `Ref<StringTable>` accessors return the text in the current language.
 - Unreal plugin: per-language string assets and a language list baked by `DrTableBake`; `UDrStringSubsystem` loads only the current language, switches asynchronously, unloads the previous one and fires `OnLanguageChanged`; `UDrLocalizedTextBlock` redraws itself.
 - `drtable-gui`: a strings folder setting, and string tables listed separately.

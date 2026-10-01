@@ -162,7 +162,6 @@ Design/Tables/
 | `tag` | `FGameplayTag` | 문자열 | 문자열 |
 | `path` | `FSoftObjectPath` | 문자열 | 문자열 |
 | `E<열거형>` | `E<접두사><열거형>` | 열거자 이름 | 열거자 이름 |
-| `lang`, `Base<lang>` | (스트링테이블 전용, 8절) | 언어별 파일 | 언어별 파일 |
 | `Ref<테이블>` / `Ref<테이블.서브키>` | 대상 키의 자료형 | 대상과 같음 | 대상과 같음 |
 
 - 서버가 언리얼이라고 가정하지 않으므로, 서버 JSON에서 `name`·`string`·`text`·`tag`·`path`는 모두 문자열입니다.
@@ -240,22 +239,24 @@ DropTable:  Id: ID<int32>       GroupId: SubKey<int32>      Item: Ref<Items>
 
 UI 문구, 아이템 이름처럼 **언어마다 다른 글**은 스트링테이블에 둡니다. 게임은 **설정된 언어 하나만** 메모리에 올리고, 언어를 바꾸면 새 언어를 불러온 뒤 한 번에 교체합니다. 교체가 끝나면 델리게이트로 알리므로 UI가 다시 그릴 수 있습니다.
 
-### 스키마
+### 스키마: `<이름>.string.xlsx`
 
-`Schema/UIStrings.schema.xlsx`:
+스트링테이블 스키마는 **언어 목록**뿐입니다. 자료형은 적지 않습니다. 스키마 폴더에 `<이름>.string.xlsx`로 두고, 시트 이름도 `<이름>`으로 합니다. 이 파일이 정의하는 테이블 이름은 **`<이름>String`**입니다(`UI.string.xlsx` → `UIString`). 그래서 일반 테이블 `UI`와 이름이 겹치지 않습니다.
 
-| | A 필드명 | B 자료형 | C 범위 |
-|---|---|---|---|
-| **1** | `Field` | `Type` | `Scope` |
-| **2** | `Id` | `ID<name>` | `all` |
-| **3** | `ko` | `Base<lang>` | `client` |
-| **4** | `en` | `lang` | `client` |
-| **5** | `zh_Hans` | `lang` | `client` |
+`Schema/UI.string.xlsx`, 시트 `UI`:
 
-- `lang` 열이 하나라도 있으면 스트링테이블입니다. 스트링테이블에는 기본키(`ID<name>`)와 `lang` 열만 둡니다.
-- **필드 이름이 곧 언어(컬처) 코드**입니다. 식별자에 `-`를 쓸 수 없으므로 `_`를 `-`로 읽습니다(`zh_Hans` → `zh-Hans`, `pt_BR` → `pt-BR`).
-- **기준 언어**는 언어 열 하나를 `Base<lang>`으로 적어 정합니다. 테이블마다 정확히 하나여야 하고, 테이블마다 달라도 됩니다(예: 시스템 문구만 `en` 기준).
-- 범위는 언어 열마다 정합니다. 서버도 쓰는 문구(우편 제목 등)는 `all`로 두면 서버 JSON에도 나갑니다.
+| | A 언어 | B 기준 | C 범위 | D 설명 |
+|---|---|---|---|---|
+| **1** | `Language` | `Base` | `Scope` | `Comment` |
+| **2** | `ko` | `✓` | | |
+| **3** | `en` | | | |
+| **4** | `zh-Hans` | | | 간체 |
+
+- **언어 코드가 곧 데이터의 열 이름**입니다(`ko`, `en`, `zh-Hans`, `pt-BR` …). `zh_Hans`처럼 `_`로 써도 같습니다.
+- **기준**: 기준 언어 하나의 B칸에 아무 값(✓, O, TRUE …)이나 적습니다. 정확히 하나여야 하고, 테이블마다 달라도 됩니다(예: 시스템 문구만 `en` 기준). 빈 칸, FALSE, 0은 표시가 아닙니다.
+- **범위**: 비우면 `client`입니다. 서버도 쓰는 문구(우편 제목 등)는 `all`로 두면 서버 JSON에도 나갑니다.
+- 키는 언제나 `Id`(name)라서 적지 않습니다.
+- 일반 스키마(`.schema.xlsx`)에는 언어 열을 둘 수 없습니다.
 
 ### 데이터: 스트링 폴더
 
@@ -266,10 +267,11 @@ Design/Tables/          일반 데이터
 Design/Tables/Schema/   스키마 (스트링테이블 스키마도 여기)
 Design/Tables/Enums/    열거형
 Design/Tables/Strings/  스트링테이블 데이터 (--strings, 기본: 스키마 폴더 옆 Strings)
-  UI.xlsx               시트 UIStrings: 1행 Id ko en zh_Hans, 4행부터 데이터
+  UI.xlsx               시트 UI (= 테이블 UIString): 1행 Id ko en zh-Hans, 4행부터 데이터
 ```
 
-- `--schema`를 주지 않으면 입력 폴더 안의 `Strings`입니다. 시트·파일 나누기(`UIStrings#메뉴`)는 일반 테이블과 같습니다.
+- 시트 이름은 스키마의 `<이름>`(`UI`)입니다. 스트링 폴더 안의 시트는 자동으로 `<이름>String` 테이블이 됩니다.
+- `--schema`를 주지 않으면 입력 폴더 안의 `Strings`입니다. 시트·파일 나누기(`UI#메뉴`)는 일반 테이블과 같습니다.
 - 스트링테이블 시트가 스트링 폴더 밖에 있거나, 일반 테이블 시트가 스트링 폴더 안에 있으면 오류입니다.
 - 기준 언어 칸이 비면 오류입니다. **다른 언어 칸이 비면 빌드할 때 기준 언어 글로 채우고** 언어마다 경고를 한 줄 냅니다. 그래서 게임은 설정 언어 하나만 올려도 빈 글이 없습니다.
 - 서식 인자(`{0}`, `{Name}`)가 기준 언어와 다른 번역은 칸마다 경고합니다.
@@ -278,22 +280,22 @@ Design/Tables/Strings/  스트링테이블 데이터 (--strings, 기본: 스키�
 ### 산출물
 
 ```
-client/Strings/ko/UIStrings.json   {"table", "language", "base_language", "schema_hash", "content_hash", "keys", "values"}
-client/Strings/en/UIStrings.json
+client/Strings/ko/UIString.json    {"table", "language", "base_language", "schema_hash", "content_hash", "keys", "values"}
+client/Strings/en/UIString.json
 client/manifest.json               "string_tables": 테이블마다 기준 언어, 언어 목록, 언어별 내용 해시, 데이터 위치
 ```
 
 - 키는 기본키처럼 정렬되고, `values`는 같은 순서의 글입니다.
 - 스트링테이블에는 행 구조체나 에셋 클래스를 만들지 않습니다. **글을 고치거나 키를 더해도 C++ 코드는 바뀌지 않습니다.**
-- `--string-keys`를 주면 키 상수 헤더(`<접두사><테이블>Keys.h`, 예: `DrUIStringsKeys::Btn_OK`)도 만듭니다. 키가 데이터에서 오므로 키를 더할 때마다 이 헤더가 바뀝니다. 그래서 기본은 끔입니다.
+- `--string-keys`를 주면 키 상수 헤더(`<접두사><테이블>Keys.h`, 예: `DrUIStringKeys::Btn_OK`)도 만듭니다. 키가 데이터에서 오므로 키를 더할 때마다 이 헤더가 바뀝니다. 그래서 기본은 끔입니다.
 
 ### 다른 테이블에서 가리키기
 
-`Name: Ref<ItemStrings>`처럼 일반 테이블에서 스트링테이블 키를 가리키면, 생성되는 접근자가 **현재 언어의 글**을 돌려줍니다.
+`Name: Ref<ItemString>`처럼(스키마 `Item.string.xlsx`) 일반 테이블에서 스트링테이블 키를 가리키면, 생성되는 접근자가 **현재 언어의 글**을 돌려줍니다.
 
 ```cpp
 const FGmItemsRow* Sword = FGmItemsRow::Find(1001);
-FText Name = Sword->GetName();   // 현재 언어의 ItemStrings 글
+FText Name = Sword->GetName();   // 현재 언어의 ItemString 글
 ```
 
 `drtable check`는 스트링테이블 키도 검사합니다. GUI의 테이블 탭에는 스트링테이블이 따로 묶여 나옵니다(언어 열과 기준 언어 표시). 빌드·검사 탭에서 스트링 폴더를 정할 수 있습니다.
@@ -313,7 +315,7 @@ FText Name = Sword->GetName();   // 현재 언어의 ItemStrings 글
 UDrStringSubsystem* Strings = GetGameInstance()->GetSubsystem<UDrStringSubsystem>();
 Strings->OnLanguageChanged.AddDynamic(this, &UMyWidget::HandleLanguageChanged);   // 블루프린트에서도 바인딩 가능
 Strings->SetLanguage(TEXT("en"));                                                  // 비동기
-FText Title = Strings->GetText(TEXT("UIStrings"), TEXT("Title_Main"));
+FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
 ```
 
 - `SetLanguage`는 새 언어 에셋을 **비동기로** 불러옵니다. 다 불러올 때까지 화면은 이전 언어 그대로입니다.
@@ -577,7 +579,8 @@ UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # 빠졌거나 오�
 | `Table asset not found` | 등록은 됐지만 굽지 않았거나, 굽기와 로드의 `AssetRoot`·`--asset-name`이 다릅니다. |
 | `Row type is registered for more than one table` | 같은 행 구조체로 두 번 등록했습니다. 테이블 ID로 조회하세요(`FindRowByKey<TRow>(TableId, Key)`). |
 | `스트링테이블 'X'의 데이터는 스트링 폴더(…)에 두어야 합니다` | 스트링테이블 데이터 엑셀을 스트링 폴더로 옮기세요(반대로 일반 테이블은 그 폴더 밖으로). |
-| `스트링테이블에는 기준 언어 열(Base<lang>)이 하나 있어야 합니다` | 스키마에서 언어 열 하나의 자료형을 `Base<lang>`으로 바꾸세요. |
+| `기준 언어를 하나 표시하세요` | `<이름>.string.xlsx`에서 기준 언어 하나의 B칸(Base)에 ✓ 등을 적으세요. |
+| `스트링테이블 스키마가 없습니다` | 스트링 폴더의 시트 이름에 맞는 `<이름>.string.xlsx`가 없습니다. |
 | `… 번역 N칸이 비어 기준 언어(…) 값으로 채웠습니다` (경고) | 아직 번역하지 않은 칸입니다. 게임에는 기준 언어 글이 나옵니다. |
 | `No text for Table.Key` (언리얼 경고) | 그 키가 스트링테이블에 없거나 굽지 않았습니다. 생성 → 굽기. |
 | `--asset-base를 바꾸면 --asset-base-header도 필요합니다` | 기반 클래스를 선언한 헤더를 주거나 `--ue-plugin`을 쓰세요. |

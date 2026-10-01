@@ -12,10 +12,12 @@ use crate::headers::link_warnings;
 use crate::i18n::tr;
 use crate::reader::{read_workbook, Grid, Sheet};
 use crate::schema::{
-    build_columns, calculate_schema_hash, cell_name, is_lang_type, parse_type, ColumnSchema, EnumSchema, EnumValue, Enums,
+    build_columns, calculate_schema_hash, cell_name, parse_type, ColumnSchema, EnumSchema, EnumValue, Enums,
     TableKeys, TableSchema, TableSource, DATA_ROW, KEY_ROLE_PREFIX_RE, NAME_ROW, TYPE_ROW,
 };
-use crate::schemafile::{canonical, enum_folder, folder_of, load_schemas, strings_folder, Schema, SCHEMA_SUFFIXES};
+use crate::schemafile::{
+    canonical, enum_folder, folder_of, load_schemas, strings_folder, Schema, SCHEMA_SUFFIXES, STRING_TABLE_SUFFIX,
+};
 use crate::sources::{find_files, is_identifier, table_name_of};
 use crate::value::{Cell, Value};
 use crate::values::{convert_value, value_to_cell};
@@ -151,33 +153,36 @@ pub fn load_model(
                 ));
                 continue;
             }
-            if !schemas.tables.contains_key(name) {
-                errors.add(&where_, "A1", tr(
+            // Sheets in the strings folder belong to string tables: sheet UI is the table UIString.
+            let string_name = format!("{name}{STRING_TABLE_SUFFIX}");
+            let table = if in_strings_folder { string_name.as_str() } else { name };
+            let folder = strings_root.display();
+            match schemas.tables.get(table) {
+                Some(schema) if schema.is_strings == in_strings_folder => {
+                    if let Some(grid) = &sheet.grid {
+                        table_parts.entry(table.to_string()).or_default().push(SheetRef { file: relative, grid });
+                    }
+                }
+                Some(_) => errors.add(&where_, "A1", tr(
+                    format!("일반 테이블 '{name}'의 데이터는 스트링 폴더({folder})에 둘 수 없습니다"),
+                    format!("table '{name}' is not a string table; its data cannot be in the strings folder ({folder})"),
+                )),
+                None if !in_strings_folder && schemas.tables.get(&string_name).is_some_and(|s| s.is_strings) => errors.add(&where_, "A1", tr(
+                    format!("스트링테이블 '{name}'의 데이터는 스트링 폴더({folder})에 두어야 합니다"),
+                    format!("string table '{name}' data belongs in the strings folder ({folder})"),
+                )),
+                None if in_strings_folder && schemas.tables.get(name).is_some_and(|s| !s.is_strings) => errors.add(&where_, "A1", tr(
+                    format!("일반 테이블 '{name}'의 데이터는 스트링 폴더({folder})에 둘 수 없습니다"),
+                    format!("table '{name}' is not a string table; its data cannot be in the strings folder ({folder})"),
+                )),
+                None if in_strings_folder => errors.add(&where_, "A1", tr(
+                    format!("스트링테이블 스키마가 없습니다. 언어 목록을 '{name}.string.xlsx'에 정의하세요"),
+                    format!("no string table schema. List the languages in '{name}.string.xlsx'"),
+                )),
+                None => errors.add(&where_, "A1", tr(
                     format!("스키마가 없습니다. '{name}.schema.xlsx'에 필드를 정의하세요"),
                     format!("no schema. Define the fields in '{name}.schema.xlsx'"),
-                ));
-                continue;
-            }
-            let is_strings = schemas.tables[name].raw_columns().iter().any(|(_, _, kind, scope)| {
-                scope.py_str().trim() != "#" && is_lang_type(&kind.text_or_empty())
-            });
-            if is_strings != in_strings_folder {
-                let folder = strings_root.display();
-                errors.add(&where_, "A1", if is_strings {
-                    tr(
-                        format!("스트링테이블 '{name}'의 데이터는 스트링 폴더({folder})에 두어야 합니다"),
-                        format!("string table '{name}' data belongs in the strings folder ({folder})"),
-                    )
-                } else {
-                    tr(
-                        format!("일반 테이블 '{name}'의 데이터는 스트링 폴더({folder})에 둘 수 없습니다"),
-                        format!("table '{name}' is not a string table; its data cannot be in the strings folder ({folder})"),
-                    )
-                });
-                continue;
-            }
-            if let Some(grid) = &sheet.grid {
-                table_parts.entry(name.to_string()).or_default().push(SheetRef { file: relative, grid });
+                )),
             }
         }
     }
@@ -254,9 +259,12 @@ fn bind(schema: &Schema, columns: &[ColumnSchema], part: &SheetRef, errors: &mut
     let mut ok = true;
     let mut header: Vec<(String, usize)> = Vec::new();
     for (index, raw_name) in header_names(part.grid) {
-        let name = raw_name.py_str().trim().to_string();
+        let mut name = raw_name.py_str().trim().to_string();
         if name.starts_with('#') {
             continue;
+        }
+        if schema.is_strings {
+            name = name.replace('-', "_");
         }
         if header.iter().any(|(n, _)| *n == name) {
             errors.add(&where_, &cell_name(index, NAME_ROW), tr(
@@ -421,7 +429,7 @@ fn parse_table(
     warnings.append(&mut state.warnings);
     if let Some(base) = table.base_language() {
         for (language, (count, first)) in &state.filled {
-            let base = base.name.clone();
+            let base = base.culture();
             warnings.push(tr(
                 format!("{}: {language} 번역 {count}칸이 비어 기준 언어({base}) 값으로 채웠습니다 (처음: {first})", schema.where_()),
                 format!("{}: {count} empty {language} translation(s) filled from the base language ({base}) (first at {first})", schema.where_()),
@@ -462,14 +470,14 @@ fn check_string_schema(schema: &Schema, columns: &[ColumnSchema], errors: &mut E
     let first_language = columns.iter().find(|c| c.is_lang()).expect("a language column");
     if bases.is_empty() {
         errors.add(&where_, &type_cell(first_language), tr(
-            "스트링테이블에는 기준 언어 열(Base<lang>)이 하나 있어야 합니다",
-            "a string table needs one base language column (Base<lang>)",
+            "기준 언어를 하나 표시하세요(B열 Base에 ✓ 등)",
+            "mark one base language (column B, Base)",
         ));
     }
     for extra in bases.iter().skip(1) {
         errors.add(&where_, &type_cell(extra), tr(
-            format!("기준 언어(Base<lang>)는 하나만 둘 수 있습니다 (처음: {})", bases[0].name),
-            format!("only one base language (Base<lang>) is allowed (first: {})", bases[0].name),
+            format!("기준 언어는 하나만 표시할 수 있습니다 (처음: {})", bases[0].culture()),
+            format!("only one base language can be marked (first: {})", bases[0].culture()),
         ));
     }
     errors.messages.len() == before
@@ -483,8 +491,8 @@ fn check_string_row(columns: &[ColumnSchema], values: &mut [Value], row: usize, 
     let base_text = values[base_index].as_str().unwrap_or("").to_string();
     if base_text.is_empty() {
         errors.add(where_, &cell_name(base.source_columns[0], row), tr(
-            format!("기준 언어({}) 칸이 비어 있습니다", base.name),
-            format!("the base language ({}) cell is empty", base.name),
+            format!("기준 언어({}) 칸이 비어 있습니다", base.culture()),
+            format!("the base language ({}) cell is empty", base.culture()),
         ));
         return;
     }
@@ -497,7 +505,7 @@ fn check_string_row(columns: &[ColumnSchema], values: &mut [Value], row: usize, 
         let cell = cell_name(column.source_columns[0], row);
         let text = values[index].as_str().unwrap_or("").to_string();
         if text.is_empty() {
-            let entry = state.filled.entry(column.name.clone()).or_insert((0, format!("{where_}!{cell}")));
+            let entry = state.filled.entry(column.culture()).or_insert((0, format!("{where_}!{cell}")));
             entry.0 += 1;
             values[index] = Value::Str(base_text.clone());
             continue;
@@ -506,8 +514,8 @@ fn check_string_row(columns: &[ColumnSchema], values: &mut [Value], row: usize, 
         if found != base_arguments {
             let list = |set: &BTreeSet<String>| if set.is_empty() { "-".to_string() } else { set.iter().cloned().collect::<Vec<_>>().join(" ") };
             state.warnings.push(tr(
-                format!("{where_}!{cell}: {} 번역의 서식 인자가 기준 언어({})와 다릅니다: {} / {}", column.name, base.name, list(&found), list(&base_arguments)),
-                format!("{where_}!{cell}: the {} translation's format arguments differ from the base language ({}): {} / {}", column.name, base.name, list(&found), list(&base_arguments)),
+                format!("{where_}!{cell}: {} 번역의 서식 인자가 기준 언어({})와 다릅니다: {} / {}", column.culture(), base.culture(), list(&found), list(&base_arguments)),
+                format!("{where_}!{cell}: the {} translation's format arguments differ from the base language ({}): {} / {}", column.culture(), base.culture(), list(&found), list(&base_arguments)),
             ));
         }
     }

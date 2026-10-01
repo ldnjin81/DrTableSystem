@@ -19,13 +19,16 @@ use rust_xlsxwriter::Workbook;
 use crate::errors::ErrorCollector;
 use crate::i18n::tr;
 use crate::schema::{column_letter, NAME_ROW, SCOPE_ROW, TYPE_ROW};
-use crate::schemafile::{Schemas, SCHEMA_SUFFIXES};
+use crate::schemafile::{Schemas, SCHEMA_SUFFIXES, STRING_TABLE_SUFFIX};
 
 /// Creates a data workbook for `table`: field names in row 1, reference formulas in rows
 /// 2-3. Refuses to touch an existing file. Returns true when the workbook was written.
 pub fn new_workbook(target: &Path, table: &str, schemas: &Schemas, errors: &mut ErrorCollector) -> bool {
     let label = format!("[{}]", target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
-    let Some(schema) = schemas.tables.get(table) else {
+    // A string table can be named as in its schema file (UI) or as the table (UIString).
+    let string_table = format!("{table}{STRING_TABLE_SUFFIX}");
+    let found = schemas.tables.get(table).or_else(|| schemas.tables.get(&string_table).filter(|s| s.is_strings));
+    let Some(schema) = found else {
         errors.add(&label, "A1", tr(format!("테이블 '{table}'의 스키마가 없습니다"), format!("table '{table}' has no schema")));
         return false;
     };
@@ -50,15 +53,32 @@ pub fn new_workbook(target: &Path, table: &str, schemas: &Schemas, errors: &mut 
     let mut workbook = Workbook::new();
     let sheet = workbook.add_worksheet();
     let written = (|| -> Result<(), rust_xlsxwriter::XlsxError> {
-        sheet.set_name(table)?;
-        for (index, (_, name, _, _)) in schema.raw_columns().iter().enumerate() {
+        // A string table's data sheet is named like its schema sheet (UI), not the table (UIString).
+        sheet.set_name(&sheet_name)?;
+        for (index, (schema_row, name, _, _)) in schema.raw_columns().iter().enumerate() {
             let column = index as u16;
             let letter = column_letter(index + 1);
-            sheet.write_string((NAME_ROW - 1) as u32, column, name.py_str())?;
+            if schema.is_strings && *schema_row == 1 {
+                // The implicit Id key has no row in a string table schema.
+                sheet.write_string((NAME_ROW - 1) as u32, column, "Id")?;
+                continue;
+            }
+            let header = if schema.is_strings { name.py_str().replace('_', "-") } else { name.py_str() };
+            sheet.write_string((NAME_ROW - 1) as u32, column, header)?;
             for (row, source) in [(TYPE_ROW, "B"), (SCOPE_ROW, "C")] {
-                let formula = format!(
-                    "=IFERROR(INDEX({reference}!${source}:${source},MATCH({letter}${NAME_ROW},{reference}!$A:$A,0)),\"{missing}\")"
-                );
+                let lookup = |key: &str| format!("INDEX({reference}!${source}:${source},MATCH({key},{reference}!$A:$A,0))&\"\"");
+                let formula = if schema.is_strings {
+                    // Language codes may be written zh-Hans or zh_Hans in the schema.
+                    format!(
+                        "=IFERROR({},IFERROR({},\"{missing}\"))",
+                        lookup(&format!("{letter}${NAME_ROW}")),
+                        lookup(&format!("SUBSTITUTE({letter}${NAME_ROW},\"-\",\"_\")"))
+                    )
+                } else {
+                    format!(
+                        "=IFERROR(INDEX({reference}!${source}:${source},MATCH({letter}${NAME_ROW},{reference}!$A:$A,0)),\"{missing}\")"
+                    )
+                };
                 sheet.write_formula((row - 1) as u32, column, formula.as_str())?;
             }
         }

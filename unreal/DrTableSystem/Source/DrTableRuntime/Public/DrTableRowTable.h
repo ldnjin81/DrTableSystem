@@ -87,7 +87,7 @@ namespace DrTable::Private
 	}
 
 	/**
-	 * Ordering contract shared with the generator. drtable sorts keys
+	 * Ordering contract shared with the generator. drtable sorts keys:
 	 * numbers numerically, names by Unicode code point (case-sensitive) and
 	 * enums by their numeric value. This comparison must match it exactly, otherwise the
 	 * binary search misses silently.

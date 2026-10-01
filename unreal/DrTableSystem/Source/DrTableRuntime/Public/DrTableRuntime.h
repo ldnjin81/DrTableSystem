@@ -6,6 +6,7 @@
 // (or `--ue-plugin`). Generated FMyRow::Find / FindBy<SubKey> / GetAll / Get<RefField> call these.
 // Every function returns nullptr / empty when no registry is active or the table is not loaded.
 
+#include "DrStringTables.h"
 #include "DrTableRegistry.h"
 
 namespace DrTableRuntime
@@ -29,5 +30,11 @@ namespace DrTableRuntime
 	{
 		const UDrTableRegistry* Registry = UDrTableRegistry::Get();
 		return Registry ? Registry->GetRows<TRow>() : TConstArrayView<TRow>();
+	}
+
+	/** Text of a string table key in the current language (generated Ref<StringTable> accessors). */
+	inline FText GetText(FName Table, FName Key)
+	{
+		return UDrStringTables::FindText(Table, Key);
 	}
 } // namespace DrTableRuntime

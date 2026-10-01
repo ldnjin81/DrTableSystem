@@ -13,6 +13,7 @@
 #include "Modules/ModuleManager.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "DrStringTableAsset.h"
 #include "DrTableAssetBase.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
@@ -214,6 +215,236 @@ namespace DrTableBake
 		UE_LOG(LogDrTableBake, Display, TEXT("[%s] Saved %s"), *Table, *PackageName);
 		return EResult::Saved;
 	}
+
+	/** Loads the existing object of a package, if any. */
+	UObject* FindExisting(const FString& PackageName, const FString& AssetName, UPackage*& OutPackage)
+	{
+		OutPackage = FindPackage(nullptr, *PackageName);
+		if (!OutPackage && FPackageName::DoesPackageExist(PackageName))
+		{
+			OutPackage = LoadPackage(nullptr, *PackageName, LOAD_None);
+		}
+		return OutPackage ? FindObject<UObject>(OutPackage, *AssetName) : nullptr;
+	}
+
+	bool SaveAsset(UPackage* Package, UObject* Asset, const FString& PackageName, const FString& Label)
+	{
+		Asset->PostEditChange();
+		Package->MarkPackageDirty();
+		const FString Filename = FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
+		IFileManager::Get().MakeDirectory(*FPaths::GetPath(Filename), true);
+		FSavePackageArgs SaveArgs;
+		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+		if (!UPackage::SavePackage(Package, Asset, *Filename, SaveArgs))
+		{
+			UE_LOG(LogDrTableBake, Error, TEXT("[%s] Cannot save: %s"), *Label, *Filename);
+			return false;
+		}
+		UE_LOG(LogDrTableBake, Display, TEXT("[%s] Saved %s"), *Label, *PackageName);
+		return true;
+	}
+
+	/** One language of one string table: Strings/<language>/<AssetName>. */
+	EResult ProcessStringTable(const FString& PackageName, const FString& AssetName, const FString& Label,
+		const TSharedPtr<FJsonObject>& Payload, bool bForce, bool bVerify)
+	{
+		FString Table;
+		FString Language;
+		FString SchemaHash;
+		FString ContentHash;
+		const TArray<TSharedPtr<FJsonValue>>* Keys = nullptr;
+		const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+		if (!Payload->TryGetStringField(TEXT("table"), Table) || !Payload->TryGetStringField(TEXT("language"), Language)
+			|| !Payload->TryGetStringField(TEXT("schema_hash"), SchemaHash) || !Payload->TryGetStringField(TEXT("content_hash"), ContentHash)
+			|| !Payload->TryGetArrayField(TEXT("keys"), Keys) || !Payload->TryGetArrayField(TEXT("values"), Values) || Keys->Num() != Values->Num())
+		{
+			UE_LOG(LogDrTableBake, Error, TEXT("[%s] table, language, hashes, keys or values is missing or keys and values differ in length."), *Label);
+			return EResult::Failed;
+		}
+		UPackage* Package = nullptr;
+		UObject* ExistingObject = FindExisting(PackageName, AssetName, Package);
+		if (ExistingObject && !ExistingObject->IsA<UDrStringTableAsset>())
+		{
+			UE_LOG(LogDrTableBake, Error, TEXT("[%s] Existing asset %s is not a UDrStringTableAsset."), *Label, *PackageName);
+			return EResult::Failed;
+		}
+		UDrStringTableAsset* Existing = Cast<UDrStringTableAsset>(ExistingObject);
+		const bool bUpToDate = Existing && Existing->SchemaHash == SchemaHash && Existing->ContentHash == ContentHash;
+		if (bVerify)
+		{
+			if (!bUpToDate)
+			{
+				UE_LOG(LogDrTableBake, Error, TEXT("[%s] %s: %s"), *Label, Existing ? TEXT("Out of date") : TEXT("Not baked"), *PackageName);
+				return EResult::Failed;
+			}
+			UE_LOG(LogDrTableBake, Display, TEXT("[%s] Up to date."), *Label);
+			return EResult::UpToDate;
+		}
+		if (bUpToDate && !bForce)
+		{
+			UE_LOG(LogDrTableBake, Display, TEXT("[%s] Up to date, skipped."), *Label);
+			return EResult::UpToDate;
+		}
+		if (!Package)
+		{
+			Package = CreatePackage(*PackageName);
+		}
+		UDrStringTableAsset* Asset = Existing ? Existing : NewObject<UDrStringTableAsset>(Package, *AssetName, RF_Public | RF_Standalone);
+		Asset->Modify();
+		Asset->Table = FName(*Table);
+		Asset->Language = Language;
+		Asset->SchemaHash = SchemaHash;
+		Asset->ContentHash = ContentHash;
+		Asset->Keys.Reset(Keys->Num());
+		Asset->Values.Reset(Values->Num());
+		for (int32 Index = 0; Index < Keys->Num(); ++Index)
+		{
+			Asset->Keys.Add(FName(*(*Keys)[Index]->AsString()));
+			Asset->Values.Add((*Values)[Index]->AsString());
+		}
+		return SaveAsset(Package, Asset, PackageName, Label) ? EResult::Saved : EResult::Failed;
+	}
+
+	struct FStringTableInfo
+	{
+		FString Name;
+		FString BaseLanguage;
+		TArray<FString> Languages;
+	};
+
+	/**
+	 * Bakes every string table language and the manifest asset (Strings/DA_DrStrings) that lists,
+	 * per language, the asset of each table (the base language asset for a table without it).
+	 */
+	void ProcessStrings(const FString& InputDirectory, const FString& OutputDirectory, const FString& AssetNameFormat,
+		const TArray<TSharedPtr<FJsonValue>>& Entries, bool bForce, bool bVerify, int32& Saved, int32& UpToDate, int32& Failed)
+	{
+		TArray<FStringTableInfo> Infos;
+		TArray<FString> AllLanguages;
+		TMap<FString, int32> BaseCounts;
+		for (const TSharedPtr<FJsonValue>& Entry : Entries)
+		{
+			const TSharedPtr<FJsonObject>* Object = nullptr;
+			FStringTableInfo Info;
+			const TArray<TSharedPtr<FJsonValue>>* Languages = nullptr;
+			if (!Entry.IsValid() || !Entry->TryGetObject(Object) || !Object || !(*Object)->TryGetStringField(TEXT("name"), Info.Name)
+				|| !(*Object)->TryGetStringField(TEXT("base_language"), Info.BaseLanguage) || !(*Object)->TryGetArrayField(TEXT("languages"), Languages))
+			{
+				UE_LOG(LogDrTableBake, Error, TEXT("A manifest string_tables entry has no name, base_language or languages."));
+				++Failed;
+				continue;
+			}
+			for (const TSharedPtr<FJsonValue>& Language : *Languages)
+			{
+				Info.Languages.Add(Language->AsString());
+				AllLanguages.AddUnique(Language->AsString());
+			}
+			++BaseCounts.FindOrAdd(Info.BaseLanguage);
+			const FString AssetName = AssetNameFormat.Replace(TEXT("{table}"), *Info.Name);
+			for (const FString& Language : Info.Languages)
+			{
+				const FString Label = FString::Printf(TEXT("%s/%s"), *Info.Name, *Language);
+				TSharedPtr<FJsonObject> Payload;
+				if (!LoadJsonObject(FPaths::Combine(InputDirectory, TEXT("Strings"), Language, Info.Name + TEXT(".json")), Payload))
+				{
+					++Failed;
+					continue;
+				}
+				const FString PackageName = FString::Printf(TEXT("%s/Strings/%s/%s"), *OutputDirectory, *Language, *AssetName);
+				switch (ProcessStringTable(PackageName, AssetName, Label, Payload, bForce, bVerify))
+				{
+				case EResult::Saved: ++Saved; break;
+				case EResult::UpToDate: ++UpToDate; break;
+				default: ++Failed; break;
+				}
+			}
+			Infos.Add(MoveTemp(Info));
+		}
+		Infos.Sort([](const FStringTableInfo& A, const FStringTableInfo& B) { return A.Name < B.Name; });
+
+		// The default language is the base language most tables use (ties: the first in table order).
+		FString DefaultLanguage;
+		int32 BestCount = 0;
+		for (const FStringTableInfo& Info : Infos)
+		{
+			if (BaseCounts[Info.BaseLanguage] > BestCount)
+			{
+				BestCount = BaseCounts[Info.BaseLanguage];
+				DefaultLanguage = Info.BaseLanguage;
+			}
+		}
+		TArray<FDrStringLanguage> Expected;
+		for (const FString& Language : AllLanguages)
+		{
+			FDrStringLanguage& Entry = Expected.AddDefaulted_GetRef();
+			Entry.Language = Language;
+			for (const FStringTableInfo& Info : Infos)
+			{
+				const FString& Use = Info.Languages.Contains(Language) ? Language : Info.BaseLanguage;
+				const FString AssetName = AssetNameFormat.Replace(TEXT("{table}"), *Info.Name);
+				Entry.Tables.Add(TSoftObjectPtr<UDrStringTableAsset>(FSoftObjectPath(
+					FString::Printf(TEXT("%s/Strings/%s/%s.%s"), *OutputDirectory, *Use, *AssetName, *AssetName))));
+			}
+		}
+
+		const FString ManifestName = TEXT("DA_DrStrings");
+		const FString PackageName = OutputDirectory / TEXT("Strings") / ManifestName;
+		UPackage* Package = nullptr;
+		UDrStringManifest* Existing = Cast<UDrStringManifest>(FindExisting(PackageName, ManifestName, Package));
+		auto SameLanguages = [&Expected](const UDrStringManifest& Manifest)
+		{
+			if (Manifest.Languages.Num() != Expected.Num())
+			{
+				return false;
+			}
+			for (int32 Index = 0; Index < Expected.Num(); ++Index)
+			{
+				const FDrStringLanguage& Left = Manifest.Languages[Index];
+				const FDrStringLanguage& Right = Expected[Index];
+				if (Left.Language != Right.Language || Left.Tables.Num() != Right.Tables.Num())
+				{
+					return false;
+				}
+				for (int32 Table = 0; Table < Right.Tables.Num(); ++Table)
+				{
+					if (Left.Tables[Table].ToSoftObjectPath() != Right.Tables[Table].ToSoftObjectPath())
+					{
+						return false;
+					}
+				}
+			}
+			return true;
+		};
+		const bool bUpToDate = Existing && Existing->DefaultLanguage == DefaultLanguage && SameLanguages(*Existing);
+		if (bVerify || (bUpToDate && !bForce))
+		{
+			if (!bUpToDate)
+			{
+				UE_LOG(LogDrTableBake, Error, TEXT("[Strings] %s: %s"), Existing ? TEXT("Out of date") : TEXT("Not baked"), *PackageName);
+				++Failed;
+				return;
+			}
+			UE_LOG(LogDrTableBake, Display, TEXT("[Strings] Up to date."));
+			++UpToDate;
+			return;
+		}
+		if (!Package)
+		{
+			Package = CreatePackage(*PackageName);
+		}
+		UDrStringManifest* Manifest = Existing ? Existing : NewObject<UDrStringManifest>(Package, *ManifestName, RF_Public | RF_Standalone);
+		Manifest->Modify();
+		Manifest->DefaultLanguage = DefaultLanguage;
+		Manifest->Languages = Expected;
+		if (SaveAsset(Package, Manifest, PackageName, TEXT("Strings")))
+		{
+			++Saved;
+		}
+		else
+		{
+			++Failed;
+		}
+	}
 } // namespace DrTableBake
 
 UDrTableBakeCommandlet::UDrTableBakeCommandlet()
@@ -310,6 +541,12 @@ int32 UDrTableBakeCommandlet::Main(const FString& Params)
 		case DrTableBake::EResult::UpToDate: ++UpToDate; break;
 		default: ++Failed; break;
 		}
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* StringTables = nullptr;
+	if (Manifest->TryGetArrayField(TEXT("string_tables"), StringTables))
+	{
+		DrTableBake::ProcessStrings(InputDirectory, OutputDirectory, AssetNameFormat, *StringTables, bForce, bVerify, Saved, UpToDate, Failed);
 	}
 
 	UE_LOG(LogDrTableBake, Display, TEXT("DrTable %s: saved %d, up to date %d, failed %d"), bVerify ? TEXT("verify") : TEXT("bake"), Saved, UpToDate, Failed);

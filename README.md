@@ -9,6 +9,7 @@
 - **Client and server JSON** from the same data, split by field scope.
 - **Unreal plugin**: bakes client JSON into DataAssets with prebuilt key indices, loads them without copying, and rejects stale assets.
 - **References between tables** (`Ref<Items>`, `Ref<DropTable.GroupId>`), checked by `drtable check` and drawn as a Mermaid graph.
+- **String tables** (`lang` columns, `Base<lang>`): data in a separate Strings folder, one file and asset per language; the game loads only the current language, switches at runtime and tells the UI to refresh.
 - **GUI** (`drtable-gui`): build and check with clickable errors, browse tables, see the reference graph, create data workbooks.
 - Split a table over sheets and files, deterministic output, messages in English or Korean.
 

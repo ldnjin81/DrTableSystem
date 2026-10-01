@@ -434,11 +434,10 @@ fn cpp_initializer(column: &ColumnSchema, prefix: &str, enums: &Enums) -> String
     if column.ref_target.is_some() && column.type_name == "name" {
         return " = NAME_None".into();
     }
-    if let Some(name) = enum_of(&column.type_name) {
-        if let Some(first) = enums.get(name).and_then(|e| e.values.first()) {
+    if let Some(name) = enum_of(&column.type_name)
+        && let Some(first) = enums.get(name).and_then(|e| e.values.first()) {
             return format!(" = E{prefix}{name}::{}", first.name);
         }
-    }
     String::new()
 }
 
@@ -488,7 +487,7 @@ fn cpp_value(type_name: &str, value: &Value, prefix: &str) -> String {
 }
 
 fn cpp_comment(value: &str) -> String {
-    value.replace('\r', " ").replace('\n', " ")
+    value.replace(['\r', '\n'], " ")
 }
 
 fn write(path: &Path, content: &str) -> std::io::Result<()> {

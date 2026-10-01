@@ -153,11 +153,10 @@ fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
     if !missing.is_empty() {
         return Err(UsageError(usage(&Some(command)), format!("the following arguments are required: {}", missing.join(", "))));
     }
-    if let Some(stamp) = values.get("stamp") {
-        if !is_iso8601(stamp) {
+    if let Some(stamp) = values.get("stamp")
+        && !is_iso8601(stamp) {
             return Err(UsageError(usage(&Some(command)), format!("argument --stamp: {}", tr("--stamp는 ISO 8601 형식이어야 합니다", "--stamp must be ISO 8601"))));
         }
-    }
     Ok(Parsed::Run(Args { command, values, flags }))
 }
 

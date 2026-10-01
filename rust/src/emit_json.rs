@@ -110,11 +110,10 @@ pub fn emit_json(
 /// Sort key. Enums sort by value, not name, to match the C++ comparison.
 fn sort_value(column: &ColumnSchema, value: &Value, enums: &Enums) -> Value {
     if column.type_name.starts_with('E') {
-        if let Some(e) = enum_of(&column.type_name).and_then(|name| enums.get(name)) {
-            if let Some(item) = e.values.iter().find(|item| Some(item.name.as_str()) == value.as_str()) {
+        if let Some(e) = enum_of(&column.type_name).and_then(|name| enums.get(name))
+            && let Some(item) = e.values.iter().find(|item| Some(item.name.as_str()) == value.as_str()) {
                 return Value::Int(item.value);
             }
-        }
         return Value::Int(0);
     }
     value.clone()

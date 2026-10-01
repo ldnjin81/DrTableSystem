@@ -509,11 +509,10 @@ impl App {
                     ui.colored_label(color, icon);
                     let location = ui.add(egui::Label::new(egui::RichText::new(&message.location).monospace()).sense(Sense::click()));
                     let text = ui.add(egui::Label::new(&message.text).sense(Sense::click()));
-                    if location.double_clicked() || text.double_clicked() {
-                        if let Some(path) = message.file().and_then(|f| roots.iter().map(|r| r.join(f)).find(|p| p.exists())) {
+                    if (location.double_clicked() || text.double_clicked())
+                        && let Some(path) = message.file().and_then(|f| roots.iter().map(|r| r.join(f)).find(|p| p.exists())) {
                             open_path(&path);
                         }
-                    }
                     ui.end_row();
                 }
             });
@@ -659,18 +658,15 @@ impl App {
             })
             .collect();
         // Dragging a node moves it.
-        if response.drag_started() {
-            if let Some(pointer) = response.interact_pointer_pos() {
+        if response.drag_started()
+            && let Some(pointer) = response.interact_pointer_pos() {
                 self.dragging = boxes.iter().find(|(_, r)| r.contains(pointer)).map(|(n, _)| n.clone());
             }
-        }
-        if response.dragged() {
-            if let Some(name) = &self.dragging {
-                if let Some(position) = self.positions.get_mut(name) {
+        if response.dragged()
+            && let Some(name) = &self.dragging
+                && let Some(position) = self.positions.get_mut(name) {
                     *position += response.drag_delta();
                 }
-            }
-        }
         if response.drag_stopped() {
             self.dragging = None;
         }
@@ -747,14 +743,12 @@ impl App {
             painter.text(rect.center() - Vec2::new(0.0, 8.0), Align2::CENTER_CENTER, &table.name, font.clone(), text_color);
             painter.text(rect.center() + Vec2::new(0.0, 10.0), Align2::CENTER_CENTER, format!("({})", table.primary_key().type_name), small.clone(), ui.visuals().weak_text_color());
         }
-        if response.double_clicked() {
-            if let Some(pointer) = response.interact_pointer_pos() {
-                if let Some((name, _)) = boxes.iter().find(|(_, r)| r.contains(pointer)) {
+        if response.double_clicked()
+            && let Some(pointer) = response.interact_pointer_pos()
+                && let Some((name, _)) = boxes.iter().find(|(_, r)| r.contains(pointer)) {
                     self.selected = Some(name.clone());
                     self.tab = Tab::Tables;
                 }
-            }
-        }
     }
 
     fn load_schema_list(&mut self) {
@@ -890,14 +884,13 @@ fn layout(model: &DataModel, area: Rect) -> HashMap<String, Pos2> {
     let mut links: Vec<(usize, usize)> = Vec::new();
     for table in &model.tables {
         for column in &table.columns {
-            if let (Some(target), Some(&a)) = (&column.ref_target, index.get(table.name.as_str())) {
-                if let Some(&b) = index.get(target.as_str()) {
+            if let (Some(target), Some(&a)) = (&column.ref_target, index.get(table.name.as_str()))
+                && let Some(&b) = index.get(target.as_str()) {
                     // One pull per pair of tables, however many references join them.
                     if a != b && !links.contains(&(a.min(b), a.max(b))) {
                         links.push((a.min(b), a.max(b)));
                     }
                 }
-            }
         }
     }
     let center = area.center();

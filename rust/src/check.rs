@@ -167,8 +167,8 @@ pub fn check_directory(directory: &Path) -> Result<(Vec<String>, Vec<String>), C
             "int32" | "int64" => Some(Key::Int(0)),
             _ => None,
         };
-        if let Some(absent_key) = &absent {
-            if target_keys.contains(absent_key) {
+        if let Some(absent_key) = &absent
+            && target_keys.contains(absent_key) {
                 let shown = match absent_key {
                     Key::Str(s) => py_str_repr(s),
                     Key::Int(i) => i.to_string(),
@@ -181,7 +181,6 @@ pub fn check_directory(directory: &Path) -> Result<(Vec<String>, Vec<String>), C
                     warnings.push(warning);
                 }
             }
-        }
         let primary = source_payload["primary_key"].as_str().unwrap_or("").to_string();
         for row in rows_of(source_payload) {
             let Some(value) = row.as_object().and_then(|r| r.get(field)) else {

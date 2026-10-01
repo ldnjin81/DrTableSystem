@@ -338,3 +338,16 @@ fn enums_inside_an_explicit_schema_folder_are_rejected() {
     assert_eq!(result.code, 1);
     assert!(result.stderr.contains("열거형 스키마는 열거형 폴더"), "{}", result.stderr);
 }
+
+#[test]
+fn an_empty_input_folder_is_an_error() {
+    // Usually a wrong path: building it would replace the generated code with nothing.
+    let tmp = Tmp::new();
+    let empty = tmp.join("Empty");
+    fs::create_dir_all(&empty).unwrap();
+    let out = tmp.join("out");
+    let result = build(&empty, &out, &[]);
+    assert_eq!(result.code, 1);
+    assert!(result.stderr.contains("스키마도 데이터 파일도 없습니다"), "{}", result.stderr);
+    assert!(!out.exists());
+}

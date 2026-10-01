@@ -11,7 +11,14 @@ public class DrTableRuntime : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
-			"DeveloperSettings"
+			"DeveloperSettings",
+			"UMG"
+		});
+
+		PrivateDependencyModuleNames.AddRange(new string[]
+		{
+			"Slate",
+			"SlateCore"
 		});
 	}
 }

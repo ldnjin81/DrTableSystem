@@ -41,5 +41,13 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "Validation")
 	bool bWarnOnContentMismatch = true;
 
+	/** String tables: switch the string language when the engine culture changes. */
+	UPROPERTY(EditAnywhere, config, Category = "Strings")
+	bool bStringsFollowCulture = false;
+
+	/** String tables: remember the language the player chose (GameUserSettings.ini) and start with it next time. */
+	UPROPERTY(EditAnywhere, config, Category = "Strings")
+	bool bRememberStringLanguage = true;
+
 	virtual FName GetCategoryName() const override { return TEXT("Plugins"); }
 };

@@ -30,19 +30,20 @@ Contents
 5. [Arrays](#5-arrays)
 6. [Enums](#6-enums)
 7. [References between tables](#7-references-between-tables)
-8. [Outputs](#8-outputs)
-9. [Command line](#9-command-line)
-10. [Unreal plugin](#10-unreal-plugin)
-11. [Change detection: schema hash and content hash](#11-change-detection-schema-hash-and-content-hash)
-12. [Lookup correctness rules](#12-lookup-correctness-rules)
-13. [CI](#13-ci)
-14. [Troubleshooting](#14-troubleshooting)
+8. [String tables](#8-string-tables)
+9. [Outputs](#9-outputs)
+10. [Command line](#10-command-line)
+11. [Unreal plugin](#11-unreal-plugin)
+12. [Change detection: schema hash and content hash](#12-change-detection-schema-hash-and-content-hash)
+13. [Lookup correctness rules](#13-lookup-correctness-rules)
+14. [CI](#14-ci)
+15. [Troubleshooting](#15-troubleshooting)
 
 ---
 
 ## 1. Installation
 
-`drtable` is **a single executable with nothing to install**. Download the archive for your platform from GitHub Releases (Windows `x86_64-pc-windows-msvc`, macOS `aarch64-apple-darwin`, Linux `x86_64-unknown-linux-gnu`) and put `drtable` (command line) and `drtable-gui` (window, section 9) wherever you like (`.exe` on Windows). For a team, commit it to the project repository (for example `Tools/DrTable/drtable.exe`) so that syncing the repository is all anyone needs.
+`drtable` is **a single executable with nothing to install**. Download the archive for your platform from GitHub Releases (Windows `x86_64-pc-windows-msvc`, macOS `aarch64-apple-darwin`, Linux `x86_64-unknown-linux-gnu`) and put `drtable` (command line) and `drtable-gui` (window, section 10) wherever you like (`.exe` on Windows). For a team, commit it to the project repository (for example `Tools/DrTable/drtable.exe`) so that syncing the repository is all anyone needs.
 
 ```sh
 drtable --version
@@ -57,7 +58,7 @@ cargo build --release --features gui --bin drtable-gui  # rust/target/release/dr
 ```
 
 
-For Unreal, copy `unreal/DrTableSystem` into your project's `Plugins/` folder ([section 10](#10-unreal-plugin)). The plugin is developed and tested with Unreal Engine 5.8.
+For Unreal, copy `unreal/DrTableSystem` into your project's `Plugins/` folder ([section 11](#10-unreal-plugin)). The plugin is developed and tested with Unreal Engine 5.8.
 
 Messages are in English by default. Pass `--lang ko` or set `DRTABLE_LANG=ko` for Korean. Generated files are always in English.
 
@@ -75,6 +76,8 @@ Design/Tables/                    ← --input (data)
     Monsters.schema.xlsx
   Enums/                          ← --enums (enum schemas, default: Enums next to the schema folder)
     ItemType.enum.xlsx
+  Strings/                        ← --strings (string table data, default: Strings next to the schema folder, section 8)
+    UI.xlsx
 ```
 
 - One schema file per table, and one file per enum in the enum folder. The file name must match the name it defines (`Items.schema.xlsx` ↔ table `Items`).
@@ -138,7 +141,7 @@ Design/Tables/
 
 - Duplicate primary keys and name keys differing only by case are checked across all sheets, and the error names both places, for example `[event/Summer.xlsx]Items#Summer event!A5: duplicate primary key '3' (first at [Items.xlsx]Items#Weapons!A4)`.
 - Rows are sorted by primary key, so the output is the same as for the unsplit table.
-- The manifest records which files and sheets hold each table's data (`sources`, section 8).
+- The manifest records which files and sheets hold each table's data (`sources`, section 9).
 
 ### Locations
 
@@ -159,6 +162,7 @@ File paths are relative to the input folder (data) or the schema folder.
 | `tag` | `FGameplayTag` | string | string |
 | `path` | `FSoftObjectPath` | string | string |
 | `E<Enum>` | `E<Prefix><Enum>` | enumerator name | enumerator name |
+| `lang`, `Base<lang>` | (string tables only, section 8) | one file per language | one file per language |
 | `Ref<Table>` / `Ref<Table.SubKey>` | type of the target key | same as the target | same as the target |
 
 - The server is not assumed to be Unreal: `name`, `string`, `text`, `tag` and `path` are plain strings in server JSON.
@@ -230,9 +234,101 @@ DropTable:  Id: ID<int32>       GroupId: SubKey<int32>      Item: Ref<Items>
 - A reference field cannot have a wider scope than the sub key it targets; an `all` field pointing at a `client`-only sub key could not be checked in the server output.
 - When the target sub key is itself a reference, types are resolved along the chain. Cycles that can never resolve are reported with the full path.
 
-**Validation.** `build` checks the schema only (the target exists, types resolve). Whether each value exists is checked on the generated JSON by `drtable check` (section 9). Generated C++ carries `meta = (TableRef = "Items")` (plus `TableRefKey = "GroupId"` for sub key references) so editor tools can follow references.
+**Validation.** `build` checks the schema only (the target exists, types resolve). Whether each value exists is checked on the generated JSON by `drtable check` (section 10). Generated C++ carries `meta = (TableRef = "Items")` (plus `TableRefKey = "GroupId"` for sub key references) so editor tools can follow references.
 
-## 8. Outputs
+## 8. String tables
+
+Text that differs per language, such as UI text and item names, lives in string tables. The game keeps **only the current language** in memory. Switching languages loads the new one, swaps it in at once, and then fires a delegate so the UI can redraw.
+
+### Schema
+
+`Schema/UIStrings.schema.xlsx`:
+
+| | A Field | B Type | C Scope |
+|---|---|---|---|
+| **1** | `Field` | `Type` | `Scope` |
+| **2** | `Id` | `ID<name>` | `all` |
+| **3** | `ko` | `Base<lang>` | `client` |
+| **4** | `en` | `lang` | `client` |
+| **5** | `zh_Hans` | `lang` | `client` |
+
+- A table with any `lang` column is a string table. It holds only its primary key (`ID<name>`) and `lang` columns.
+- **The field name is the language (culture) code.** Identifiers cannot contain `-`, so `_` reads as `-` (`zh_Hans` → `zh-Hans`, `pt_BR` → `pt-BR`).
+- **The base language** is the one language column written as `Base<lang>`. A table has exactly one, and it may differ between tables (for example `en` for system messages).
+- Scope is set per language column. Text the server also needs (mail titles, say) can be `all` so that it reaches the server JSON.
+
+### Data: the strings folder
+
+String table data workbooks go in the **strings folder**. Translators can work on that folder alone, and their files never overlap with game data edits.
+
+```
+Design/Tables/          data
+Design/Tables/Schema/   schemas (string table schemas too)
+Design/Tables/Enums/    enums
+Design/Tables/Strings/  string table data (--strings, default: Strings next to the schema folder)
+  UI.xlsx               sheet UIStrings: row 1 Id ko en zh_Hans, data from row 4
+```
+
+- Without `--schema`, the strings folder is `Strings` inside the input folder. Splitting sheets and files (`UIStrings#Menu`) works as for other tables.
+- These are errors:
+  - a string table sheet outside the strings folder
+  - another table's sheet inside the strings folder
+  - an empty base language cell
+- **An empty cell in another language takes the base language text at build time**, with one warning line per language. That way the game never shows a gap while only the current language is loaded.
+- A translation whose format arguments (`{0}`, `{Name}`) differ from the base text is warned per cell.
+- A cell that holds only a number (`100`) is read as text.
+
+### Outputs
+
+```
+client/Strings/ko/UIStrings.json   {"table", "language", "base_language", "schema_hash", "content_hash", "keys", "values"}
+client/Strings/en/UIStrings.json
+client/manifest.json               "string_tables": base language, languages, content hash per language, data sources
+```
+
+- Keys are sorted like primary keys; `values` holds the text in the same order.
+- String tables get no row struct or asset class. **Editing text or adding keys never changes C++ code.**
+- `--string-keys` also writes key constants (`<Prefix><Table>Keys.h`, e.g. `DrUIStringsKeys::Btn_OK`). The keys come from the data, so this header changes whenever a key is added. It is off by default.
+
+### Pointing at strings from other tables
+
+When a regular table points at a string table key, as in `Name: Ref<ItemStrings>`, the generated accessor returns **the text in the current language**:
+
+```cpp
+const FGmItemsRow* Sword = FGmItemsRow::Find(1001);
+FText Name = Sword->GetName();   // ItemStrings text in the current language
+```
+
+`drtable check` checks string table keys too.
+
+### In Unreal
+
+`DrTableBake` writes one asset per language (`<AssetRoot>/Strings/<language>/DA_<Table>`). It also writes the language list asset `<AssetRoot>/Strings/DA_DrStrings`. A table without a language uses its base language asset for it.
+
+`UDrStringSubsystem` (a GameInstance subsystem) picks the starting language and loads it **synchronously**, so the first frame already has text. The starting language is chosen in this order:
+1. the language chosen last time (`GameUserSettings.ini`)
+2. the engine culture (`ko-KR` also matches `ko`)
+3. the default language of the list (the base language most tables use)
+
+```cpp
+UDrStringSubsystem* Strings = GetGameInstance()->GetSubsystem<UDrStringSubsystem>();
+Strings->OnLanguageChanged.AddDynamic(this, &UMyWidget::HandleLanguageChanged);   // also bindable in Blueprint
+Strings->SetLanguage(TEXT("en"));                                                  // asynchronous
+FText Title = Strings->GetText(TEXT("UIStrings"), TEXT("Title_Main"));
+```
+
+- `SetLanguage` loads the new language's assets **asynchronously**. The previous language stays on screen until they have loaded.
+- When everything has loaded, the languages are swapped at once. The previous language's assets are released and the garbage collector unloads them. Then `OnLanguageChanged` fires (Blueprint). C++ can also use `UDrStringTables::OnLanguageChanged`.
+- If another language is requested while one is loading, only the last request takes effect. An unknown language logs a warning and keeps the current one.
+- A missing key shows `<Table.Key>` and warns once in development builds. Shipping builds return empty text.
+- Text is returned as `FText::AsCultureInvariant`. It does not mix with engine localization (.locres) and works with `FText::Format`.
+- **`UDrLocalizedTextBlock`**: a TextBlock with `Table` and `Key` that redraws itself when the language changes. Most UI needs nothing else.
+- Project Settings → Plugins → DrTable → Strings:
+  - `bRememberStringLanguage` (on): saves the chosen language for the next run.
+  - `bStringsFollowCulture` (off): switches when the engine culture changes.
+- Console commands: `DrStrings.Status`, `DrStrings.Language en`.
+
+## 9. Outputs
 
 ### C++
 
@@ -305,11 +401,11 @@ Server JSON has no indices and includes server fields. Each folder's `manifest.j
 
 Outputs are **deterministic**: the same input gives the same bytes (LF line endings, fixed key order, no timestamps unless `--stamp` is given). Output folders are cleared before writing, so removed tables leave no files behind.
 
-## 9. Command line
+## 10. Command line
 
 ```sh
 drtable build --input <xlsx|folder> --out-cpp <dir> --out-client <dir> --out-server <dir>
-               [--schema <folder>] [--enums <folder>]
+               [--schema <folder>] [--enums <folder>] [--strings <folder>] [--string-keys]
                [--prefix Dr] [--ue-plugin] [--asset-base <Class> --asset-base-header <Header.h>]
                [--runtime-header <Header.h>] [--asset-name DA_{table}] [--stamp <ISO8601>]
 drtable graph --input <xlsx|folder> --out references.md [--schema …] [--enums …]
@@ -323,6 +419,8 @@ drtable [--lang en|ko] …
 |---|---|
 | `--schema` | Table schema folder. Default: the input folder. |
 | `--enums` | Enum schema folder. Default: `Enums` next to the schema folder (`Enums` inside the input folder without `--schema`). |
+| `--strings` | String table data folder. Default: `Strings` next to the schema folder (`Strings` inside the input folder without `--schema`). |
+| `--string-keys` | Also write string table key constant headers (they change when keys change, section 8). |
 | `--prefix` | C++ type prefix (`Dr` → `FDrEffectsRow`, default `Dr`). |
 | `--ue-plugin` | Settings for the DrTableSystem plugin: asset base `UDrTableAssetBase`, runtime header `DrTableRuntime.h`. Recommended with the plugin. |
 | `--asset-base`, `--asset-base-header` | Base class of the asset classes and the header declaring it. Changing the base without its header is an error, since the code would not compile. |
@@ -360,11 +458,11 @@ drtable-gui --input Design/Tables --schema Design/Tables/Schema --out-cpp Source
 
 `--check` or `--build` runs as soon as the window opens, and `--tab tables|graph|files` picks the first tab. Hangul is drawn with a system font (Malgun Gothic on Windows, Apple SD Gothic Neo on macOS, Noto CJK or Nanum Gothic on Linux).
 
-## 10. Unreal plugin
+## 11. Unreal plugin
 
 `unreal/DrTableSystem` has two modules:
 
-- **DrTableRuntime**: `UDrTableAssetBase`, `TDrTableRowTable`, `UDrTableRegistry` (owned by the engine subsystem `UDrTableSubsystem`), `UDrTableSettings`, the `DrTableRuntime` lookup contract and `DRTABLE_AUTO_REGISTER`.
+- **DrTableRuntime**: `UDrTableAssetBase`, `TDrTableRowTable`, `UDrTableRegistry` (owned by the engine subsystem `UDrTableSubsystem`), `UDrTableSettings`, the `DrTableRuntime` lookup contract, `DRTABLE_AUTO_REGISTER`, and string tables (`UDrStringSubsystem`, `UDrStringTables`, `UDrLocalizedTextBlock`, section 8).
 - **DrTableEditor**: the `DrTableBake` commandlet and the plugin's automation tests (`DrTable.*`).
 
 ### Setup
@@ -421,9 +519,9 @@ Console commands: `DrTable.Status` (tables and loaded row counts), `DrTable.Relo
 
 ### Using your own runtime
 
-The generator does not depend on the plugin. Without `--ue-plugin` you get plain `UPrimaryDataAsset` classes and no lookup functions. With `--runtime-header MyRuntime.h` and `--asset-base`, your own system can drive the tables as long as it implements the contract in section 8.
+The generator does not depend on the plugin. Without `--ue-plugin` you get plain `UPrimaryDataAsset` classes and no lookup functions. With `--runtime-header MyRuntime.h` and `--asset-base`, your own system can drive the tables as long as it implements the contract in section 9.
 
-## 11. Change detection: schema hash and content hash
+## 12. Change detection: schema hash and content hash
 
 Every table has two hashes.
 
@@ -435,7 +533,7 @@ Every table has two hashes.
 - If the schema changed but nobody regenerated, rebuilt and re-baked, the runtime rejects the old assets.
 - Values that changed without a bake are caught by the bake check (`-Verify`). The content hash is kept out of generated code, since otherwise data edits would change the code. Run `-Verify` before shipping and in CI.
 
-## 12. Lookup correctness rules
+## 13. Lookup correctness rules
 
 Lookups binary-search arrays sorted by the generator, so the generator's ordering and the runtime comparison must agree exactly:
 
@@ -449,7 +547,7 @@ What the tool enforces as a result:
 - Changing enum values changes the schema hash of every table using that enum, so stale indices are rejected.
 - Runtime key types must match exactly: an `int32`-keyed table is not found with an `int64` key.
 
-## 13. CI
+## 14. CI
 
 A typical pipeline:
 
@@ -466,7 +564,7 @@ On every push, `.github/workflows/ci.yml` runs on Windows, macOS and Linux:
 
 A `v*` tag builds the executables for each platform and attaches them to a Release.
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 | Message | Cause and fix |
 |---|---|
@@ -479,6 +577,10 @@ A `v*` tag builds the executables for each platform and attaches them to a Relea
 | `Class U…Table is not compiled into the editor` | Build the editor after `drtable build`, then bake. |
 | `Table asset not found` | Registered but never baked, or `AssetRoot`/`--asset-name` differ between bake and load. |
 | `Row type is registered for more than one table` | The same row struct was registered twice. Look it up by table id (`FindRowByKey<TRow>(TableId, Key)`). |
+| `string table 'X' data belongs in the strings folder (…)` | Move the string table workbook into the strings folder (and other tables' workbooks out of it). |
+| `a string table needs one base language column (Base<lang>)` | In the schema, make one language column `Base<lang>`. |
+| `… empty … translation(s) filled from the base language` (warning) | Cells not translated yet; the game shows the base language text. |
+| `No text for Table.Key` (Unreal warning) | The key is not in the string table, or it was not baked. Generate → bake. |
 | `--asset-base requires --asset-base-header` | Pass the header that declares the base class, or use `--ue-plugin`. |
 | `generated function 'Find' clashes with a field of the same name` | Rename the field. `Find`, `GetAll`, `FindBy<SubKey>` and `Get<Field>` are generated names. |
 | `name key 'x' differs from 'X' at … only by case` | Use identical spelling, or different names. |

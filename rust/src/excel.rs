@@ -1,19 +1,21 @@
 //! Reads schema files and data workbooks into a validated data model.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::sync::LazyLock;
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
+use regex::Regex;
 
 use crate::errors::{ErrorCollector, ValidationErrors};
 use crate::headers::link_warnings;
 use crate::i18n::tr;
 use crate::reader::{read_workbook, Grid, Sheet};
 use crate::schema::{
-    build_columns, calculate_schema_hash, cell_name, parse_type, ColumnSchema, EnumSchema, EnumValue, Enums,
+    build_columns, calculate_schema_hash, cell_name, is_lang_type, parse_type, ColumnSchema, EnumSchema, EnumValue, Enums,
     TableKeys, TableSchema, TableSource, DATA_ROW, KEY_ROLE_PREFIX_RE, NAME_ROW, TYPE_ROW,
 };
-use crate::schemafile::{enum_folder, folder_of, load_schemas, Schema, SCHEMA_SUFFIXES};
+use crate::schemafile::{canonical, enum_folder, folder_of, load_schemas, strings_folder, Schema, SCHEMA_SUFFIXES};
 use crate::sources::{find_files, is_identifier, table_name_of};
 use crate::value::{Cell, Value};
 use crate::values::{convert_value, value_to_cell};
@@ -29,12 +31,24 @@ impl DataModel {
     pub fn enum_map(&self) -> Enums {
         self.enums.iter().map(|e| (e.name.clone(), e.clone())).collect()
     }
+
+    /// Tables with row structs and assets (every table except the string tables).
+    pub fn data_tables(&self) -> impl Iterator<Item = &TableSchema> {
+        self.tables.iter().filter(|t| !t.is_strings())
+    }
+
+    pub fn string_tables(&self) -> impl Iterator<Item = &TableSchema> {
+        self.tables.iter().filter(|t| t.is_strings())
+    }
 }
 
 struct SheetRef<'a> {
     file: &'a str,
     grid: &'a Grid,
 }
+
+/// Format arguments such as {0} or {Name} in a string.
+static PLACEHOLDER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\{[^{}]*\}").unwrap());
 
 impl SheetRef<'_> {
     fn where_(&self) -> String {
@@ -48,12 +62,22 @@ struct RowState {
     used_keys: HashMap<String, String>,
     /// (field, lowercase value) -> (first spelling, location).
     name_spellings: HashMap<(String, String), (String, String)>,
+    /// String tables: empty translations filled from the base language, per language
+    /// (count, first cell).
+    filled: BTreeMap<String, (usize, String)>,
+    warnings: Vec<String>,
 }
 
 /// Tables and enums from their schema files, rows from the data workbooks under `input`.
-/// The schema folder defaults to the input folder; the enum folder to `Enums` next to the schema
-/// folder (inside the input folder when no schema folder is given).
-pub fn load_model(input: &Path, schema_path: Option<&Path>, enum_path: Option<&Path>) -> Result<DataModel, ValidationErrors> {
+/// The schema folder defaults to the input folder; the enum folder to `Enums` and the string
+/// table data folder to `Strings`, both next to the schema folder (inside the input folder when
+/// no schema folder is given).
+pub fn load_model(
+    input: &Path,
+    schema_path: Option<&Path>,
+    enum_path: Option<&Path>,
+    strings_path: Option<&Path>,
+) -> Result<DataModel, ValidationErrors> {
     let schema_root = match schema_path {
         Some(path) => path.to_path_buf(),
         None => folder_of(input),
@@ -62,13 +86,23 @@ pub fn load_model(input: &Path, schema_path: Option<&Path>, enum_path: Option<&P
     let mut warnings: Vec<String> = Vec::new();
     // Enums sit next to an explicit schema folder, or inside the data folder when that is the schema folder.
     let schemas = load_schemas(&schema_root, &enum_folder(&schema_root, enum_path, schema_path.is_some()), &mut errors)?;
-    let files: Vec<(PathBuf, String)> = find_files(input, &[".xlsx"], true)?
-        .into_iter()
-        .filter(|(path, _)| {
-            let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-            !SCHEMA_SUFFIXES.iter().any(|s| name.ends_with(s))
-        })
-        .collect();
+    let not_schema = |(path, _): &(PathBuf, String)| {
+        let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+        !SCHEMA_SUFFIXES.iter().any(|s| name.ends_with(s))
+    };
+    let mut files: Vec<(PathBuf, String)> = find_files(input, &[".xlsx"], true)?.into_iter().filter(not_schema).collect();
+    // String table data lives in its own folder. Inside the input folder it is found by the scan
+    // above; elsewhere it is read too, named relative to the folder that holds it ("Strings/UI.xlsx").
+    let strings_root = strings_folder(&schema_root, strings_path, schema_path.is_some());
+    let strings_resolved = canonical(&strings_root);
+    let in_strings = |path: &Path| canonical(path).starts_with(&strings_resolved);
+    let scanned = input.is_dir() && strings_resolved.starts_with(canonical(input));
+    if strings_root.is_dir() && !scanned {
+        let label = strings_root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        for (path, relative) in find_files(&strings_root, &[".xlsx"], true)?.into_iter().filter(not_schema) {
+            files.push((path, format!("{label}/{relative}")));
+        }
+    }
     // An input folder with nothing in it is almost always a wrong path; building it would
     // replace the generated code with an empty set.
     if files.is_empty() && schemas.all().next().is_none() {
@@ -99,8 +133,11 @@ pub fn load_model(input: &Path, schema_path: Option<&Path>, enum_path: Option<&P
         warnings.extend(link_warnings(path, relative, &schema_files));
     }
 
+    let strings_files: HashSet<&str> =
+        files.iter().filter(|(path, _)| in_strings(path)).map(|(_, relative)| relative.as_str()).collect();
     let mut table_parts: HashMap<String, Vec<SheetRef>> = HashMap::new();
     for (relative, sheets) in &workbooks {
+        let in_strings_folder = strings_files.contains(relative);
         for sheet in sheets {
             let where_ = format!("[{relative}]{}", sheet.title);
             if sheet.title.starts_with('#') {
@@ -119,6 +156,24 @@ pub fn load_model(input: &Path, schema_path: Option<&Path>, enum_path: Option<&P
                     format!("스키마가 없습니다. '{name}.schema.xlsx'에 필드를 정의하세요"),
                     format!("no schema. Define the fields in '{name}.schema.xlsx'"),
                 ));
+                continue;
+            }
+            let is_strings = schemas.tables[name].raw_columns().iter().any(|(_, _, kind, scope)| {
+                scope.py_str().trim() != "#" && is_lang_type(&kind.text_or_empty())
+            });
+            if is_strings != in_strings_folder {
+                let folder = strings_root.display();
+                errors.add(&where_, "A1", if is_strings {
+                    tr(
+                        format!("스트링테이블 '{name}'의 데이터는 스트링 폴더({folder})에 두어야 합니다"),
+                        format!("string table '{name}' data belongs in the strings folder ({folder})"),
+                    )
+                } else {
+                    tr(
+                        format!("일반 테이블 '{name}'의 데이터는 스트링 폴더({folder})에 둘 수 없습니다"),
+                        format!("table '{name}' is not a string table; its data cannot be in the strings folder ({folder})"),
+                    )
+                });
                 continue;
             }
             if let Some(grid) = &sheet.grid {
@@ -169,12 +224,18 @@ pub fn load_model(input: &Path, schema_path: Option<&Path>, enum_path: Option<&P
     let mut tables = Vec::new();
     for (name, schema) in &schemas.tables {
         let parts = table_parts.remove(name).unwrap_or_default();
-        if let Some(table) = parse_table(name, schema, &parts, &enums, &table_keys, &mut errors) {
+        if let Some(table) = parse_table(name, schema, &parts, &enums, &table_keys, &mut errors, &mut warnings) {
             tables.push(table);
         }
     }
 
     errors.raise_if_any()?;
+    let string_tables: HashSet<String> = tables.iter().filter(|t| t.is_strings()).map(|t| t.name.clone()).collect();
+    for table in &mut tables {
+        for column in &mut table.columns {
+            column.ref_strings = column.ref_target.as_ref().is_some_and(|target| string_tables.contains(target));
+        }
+    }
     let mut enum_list: Vec<EnumSchema> = enums.into_values().collect();
     enum_list.sort_by(|a, b| a.name.cmp(&b.name));
     tables.sort_by(|a, b| a.name.cmp(&b.name));
@@ -326,9 +387,13 @@ fn parse_table(
     enums: &Enums,
     table_keys: &TableKeys,
     errors: &mut ErrorCollector,
+    warnings: &mut Vec<String>,
 ) -> Option<TableSchema> {
     let columns = build_columns(&schema.raw_columns(), &schema.where_(), enums, errors, Some(table_keys), &Schema::cell);
     if columns.is_empty() || !columns.iter().any(|c| c.is_role("id")) {
+        return None;
+    }
+    if columns.iter().any(ColumnSchema::is_lang) && !check_string_schema(schema, &columns, errors) {
         return None;
     }
     let (source_name, sheet) = match parts.first() {
@@ -353,7 +418,99 @@ fn parse_table(
         table.sources.push(TableSource { file: part.file.to_string(), sheet: part.grid.title.clone(), rows });
     }
     table.schema_hash = calculate_schema_hash(&columns, Some(enums));
+    warnings.append(&mut state.warnings);
+    if let Some(base) = table.base_language() {
+        for (language, (count, first)) in &state.filled {
+            let base = base.name.clone();
+            warnings.push(tr(
+                format!("{}: {language} 번역 {count}칸이 비어 기준 언어({base}) 값으로 채웠습니다 (처음: {first})", schema.where_()),
+                format!("{}: {count} empty {language} translation(s) filled from the base language ({base}) (first at {first})", schema.where_()),
+            ));
+        }
+    }
     Some(table)
+}
+
+/// A string table holds a name primary key and language columns, one of them the base language.
+fn check_string_schema(schema: &Schema, columns: &[ColumnSchema], errors: &mut ErrorCollector) -> bool {
+    let where_ = schema.where_();
+    let before = errors.messages.len();
+    let type_cell = |column: &ColumnSchema| Schema::cell(column.source_columns[0], TYPE_ROW);
+    let mut bases = Vec::new();
+    for column in columns {
+        if column.is_role("id") {
+            if column.type_name != "name" {
+                errors.add(&where_, &type_cell(column), tr(
+                    "스트링테이블의 기본키는 ID<name>이어야 합니다",
+                    "a string table's primary key must be ID<name>",
+                ));
+            }
+        } else if !column.is_lang() {
+            errors.add(&where_, &type_cell(column), tr(
+                "스트링테이블에는 기본키와 언어(lang) 열만 둘 수 있습니다",
+                "a string table holds only its primary key and language (lang) columns",
+            ));
+        } else if column.is_array() || column.default_values.iter().any(Option::is_some) {
+            errors.add(&where_, &type_cell(column), tr(
+                "언어(lang) 열은 배열이나 기본값을 쓸 수 없습니다",
+                "a language (lang) column cannot be an array or have a default value",
+            ));
+        } else if column.is_role("base") {
+            bases.push(column);
+        }
+    }
+    let first_language = columns.iter().find(|c| c.is_lang()).expect("a language column");
+    if bases.is_empty() {
+        errors.add(&where_, &type_cell(first_language), tr(
+            "스트링테이블에는 기준 언어 열(Base<lang>)이 하나 있어야 합니다",
+            "a string table needs one base language column (Base<lang>)",
+        ));
+    }
+    for extra in bases.iter().skip(1) {
+        errors.add(&where_, &type_cell(extra), tr(
+            format!("기준 언어(Base<lang>)는 하나만 둘 수 있습니다 (처음: {})", bases[0].name),
+            format!("only one base language (Base<lang>) is allowed (first: {})", bases[0].name),
+        ));
+    }
+    errors.messages.len() == before
+}
+
+/// String table rows: the base language must be filled; an empty translation takes the base
+/// text; a translation whose format arguments differ from the base text is reported.
+fn check_string_row(columns: &[ColumnSchema], values: &mut [Value], row: usize, where_: &str, errors: &mut ErrorCollector, state: &mut RowState) {
+    let Some(base_index) = columns.iter().position(|c| c.is_lang() && c.is_role("base")) else { return };
+    let base = &columns[base_index];
+    let base_text = values[base_index].as_str().unwrap_or("").to_string();
+    if base_text.is_empty() {
+        errors.add(where_, &cell_name(base.source_columns[0], row), tr(
+            format!("기준 언어({}) 칸이 비어 있습니다", base.name),
+            format!("the base language ({}) cell is empty", base.name),
+        ));
+        return;
+    }
+    let arguments = |text: &str| -> BTreeSet<String> { PLACEHOLDER_RE.find_iter(text).map(|m| m.as_str().to_string()).collect() };
+    let base_arguments = arguments(&base_text);
+    for (index, column) in columns.iter().enumerate() {
+        if !column.is_lang() || index == base_index {
+            continue;
+        }
+        let cell = cell_name(column.source_columns[0], row);
+        let text = values[index].as_str().unwrap_or("").to_string();
+        if text.is_empty() {
+            let entry = state.filled.entry(column.name.clone()).or_insert((0, format!("{where_}!{cell}")));
+            entry.0 += 1;
+            values[index] = Value::Str(base_text.clone());
+            continue;
+        }
+        let found = arguments(&text);
+        if found != base_arguments {
+            let list = |set: &BTreeSet<String>| if set.is_empty() { "-".to_string() } else { set.iter().cloned().collect::<Vec<_>>().join(" ") };
+            state.warnings.push(tr(
+                format!("{where_}!{cell}: {} 번역의 서식 인자가 기준 언어({})와 다릅니다: {} / {}", column.name, base.name, list(&found), list(&base_arguments)),
+                format!("{where_}!{cell}: the {} translation's format arguments differ from the base language ({}): {} / {}", column.name, base.name, list(&found), list(&base_arguments)),
+            ));
+        }
+    }
 }
 
 /// Appends the rows of one sheet to the table and returns how many were read.
@@ -413,6 +570,9 @@ fn read_rows(
                         .unwrap_or(Value::Null),
                 );
             }
+        }
+        if table.columns.iter().any(ColumnSchema::is_lang) {
+            check_string_row(columns, &mut converted, row, &where_, errors, state);
         }
         let key = &converted[primary_index];
         let key_cell = cell_name(primary.source_columns[0], row);

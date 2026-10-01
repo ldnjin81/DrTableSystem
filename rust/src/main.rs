@@ -29,12 +29,15 @@ options:
 fn command_options(command: &str) -> Option<&'static [(&'static str, bool)]> {
     Some(match command {
         "build" => &[
-            ("input", true), ("schema", true), ("enums", true), ("out-cpp", true), ("out-client", true),
-            ("out-server", true), ("prefix", true), ("stamp", true), ("asset-base", true),
+            ("input", true), ("schema", true), ("enums", true), ("strings", true), ("out-cpp", true),
+            ("out-client", true), ("out-server", true), ("prefix", true), ("stamp", true), ("asset-base", true),
             ("asset-base-header", true), ("ue-plugin", false), ("runtime-header", true), ("asset-name", true),
+            ("string-keys", false),
         ],
-        "graph" => &[("input", true), ("schema", true), ("enums", true), ("out", true)],
-        "check" => &[("client", true), ("server", true), ("input", true), ("schema", true), ("enums", true)],
+        "graph" => &[("input", true), ("schema", true), ("enums", true), ("strings", true), ("out", true)],
+        "check" => &[
+            ("client", true), ("server", true), ("input", true), ("schema", true), ("enums", true), ("strings", true),
+        ],
         "new" => &[("table", true), ("out", true), ("schema", true), ("enums", true)],
         _ => return None,
     })
@@ -237,7 +240,7 @@ fn run(args: Args) -> ExitCode {
         return usage(tr("check에는 --client 또는 --input이 필요합니다", "check needs --client or --input"));
     }
     let input = args.path("input").unwrap();
-    let model = match excel::load_model(&input, args.path("schema").as_deref(), args.path("enums").as_deref()) {
+    let model = match excel::load_model(&input, args.path("schema").as_deref(), args.path("enums").as_deref(), args.path("strings").as_deref()) {
         Ok(model) => model,
         Err(ValidationErrors(messages)) => {
             print_errors(&messages);
@@ -274,6 +277,7 @@ fn build(args: &Args, model: &excel::DataModel, usage: impl Fn(String) -> ExitCo
         runtime_header: args.get("runtime-header").map(str::to_string),
         asset_name: args.get("asset-name").unwrap_or(DEFAULT_ASSET_NAME).to_string(),
         ue_plugin: args.flags.contains("ue-plugin"),
+        string_keys: args.flags.contains("string-keys"),
     };
     match commands::build(model, &options) {
         Ok(()) => ExitCode::SUCCESS,

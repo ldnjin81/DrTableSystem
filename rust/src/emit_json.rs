@@ -20,7 +20,7 @@ pub fn emit_json(
     let sides: [(&str, &[&str], &Path, bool); 2] =
         [("client", &CLIENT_SCOPES, client_output, true), ("server", &SERVER_SCOPES, server_output, false)];
     let mut content_hashes: Vec<[String; 2]> = Vec::new();
-    for table in &model.tables {
+    for table in model.data_tables() {
         let rows = sorted_rows(table, &enums);
         let mut hashes = [String::new(), String::new()];
         for (position, (_, scopes, output, with_index)) in sides.iter().enumerate() {
@@ -53,8 +53,7 @@ pub fn emit_json(
         }
         references.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
         let tables = model
-            .tables
-            .iter()
+            .data_tables()
             .zip(&content_hashes)
             .map(|(table, hashes)| {
                 object([
@@ -99,6 +98,10 @@ pub fn emit_json(
             ),
             ("references".to_string(), Json::List(references.into_iter().map(|(_, _, e)| e).collect())),
         ];
+        let strings = write_strings(model, scopes, output, &enums)?;
+        if !strings.is_empty() {
+            manifest.push(("string_tables".to_string(), Json::List(strings)));
+        }
         if let Some(stamp) = stamp {
             manifest.push(("generated_at".to_string(), Json::from(stamp)));
         }
@@ -205,6 +208,75 @@ fn table_payload(
     ];
     ordered.extend(entries);
     (Json::Object(ordered), hash)
+}
+
+/// One JSON file per string table and language in this output (Strings/<culture>/<Table>.json),
+/// and the manifest entries describing them. Keys are sorted like primary keys.
+fn write_strings(model: &DataModel, scopes: &[&str], output: &Path, enums: &Enums) -> std::io::Result<Vec<Json>> {
+    let mut entries = Vec::new();
+    for table in model.string_tables() {
+        let languages: Vec<(usize, &ColumnSchema)> = table
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.is_lang() && in_scopes(&c.scope, scopes))
+            .collect();
+        if languages.is_empty() {
+            continue;
+        }
+        let rows = sorted_rows(table, enums);
+        let key_index = table.columns.iter().position(|c| c.is_role("id")).expect("a primary key");
+        let keys: Vec<Json> = rows.iter().map(|row| Json::from(&row[key_index])).collect();
+        let base = table.base_language().map(|c| c.culture()).unwrap_or_default();
+        let mut hashes = Vec::new();
+        for (index, column) in &languages {
+            let culture = column.culture();
+            let content = object([
+                ("language", Json::from(culture.as_str())),
+                ("keys", Json::List(keys.clone())),
+                ("values", Json::List(rows.iter().map(|row| Json::from(&row[*index])).collect())),
+            ]);
+            let hash = format!("sha256:{}", sha256_hex(content.compact_sorted().as_bytes()));
+            let Json::Object(content) = content else { unreachable!() };
+            let mut payload = vec![
+                ("table".to_string(), Json::from(table.name.as_str())),
+                ("base_language".to_string(), Json::from(base.as_str())),
+                ("schema_hash".to_string(), Json::from(table.schema_hash.as_str())),
+                ("content_hash".to_string(), Json::from(hash.as_str())),
+            ];
+            payload.extend(content);
+            let folder = output.join("Strings").join(&culture);
+            std::fs::create_dir_all(&folder)?;
+            write_json(&folder.join(format!("{}.json", table.name)), &Json::Object(payload))?;
+            hashes.push((culture, Json::Str(hash)));
+        }
+        entries.push(object([
+            ("name", Json::from(table.name.as_str())),
+            ("rows", Json::Int(table.rows.len() as i64)),
+            ("base_language", Json::from(base.as_str())),
+            ("languages", Json::List(hashes.iter().map(|(c, _)| Json::from(c.as_str())).collect())),
+            ("schema_hash", Json::from(table.schema_hash.as_str())),
+            ("content_hashes", Json::Object(hashes)),
+            ("schema", Json::from(table.schema_file.as_str())),
+            (
+                "sources",
+                Json::List(
+                    table
+                        .sources
+                        .iter()
+                        .map(|part| {
+                            object([
+                                ("file", Json::from(part.file.as_str())),
+                                ("sheet", Json::from(part.sheet.as_str())),
+                                ("rows", Json::Int(part.rows as i64)),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ),
+        ]));
+    }
+    Ok(entries)
 }
 
 fn write_json(path: &Path, payload: &Json) -> std::io::Result<()> {

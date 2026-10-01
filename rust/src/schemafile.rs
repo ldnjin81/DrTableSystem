@@ -21,6 +21,7 @@ pub const TABLE_SUFFIXES: [&str; 1] = [".schema.xlsx"];
 pub const ENUM_SUFFIXES: [&str; 1] = [".enum.xlsx"];
 pub const SCHEMA_SUFFIXES: [&str; 2] = [".schema.xlsx", ".enum.xlsx"];
 pub const DEFAULT_ENUM_FOLDER: &str = "Enums";
+pub const DEFAULT_STRINGS_FOLDER: &str = "Strings";
 
 /// One definition row: (row, name, type or value, scope, comment).
 pub type Row = (usize, Cell, Cell, Cell, Cell);
@@ -85,17 +86,26 @@ pub fn folder_of(path: &Path) -> PathBuf {
 /// (Table/Schema -> Table/Enums). When the schema folder is the data folder itself
 /// (`beside` false), "Enums" inside it (Table -> Table/Enums).
 pub fn enum_folder(schema_root: &Path, enum_root: Option<&Path>, beside: bool) -> PathBuf {
-    match enum_root {
+    sibling_folder(schema_root, enum_root, beside, DEFAULT_ENUM_FOLDER)
+}
+
+/// The string table data folder, placed like the enum folder (Table/Schema -> Table/Strings).
+pub fn strings_folder(schema_root: &Path, strings_root: Option<&Path>, beside: bool) -> PathBuf {
+    sibling_folder(schema_root, strings_root, beside, DEFAULT_STRINGS_FOLDER)
+}
+
+fn sibling_folder(schema_root: &Path, given: Option<&Path>, beside: bool, name: &str) -> PathBuf {
+    match given {
         Some(root) => root.to_path_buf(),
         None => {
             let folder = folder_of(schema_root);
             let base = if beside { absolute(&folder).parent().map(Path::to_path_buf).unwrap_or(folder) } else { folder };
-            base.join(DEFAULT_ENUM_FOLDER)
+            base.join(name)
         }
     }
 }
 
-fn canonical(path: &Path) -> PathBuf {
+pub fn canonical(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| absolute(path))
 }
 

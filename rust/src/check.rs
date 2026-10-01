@@ -87,6 +87,30 @@ pub fn check_directory(directory: &Path) -> Result<(Vec<String>, Vec<String>), C
         }
         payloads.push((name.to_string(), payload));
     }
+    // String tables: their keys (from one language file) are reference targets like primary keys.
+    if let Some(J::Array(string_tables)) = manifest.get("string_tables") {
+        for entry in string_tables {
+            let entry = entry.as_object();
+            let name = entry.and_then(|e| e.get("name")).and_then(J::as_str);
+            let languages: Vec<&str> =
+                entry.and_then(|e| e.get("languages")).and_then(J::as_array).map(|l| l.iter().filter_map(J::as_str).collect()).unwrap_or_default();
+            let (Some(name), Some(language)) = (name, languages.first()) else {
+                return Err(input_error("manifest.json", "잘못된 string_tables 항목입니다", "invalid 'string_tables' entry"));
+            };
+            let file = format!("Strings/{language}/{name}.json");
+            let payload = read_json(&directory.join(&file))?;
+            let Some(J::Array(string_keys)) = payload.get("keys") else {
+                return Err(input_error(&file, "keys 배열이 필요합니다", "a 'keys' array is required"));
+            };
+            let rows = string_keys.iter().map(|key| J::Object(Map::from_iter([("Id".to_string(), key.clone())]))).collect();
+            let table = Map::from_iter([
+                ("table".to_string(), J::from(name)),
+                ("primary_key".to_string(), J::from("Id")),
+                ("rows".to_string(), J::Array(rows)),
+            ]);
+            payloads.push((name.to_string(), table));
+        }
+    }
     let get = |name: &str| payloads.iter().find(|(n, _)| n == name).map(|(_, p)| p);
     let rows_of = |payload: &Map<String, J>| payload["rows"].as_array().cloned().unwrap_or_default();
 

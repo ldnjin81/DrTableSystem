@@ -286,7 +286,7 @@ fn check_or_build(settings: &Settings, build: bool) -> Outcome {
     }
     let schema = (!settings.schema.trim().is_empty()).then(|| PathBuf::from(settings.schema.trim()));
     let enums = settings.enum_root();
-    let model = match load_model(&input, schema.as_deref(), enums.as_deref()) {
+    let model = match load_model(&input, schema.as_deref(), enums.as_deref(), None) {
         Ok(model) => model,
         Err(ValidationErrors(errors)) => {
             let count = errors.len();

@@ -299,7 +299,9 @@ const FGmItemsRow* Sword = FGmItemsRow::Find(1001);
 FText Name = Sword->GetName();   // ItemStrings text in the current language
 ```
 
-`drtable check` checks string table keys too.
+`drtable check` checks string table keys too. The GUI lists string tables separately in the Tables tab (language columns and the base language), and the strings folder is set in the Build & check tab.
+
+![String tables](../images/en/strings.png)
 
 ### In Unreal
 
@@ -441,7 +443,7 @@ Exit codes: `build`, `graph`, `check --input` and `new` return 0 on success, 1 o
 | Tab | What it does |
 |---|---|
 | Build & check | Pick the folders, then check or build. A build also checks the references in its output. Errors and warnings are listed with their `[File]Sheet!Cell` location; double-click one to open its workbook in Excel. |
-| Tables | Tables and enums with their fields (type, key, scope, array, reference), schema file, and the files and sheets holding their data with row counts. |
+| Tables | Tables, string tables and enums with their fields (type, key, scope, array, reference), schema file, and the files and sheets holding their data with row counts. |
 | References | The reference graph. Drag nodes to move them; broken references are red; double-click a node to open its table. |
 | New file | Creates a new data workbook with the reference formulas (`drtable new`). Existing data workbooks are never changed. |
 

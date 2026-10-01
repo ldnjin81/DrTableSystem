@@ -11,7 +11,7 @@ use crate::errors::{ErrorCollector, ValidationErrors};
 use crate::excel::{load_model, DataModel};
 use crate::i18n::{self, tr};
 use crate::schema::{in_scopes, CLIENT_SCOPES, SERVER_SCOPES};
-use crate::schemafile::{enum_folder, folder_of, load_schemas};
+use crate::schemafile::{enum_folder, folder_of, load_schemas, strings_folder};
 use crate::{check, headers, VERSION};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 use serde::{Deserialize, Serialize};
@@ -63,6 +63,7 @@ impl Launch {
                 "input" => &mut settings.input,
                 "schema" => &mut settings.schema,
                 "enums" => &mut settings.enums,
+                "strings" => &mut settings.strings,
                 "out-cpp" => &mut settings.out_cpp,
                 "out-client" => &mut settings.out_client,
                 "out-server" => &mut settings.out_server,
@@ -87,6 +88,7 @@ struct Settings {
     input: String,
     schema: String,
     enums: String,
+    strings: String,
     out_cpp: String,
     out_client: String,
     out_server: String,
@@ -104,6 +106,7 @@ impl Default for Settings {
             input: String::new(),
             schema: String::new(),
             enums: String::new(),
+            strings: String::new(),
             out_cpp: String::new(),
             out_client: String::new(),
             out_server: String::new(),
@@ -123,6 +126,15 @@ impl Settings {
 
     fn enum_root(&self) -> Option<PathBuf> {
         (!self.enums.trim().is_empty()).then(|| PathBuf::from(self.enums.trim()))
+    }
+
+    fn strings_root(&self) -> Option<PathBuf> {
+        (!self.strings.trim().is_empty()).then(|| PathBuf::from(self.strings.trim()))
+    }
+
+    /// The string table data folder in use: the one set, or "Strings" next to the schema folder.
+    fn strings_folder(&self) -> PathBuf {
+        strings_folder(&self.schema_root(), self.strings_root().as_deref(), !self.schema.trim().is_empty())
     }
 
     /// The enum folder in use: the one set, or "Enums" next to the schema folder
@@ -286,7 +298,8 @@ fn check_or_build(settings: &Settings, build: bool) -> Outcome {
     }
     let schema = (!settings.schema.trim().is_empty()).then(|| PathBuf::from(settings.schema.trim()));
     let enums = settings.enum_root();
-    let model = match load_model(&input, schema.as_deref(), enums.as_deref(), None) {
+    let strings = settings.strings_root();
+    let model = match load_model(&input, schema.as_deref(), enums.as_deref(), strings.as_deref()) {
         Ok(model) => model,
         Err(ValidationErrors(errors)) => {
             let count = errors.len();
@@ -465,6 +478,7 @@ impl App {
             path_row(ui, &tr("데이터 폴더", "Data folder"), &mut s.input, Pick::Folder);
             path_row(ui, &tr("스키마 폴더 (비우면 데이터 폴더)", "Schema folder (empty: data folder)"), &mut s.schema, Pick::Folder);
             path_row(ui, &tr("열거형 폴더 (비우면 스키마 폴더 옆 Enums)", "Enum folder (empty: Enums next to the schema folder)"), &mut s.enums, Pick::Folder);
+            path_row(ui, &tr("스트링 폴더 (비우면 스키마 폴더 옆 Strings)", "Strings folder (empty: Strings next to the schema folder)"), &mut s.strings, Pick::Folder);
             path_row(ui, &tr("C++ 출력", "C++ output"), &mut s.out_cpp, Pick::Folder);
             path_row(ui, &tr("클라 JSON 출력", "Client JSON output"), &mut s.out_client, Pick::Folder);
             path_row(ui, &tr("서버 JSON 출력", "Server JSON output"), &mut s.out_server, Pick::Folder);
@@ -526,16 +540,26 @@ impl App {
         };
         let schema_root = self.settings.schema_root();
         let input_root = PathBuf::from(self.settings.input.trim());
+        // String table data outside the data folder is named relative to the folder that holds it.
+        let strings_folder = self.settings.strings_folder();
+        let strings_base = strings_folder.parent().map(Path::to_path_buf).unwrap_or_default();
+        let strings_label = strings_folder.file_name().map(|n| format!("{}/", n.to_string_lossy())).unwrap_or_default();
         egui::Panel::left("table-list").resizable(true).default_size(220.0).show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.strong(tr("테이블", "Tables"));
-                for table in &model.tables {
-                    let label = format!("{}  ({})", table.name, table.rows.len());
-                    if ui.selectable_label(self.selected.as_deref() == Some(table.name.as_str()), label).clicked() {
-                        self.selected = Some(table.name.clone());
+                let groups = [(tr("테이블", "Tables"), false), (tr("스트링테이블", "String tables"), true)];
+                for (heading, strings) in groups {
+                    if !model.tables.iter().any(|t| t.is_strings() == strings) {
+                        continue;
                     }
+                    ui.strong(heading);
+                    for table in model.tables.iter().filter(|t| t.is_strings() == strings) {
+                        let label = format!("{}  ({})", table.name, table.rows.len());
+                        if ui.selectable_label(self.selected.as_deref() == Some(table.name.as_str()), label).clicked() {
+                            self.selected = Some(table.name.clone());
+                        }
+                    }
+                    ui.add_space(8.0);
                 }
-                ui.add_space(8.0);
                 ui.strong(tr("열거형", "Enums"));
                 for e in &model.enums {
                     let key = format!("enum:{}", e.name);
@@ -589,6 +613,7 @@ impl App {
                         ui.label(match column.role.as_deref() {
                             Some("id") => tr("기본키", "primary key"),
                             Some("subkey") => tr("서브키", "sub key"),
+                            Some("base") => tr("기준 언어", "base language"),
                             _ => String::new(),
                         });
                         let scope = if in_scopes(&column.scope, &CLIENT_SCOPES) && in_scopes(&column.scope, &SERVER_SCOPES) {
@@ -621,7 +646,12 @@ impl App {
                         ui.monospace(format!("{} / {}", part.file, part.sheet));
                         ui.label(format!("{} {}", part.rows, tr("행", "rows")));
                         if ui.small_button(tr("열기", "Open")).clicked() {
-                            open_path(&input_root.join(&part.file));
+                            let inside = input_root.join(&part.file);
+                            if !inside.exists() && part.file.starts_with(&strings_label) {
+                                open_path(&strings_base.join(&part.file));
+                            } else {
+                                open_path(&inside);
+                            }
                         }
                     });
                 }

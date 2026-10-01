@@ -121,7 +121,7 @@ bool FDrTableSubKeyOneToOneTest::RunTest(const FString&)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableNameOrderingTest, "DrTable.Registry.NameKey.CodePointOrdering", DrTableTests::Flags)
 bool FDrTableNameOrderingTest::RunTest(const FString&)
 {
-	// The generator's order (Python code point order); FName::LexicalLess would disagree.
+	// The generator's order (Unicode code point order); FName::LexicalLess would disagree.
 	const TArray<FName> Keys = {TEXT("Apple"), TEXT("Cherry"), TEXT("Foo_10"), TEXT("Foo_9"), TEXT("banana")};
 	UDrTableTestAsset* Asset = NewObject<UDrTableTestAsset>(GetTransientPackage(), TEXT("DrTableNameOrdering"));
 	Asset->Code_Keys = Keys;

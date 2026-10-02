@@ -59,6 +59,83 @@ namespace DrTableBake
 		return true;
 	}
 
+	/**
+	 * datetime and duration fields are milliseconds in JSON (Unix time for datetime); the row
+	 * struct holds FDateTime / FTimespan. Rewrites them as {"Ticks": "<int64>"} (a string, so
+	 * the 100 ns tick count keeps every digit).
+	 */
+	TArray<TSharedPtr<FJsonValue>> ConvertTimeFields(const FArrayProperty& RowsProperty, const TArray<TSharedPtr<FJsonValue>>& Rows)
+	{
+		const FStructProperty* Inner = CastField<FStructProperty>(RowsProperty.Inner);
+		if (!Inner || !Inner->Struct)
+		{
+			return Rows;
+		}
+		static const FName NameDateTime(TEXT("DateTime"));
+		static const FName NameTimespan(TEXT("Timespan"));
+		constexpr int64 UnixEpochTicks = 621355968000000000LL;
+		TArray<TPair<FString, bool>> Fields;
+		for (TFieldIterator<FStructProperty> It(Inner->Struct); It; ++It)
+		{
+			const FName StructName = It->Struct->GetFName();
+			if (StructName == NameDateTime || StructName == NameTimespan)
+			{
+				Fields.Emplace(It->GetName(), StructName == NameDateTime);
+			}
+		}
+		if (Fields.IsEmpty())
+		{
+			return Rows;
+		}
+		auto ToTicks = [](const TSharedPtr<FJsonValue>& Value, bool bDateTime) -> TSharedPtr<FJsonValue>
+		{
+			if (!Value.IsValid() || Value->Type != EJson::Number)
+			{
+				return Value;
+			}
+			const int64 Milliseconds = static_cast<int64>(Value->AsNumber());
+			const int64 Ticks = (bDateTime ? UnixEpochTicks : 0) + Milliseconds * ETimespan::TicksPerMillisecond;
+			TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
+			Object->SetStringField(TEXT("Ticks"), LexToString(Ticks));
+			return MakeShared<FJsonValueObject>(Object);
+		};
+		TArray<TSharedPtr<FJsonValue>> Result;
+		Result.Reserve(Rows.Num());
+		for (const TSharedPtr<FJsonValue>& Row : Rows)
+		{
+			const TSharedPtr<FJsonObject>* Object = nullptr;
+			if (!Row.IsValid() || !Row->TryGetObject(Object) || !Object)
+			{
+				Result.Add(Row);
+				continue;
+			}
+			TSharedRef<FJsonObject> Copy = MakeShared<FJsonObject>(**Object);
+			for (const TPair<FString, bool>& Field : Fields)
+			{
+				const TSharedPtr<FJsonValue> Value = Copy->TryGetField(Field.Key);
+				if (!Value.IsValid())
+				{
+					continue;
+				}
+				if (Value->Type == EJson::Array)
+				{
+					TArray<TSharedPtr<FJsonValue>> Items;
+					for (const TSharedPtr<FJsonValue>& Item : Value->AsArray())
+					{
+						Items.Add(ToTicks(Item, Field.Value));
+					}
+					Copy->SetArrayField(Field.Key, Items);
+				}
+				else
+				{
+					Copy->SetField(Field.Key, ToTicks(Value, Field.Value));
+				}
+			}
+			Result.Add(MakeShared<FJsonValueObject>(Copy));
+		}
+		return Result;
+	}
+
 	UClass* FindTableClass(const FString& Prefix, const FString& Table)
 	{
 		// Reflected class names do not include the C++ 'U' prefix.
@@ -102,7 +179,9 @@ namespace DrTableBake
 			UE_LOG(LogDrTableBake, Error, TEXT("[%s] rows (%d) and primary_keys (%d) differ in length."), *Table, Rows->Num(), PrimaryKeys->Num());
 			return false;
 		}
-		if (!SetArrayProperty(Asset, TEXT("Rows"), *Rows, Table) || !SetArrayProperty(Asset, TEXT("PrimaryKeys"), *PrimaryKeys, Table))
+		const FArrayProperty* RowsProperty = FindFProperty<FArrayProperty>(Asset->GetClass(), TEXT("Rows"));
+		const TArray<TSharedPtr<FJsonValue>> RowValues = RowsProperty ? ConvertTimeFields(*RowsProperty, *Rows) : *Rows;
+		if (!SetArrayProperty(Asset, TEXT("Rows"), RowValues, Table) || !SetArrayProperty(Asset, TEXT("PrimaryKeys"), *PrimaryKeys, Table))
 		{
 			return false;
 		}

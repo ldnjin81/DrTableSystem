@@ -160,6 +160,8 @@ File paths are relative to the input folder (data) or the schema folder.
 | `int32`, `int64` | `int32`, `int64` | number | number |
 | `float`, `double` | `float`, `double` | number | number |
 | `fixed<N>`, `fixed64<N>` | `int32`, `int64` (in 1/N units) | integer | integer |
+| `datetime`, `datetime<+09:00>` | `FDateTime` | integer milliseconds (UTC) | integer milliseconds (UTC) |
+| `duration` | `FTimespan` | integer milliseconds | integer milliseconds |
 | `bool` | `bool` | true/false | true/false |
 | `name` | `FName` | string | string |
 | `string` | `FString` | string | string |
@@ -189,6 +191,19 @@ File paths are relative to the input folder (data) or the schema folder.
 - The row struct gets a scale constant, `static constexpr int32 CritRateScale = 10000;`, and the property gets `meta = (DrFixedScale = "10000")`.
 - Compute with integers, e.g. `Damage * CritRate / FGmItemsRow::CritRateScale` (use `int64` when the product can overflow). Convert only for display, e.g. `CritRate / 100.0f`.
 - Defaults (`fixed<10000>=0.05` → 500) and arrays work; fixed-point fields cannot be keys.
+
+### Time: `datetime`, `duration`
+
+| Schema | Written in Excel | JSON | C++ |
+|---|---|---|---|
+| `Start: datetime<+09:00>` | a date-formatted cell, `2026-10-01 10:00`, `2026-10-01` | `1790816400000` (Unix time in milliseconds, UTC) | `FDateTime` |
+| `Cooldown: duration` | a time-formatted cell (`1:30:00`), `90s`, `1h30m`, `2d`, `500ms`, `1:30` | `5400000` (milliseconds) | `FTimespan` |
+
+- **The time zone is part of the schema type**: `datetime<+09:00>` reads Excel values as Korea time and stores UTC; plain `datetime` is UTC. A cell that writes `Z` or `+09:00` itself wins. When many tables share it, use an alias (`KstTime | datetime<+09:00>`).
+- A plain number in a `datetime` cell is an error (it could be an Excel serial date); use a date-formatted cell or date text.
+- A plain number in a `duration` cell is seconds (`30` → 30 s, `1.5` → 1.5 s). Negative durations are errors.
+- Empty cells are 0 (for `datetime`, 1970-01-01 00:00 UTC). Defaults work (`duration=30s`, `datetime<+09:00>=2026-01-01`). Time fields cannot be keys.
+- The server JSON carries the same millisecond integers, ready to compute in any language. The bake writes FDateTime / FTimespan into Unreal assets (1 ms = 10,000 ticks). Fields with a time zone get `meta = (DrTimeZone = "+09:00")`.
 
 ### Type aliases: `*.using.xlsx`
 

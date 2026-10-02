@@ -14,9 +14,9 @@
 - Split a table over sheets and files, deterministic output, messages in English or Korean.
 
 ```
-Schema/*.schema.xlsx       ─┐                 ┌─▶ C++ headers ─▶ compile
-Enums/*.enum.xlsx          ─┼▶ drtable build ─┼─▶ client JSON ─▶ DrTableBake ─▶ DataAssets ─▶ runtime lookups
-Data workbooks (*.xlsx)    ─┘                 └─▶ server JSON ─▶ your server
+Schema/*.schema.xlsx    ─┐                  ┌─▶ C++ headers ─▶ compile
+Enums/*.enum.xlsx       ─┼── drtable build ─┼─▶ client JSON ─▶ DrTableBake ─▶ DataAssets ─▶ runtime lookups
+Data workbooks (*.xlsx) ─┘                  └─▶ server JSON ─▶ your server
 ```
 
 ## Quick start

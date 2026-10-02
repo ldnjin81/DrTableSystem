@@ -10,12 +10,16 @@ DrTableSystem(DesignToRuntime Table System)은 기획자가 엑셀에 적은 데
 **DrTableSystem 언리얼 플러그인**은 클라 JSON을 DataAsset으로 굽고, 런타임에 복사나 인덱스 구축 없이 그대로 읽으며, 오래된 에셋을 잡아냅니다. 스트링테이블은 언어별 에셋으로 구워 현재 언어만 메모리에 두고, 언어를 바꾸면 `OnLanguageChanged`로 UI에 알립니다.
 
 ```
-스키마(Schema/*.schema.xlsx, *.string.xlsx, Enums/*.enum.xlsx) ─┐        ┌─▶ C++ 헤더 ─────────────▶ 컴파일
-                                                    ├▶ drtable build ─┼─▶ 클라 JSON ─▶ DrTableBake ─▶ DA_*.uasset ─▶ 런타임 조회
-데이터 엑셀(*.xlsx, Strings/*.xlsx: 1행 필드명 + 4행부터) ─┘        └─▶ 서버 JSON ─▶ 서버
-                 drtable check  ◀─ 클라·서버 JSON   (참조 무결성 검사, CI)
-                 drtable graph  ─▶ references.md   (Mermaid 다이어그램)
+Schema/*.schema.xlsx, *.string.xlsx ─┐                  ┌─▶ C++ 헤더 ─▶ 컴파일
+Enums/*.enum.xlsx                   ─┼── drtable build ─┼─▶ 클라 JSON ─▶ DrTableBake ─▶ DA_*.uasset ─▶ 런타임 조회
+*.xlsx, Strings/*.xlsx              ─┘                  └─▶ 서버 JSON ─▶ 서버
+
+drtable check ◀── 클라·서버 JSON: 참조 무결성 검사(CI)
+drtable graph ──▶ references.md: 참조 관계 Mermaid 다이어그램
 ```
+
+스키마 폴더에는 구조(필드·자료형·범위, 열거형 값, 스트링테이블 언어 목록)를, 데이터 엑셀(`*.xlsx`, 번역은 `Strings/*.xlsx`)에는 1행 필드명과 4행부터의 값을 둡니다.
+
 
 | 누가 | 무엇을 | 결과 |
 |---|---|---|

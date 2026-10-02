@@ -27,6 +27,10 @@ pub enum V {
     I(i64),
     F(f64),
     B(bool),
+    /// An Excel date cell: (year, month, day, hour, minute, second).
+    Date(u16, u8, u8, u16, u8, f64),
+    /// An Excel time-of-day / duration cell, as a fraction of a day, formatted [h]:mm:ss.
+    Time(f64),
     E,
 }
 
@@ -79,6 +83,7 @@ impl V {
             V::F(value) => value.to_string(),
             V::B(true) => "True".into(),
             V::B(false) => "False".into(),
+            V::Date(..) | V::Time(_) => "date".into(),
             V::E => "None".into(),
         }
     }
@@ -306,6 +311,15 @@ fn write_xlsx(sheets: &[Sheet], path: &Path) {
                     V::I(number) => target.write_number(r, c, *number as f64).map(|_| ()),
                     V::F(number) => target.write_number(r, c, *number).map(|_| ()),
                     V::B(flag) => target.write_boolean(r, c, *flag).map(|_| ()),
+                    V::Date(year, month, day, hour, minute, second) => {
+                        let date = ExcelDateTime::from_ymd(*year, *month, *day).unwrap().and_hms(*hour, *minute, *second).unwrap();
+                        let format = rust_xlsxwriter::Format::new().set_num_format("yyyy-mm-dd hh:mm:ss");
+                        target.write_datetime_with_format(r, c, &date, &format).map(|_| ())
+                    }
+                    V::Time(days) => {
+                        let format = rust_xlsxwriter::Format::new().set_num_format("[h]:mm:ss");
+                        target.write_number_with_format(r, c, *days, &format).map(|_| ())
+                    }
                     V::E => Ok(()),
                 }
                 .unwrap();

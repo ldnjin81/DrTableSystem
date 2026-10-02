@@ -160,6 +160,8 @@ Design/Tables/
 | `int32`, `int64` | `int32`, `int64` | 숫자 | 숫자 |
 | `float`, `double` | `float`, `double` | 숫자 | 숫자 |
 | `fixed<N>`, `fixed64<N>` | `int32`, `int64`(1/N 단위) | 정수 | 정수 |
+| `datetime`, `datetime<+09:00>` | `FDateTime` | 밀리초 정수(UTC) | 밀리초 정수(UTC) |
+| `duration` | `FTimespan` | 밀리초 정수 | 밀리초 정수 |
 | `bool` | `bool` | true/false | true/false |
 | `name` | `FName` | 문자열 | 문자열 |
 | `string` | `FString` | 문자열 | 문자열 |
@@ -189,6 +191,19 @@ Design/Tables/
 - 행 구조체에는 배율 상수가 붙습니다: `static constexpr int32 CritRateScale = 10000;`. 속성에는 `meta = (DrFixedScale = "10000")`가 붙습니다.
 - 계산은 정수로 합니다. 예: `Damage * CritRate / FGmItemsRow::CritRateScale`(곱셈이 넘칠 수 있으면 `int64`로). 화면에 보여 줄 때만 `CritRate / 100.0f` 같은 식으로 바꿉니다.
 - 기본값(`fixed<10000>=0.05` → 500)과 배열을 쓸 수 있고, 키로는 쓸 수 없습니다.
+
+### 시각과 시간 길이: `datetime`, `duration`
+
+| 스키마 | 엑셀에 적는 값 | JSON | C++ |
+|---|---|---|---|
+| `Start: datetime<+09:00>` | 날짜 서식 칸, `2026-10-01 10:00`, `2026-10-01` | `1790816400000`(유닉스 시각, 밀리초, UTC) | `FDateTime` |
+| `Cooldown: duration` | 시간 서식 칸(`1:30:00`), `90s`, `1h30m`, `2d`, `500ms`, `1:30` | `5400000`(밀리초) | `FTimespan` |
+
+- **시간대는 스키마 타입에 적습니다**: `datetime<+09:00>`이면 엑셀 값을 한국 시간으로 읽어 UTC로 저장합니다. `datetime`만 쓰면 UTC입니다. 칸에 `Z`나 `+09:00`을 직접 적으면 그것이 우선합니다. 여러 테이블에서 쓰면 별칭으로 묶어 두세요(`KstTime | datetime<+09:00>`).
+- `datetime`의 숫자만 있는 칸은 오류입니다(엑셀 날짜 일련번호인지 알 수 없으므로). 날짜 서식 칸이나 날짜 글로 적습니다.
+- `duration`에 숫자만 적으면 초입니다(`30` → 30초, `1.5` → 1.5초). 음수는 오류입니다.
+- 빈 칸은 0입니다(`datetime`이면 1970-01-01 00:00 UTC). 기본값을 줄 수 있습니다(`duration=30s`, `datetime<+09:00>=2026-01-01`). 키로는 쓸 수 없습니다.
+- 서버 JSON도 같은 밀리초 정수라 언어와 상관없이 바로 계산할 수 있습니다. 언리얼 에셋에는 굽기가 FDateTime·FTimespan으로 바꿔 넣습니다(1밀리초 = 10,000틱). 시간대가 있는 필드에는 `meta = (DrTimeZone = "+09:00")`가 붙습니다.
 
 ### 타입 별칭: `*.using.xlsx`
 

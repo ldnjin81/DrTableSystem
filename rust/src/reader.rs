@@ -96,7 +96,8 @@ pub fn to_cell(data: &Data) -> Cell {
         Data::String(s) => Cell::Str(s.clone()),
         Data::Bool(b) => Cell::Bool(*b),
         Data::DateTime(dt) => match dt.as_datetime() {
-            Some(value) => Cell::Date(value.format("%Y-%m-%d %H:%M:%S").to_string()),
+            // Milliseconds are kept for datetime and duration fields.
+            Some(value) => Cell::Date(value.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
             None => Cell::Float(dt.as_f64()),
         },
         Data::DateTimeIso(s) | Data::DurationIso(s) => Cell::Str(s.clone()),

@@ -12,8 +12,8 @@ use crate::sources::is_identifier;
 use crate::value::{object, Cell, Json, Value};
 use crate::values::convert_value;
 
-pub const PRIMITIVES: [&str; 11] =
-    ["int32", "int64", "float", "double", "bool", "name", "string", "text", "tag", "path", "lang"];
+pub const PRIMITIVES: [&str; 13] =
+    ["int32", "int64", "float", "double", "bool", "name", "string", "text", "tag", "path", "lang", "datetime", "duration"];
 pub const KEY_PRIMITIVES: [&str; 3] = ["int32", "int64", "name"];
 pub const SCOPES: [&str; 4] = ["all", "client", "server", "#"];
 pub const CLIENT_SCOPES: [&str; 2] = ["all", "client"];
@@ -42,6 +42,20 @@ pub static KEY_ROLE_PREFIX_RE: LazyLock<Regex> =
 /// count of 1/scale units, so clients and servers compute with exact integers.
 static FIXED_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^fixed(64)?\s*<\s*(\d+)\s*>$").unwrap());
+
+/// `datetime<+09:00>`: a point in time written in that UTC offset (plain `datetime` is UTC).
+static DATETIME_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^datetime\s*<\s*([+-])(\d{1,2}):?(\d{2})\s*>$").unwrap());
+
+/// The UTC offset in minutes of a `datetime` or `datetime<±HH:MM>` type name.
+pub fn datetime_offset(type_name: &str) -> Option<i32> {
+    if type_name == "datetime" {
+        return Some(0);
+    }
+    let captures = DATETIME_RE.captures(type_name)?;
+    let minutes = captures[2].parse::<i32>().ok()? * 60 + captures[3].parse::<i32>().ok()?;
+    Some(if &captures[1] == "-" { -minutes } else { minutes })
+}
 
 /// (scale, 64-bit) of a fixed-point type name such as `fixed<10000>`.
 pub fn fixed_of(type_name: &str) -> Option<(i64, bool)> {
@@ -304,7 +318,22 @@ pub fn parse_type(
         }
         text = format!("fixed{}<{scale}>", if wide { "64" } else { "" });
     }
-    if !PRIMITIVES.contains(&text.as_str()) && enum_of(&text).is_none() && ref_target.is_none() && fixed_of(&text).is_none() {
+    if text.eq_ignore_ascii_case("datetime") || text.eq_ignore_ascii_case("duration") {
+        text = text.to_lowercase();
+    } else if DATETIME_RE.is_match(&text) {
+        let offset = datetime_offset(&text).unwrap_or(i32::MAX);
+        if offset.abs() > 14 * 60 {
+            errors.add(sheet, cell, tr(
+                format!("시간대는 -14:00 ~ +14:00이어야 합니다: '{text}'"),
+                format!("the UTC offset must be between -14:00 and +14:00: '{text}'"),
+            ));
+            return None;
+        }
+        // Canonical form: datetime for UTC, datetime<+09:00> otherwise.
+        let sign = if offset < 0 { '-' } else { '+' };
+        text = if offset == 0 { "datetime".into() } else { format!("datetime<{sign}{:02}:{:02}>", offset.abs() / 60, offset.abs() % 60) };
+    }
+    if !PRIMITIVES.contains(&text.as_str()) && enum_of(&text).is_none() && ref_target.is_none() && fixed_of(&text).is_none() && datetime_offset(&text).is_none() {
         errors.add(sheet, cell, tr(format!("알 수 없는 자료형 '{text}'"), format!("unknown type '{text}'")));
         return None;
     }

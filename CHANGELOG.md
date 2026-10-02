@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Time types: `datetime` / `datetime<±HH:MM>` (Excel values read in that offset, stored as Unix milliseconds UTC; a written `Z`/offset wins) and `duration` (time cells, `1:30:00`, `90s`, `1h30m`, `2d`, `500ms`, plain seconds; milliseconds). C++ `FDateTime` / `FTimespan` with `DrTimeZone` metadata; `DrTableBake` converts the milliseconds to ticks.
+- Excel date cells keep milliseconds.
+
 ## 0.5.0
 
 - Type aliases: `*.using.xlsx` in the schema folder names a type once (`ItemID | int32`, `ItemRef | Ref<Items>`, `Rate | fixed<10000>`, `Level | int32=1`); fields use it as a type, key (`ID<ItemID>`) or with a default. C++ fields keep the underlying type with `meta = (DrType = "...")`, and `<Prefix>Types.h` declares `using` aliases for game code. The GUI shows the alias next to the type.

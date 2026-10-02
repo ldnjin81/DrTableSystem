@@ -208,7 +208,22 @@ impl Book {
             if is_enum {
                 convert_enum(sheet, &name, &header, schema_dir, enum_dir);
             } else {
-                let fields: Vec<_> = header.into_iter().map(|(_, n, t, s)| (n, t, s)).collect();
+                // An array's element columns (Reward[0], Reward[1], ...) are one schema field Reward;
+                // its type comes from the first element column.
+                let mut fields: Vec<(V, V, V)> = Vec::new();
+                for (_, n, t, s) in header {
+                    let text = n.text();
+                    let base = match text.split_once('[') {
+                        Some((base, rest)) if rest.ends_with(']') && rest[..rest.len() - 1].chars().all(|c| c.is_ascii_digit()) && !rest[..rest.len() - 1].is_empty() => base.to_string(),
+                        _ => {
+                            fields.push((n, t, s));
+                            continue;
+                        }
+                    };
+                    if !fields.iter().any(|(f, _, _)| f.text() == base) {
+                        fields.push((V::from(base), t, s));
+                    }
+                }
                 write_schema(&schema_dir.join(format!("{name}.schema.xlsx")), &name, &fields);
             }
         }

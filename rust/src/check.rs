@@ -147,10 +147,10 @@ pub fn check_directory(directory: &Path) -> Result<(Vec<String>, Vec<String>), C
         let (Some(source_payload), Some(target_payload)) = (get(source), get(target)) else {
             return Err(input_error("manifest.json", format!("참조 '{source}.{field}'의 테이블이 없습니다"), format!("a table of reference '{source}.{field}' is missing")));
         };
-        let array_length = match reference.get("array_length") {
-            None => 1,
-            Some(J::Number(n)) if n.is_i64() && n.as_i64().unwrap_or(0) >= 1 => n.as_i64().unwrap_or(1),
-            Some(_) => return Err(input_error("manifest.json", "array_length가 잘못되었습니다", "invalid array_length")),
+        let is_array = match reference.get("array") {
+            None => false,
+            Some(J::Bool(b)) => *b,
+            Some(_) => return Err(input_error("manifest.json", "array가 잘못되었습니다", "invalid array")),
         };
         let target_key = reference.get("target_key").filter(|v| !v.is_null());
         let cardinality = reference.get("cardinality").and_then(J::as_str);
@@ -206,17 +206,29 @@ pub fn check_directory(directory: &Path) -> Result<(Vec<String>, Vec<String>), C
                 }
             }
         let primary = source_payload["primary_key"].as_str().unwrap_or("").to_string();
+        // Client JSON keeps array elements in a pool per field: rows hold <field>_Start and _Num.
+        let pool = source_payload
+            .get("arrays")
+            .and_then(J::as_array)
+            .and_then(|arrays| arrays.iter().find(|a| a.get("field").and_then(J::as_str) == Some(field)))
+            .and_then(|a| a.get("pool"))
+            .and_then(J::as_array);
         for row in rows_of(source_payload) {
-            let Some(value) = row.as_object().and_then(|r| r.get(field)) else {
-                return Err(input_error(&format!("{source}.json"), format!("필드 '{field}'가 없습니다"), format!("field '{field}' is missing")));
-            };
-            let values: Vec<(Option<usize>, J)> = if array_length != 1 || value.is_array() {
-                match value.as_array() {
-                    Some(items) if items.len() as i64 == array_length => items.iter().cloned().enumerate().map(|(i, v)| (Some(i), v)).collect(),
-                    _ => return Err(input_error(&format!("{source}.json"), format!("필드 '{field}'의 배열 길이가 다릅니다"), format!("field '{field}' has a different array length"))),
+            let object = row.as_object();
+            let values: Vec<(Option<usize>, J)> = match (object.and_then(|r| r.get(field)), pool) {
+                (Some(value), _) if is_array => match value.as_array() {
+                    Some(items) => items.iter().cloned().enumerate().map(|(i, v)| (Some(i), v)).collect(),
+                    None => return Err(input_error(&format!("{source}.json"), format!("필드 '{field}'가 배열이 아닙니다"), format!("field '{field}' is not an array"))),
+                },
+                (Some(value), _) => vec![(None, value.clone())],
+                (None, Some(pool)) if is_array => {
+                    let number = |suffix: &str| object.and_then(|r| r.get(&format!("{field}{suffix}"))).and_then(J::as_u64).map(|n| n as usize);
+                    match (number("_Start"), number("_Num")) {
+                        (Some(start), Some(count)) if start + count <= pool.len() => pool[start..start + count].iter().cloned().enumerate().map(|(i, v)| (Some(i), v)).collect(),
+                        _ => return Err(input_error(&format!("{source}.json"), format!("필드 '{field}'의 배열 위치가 잘못되었습니다"), format!("field '{field}' has an invalid array range"))),
+                    }
                 }
-            } else {
-                vec![(None, value.clone())]
+                _ => return Err(input_error(&format!("{source}.json"), format!("필드 '{field}'가 없습니다"), format!("field '{field}' is missing"))),
             };
             for (index, item) in values {
                 let Some(key) = Key::of(&item) else {

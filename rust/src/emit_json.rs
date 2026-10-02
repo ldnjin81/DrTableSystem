@@ -45,7 +45,7 @@ pub fn emit_json(
                     ("target_key", column.ref_key.as_deref().map(Json::from).unwrap_or(Json::Null)),
                     ("cardinality", Json::from(if column.ref_key.is_some() { "many" } else { "one" })),
                     ("key_type", Json::from(column.type_name.as_str())),
-                    ("array_length", Json::Int(column.array_size.filter(|&n| n != 0).unwrap_or(1) as i64)),
+                    ("array", Json::Bool(column.is_array())),
                     ("subkey", Json::Bool(column.is_role("subkey"))),
                 ]);
                 references.push((table.name.clone(), column.name.clone(), entry));
@@ -193,10 +193,41 @@ fn table_payload(
     content.push(("sub_keys".to_string(), Json::List(sub_keys)));
     let included: Vec<usize> =
         (0..table.columns.len()).filter(|&i| in_scopes(&table.columns[i].scope, scopes)).collect();
+    // The client (baked into assets) keeps every array's elements in one pool per field, rows
+    // holding <Field>_Start and <Field>_Num; the server reads each row's array as it is.
+    let mut pools: Vec<(usize, Vec<Json>)> = Vec::new();
+    if with_index {
+        pools = included.iter().filter(|&&i| table.columns[i].is_array()).map(|&i| (i, Vec::new())).collect();
+    }
     let json_rows = rows
         .iter()
-        .map(|row| Json::Object(included.iter().map(|&i| (table.columns[i].name.clone(), Json::from(&row[i]))).collect()))
+        .map(|row| {
+            let mut fields = Vec::new();
+            for &i in &included {
+                let name = table.columns[i].name.clone();
+                match pools.iter_mut().find(|(p, _)| *p == i) {
+                    Some((_, pool)) => {
+                        let items: &[Value] = match &row[i] {
+                            Value::List(items) => items,
+                            _ => &[],
+                        };
+                        fields.push((format!("{name}_Start"), Json::Int(pool.len() as i64)));
+                        fields.push((format!("{name}_Num"), Json::Int(items.len() as i64)));
+                        pool.extend(items.iter().map(Json::from));
+                    }
+                    None => fields.push((name, Json::from(&row[i]))),
+                }
+            }
+            Json::Object(fields)
+        })
         .collect();
+    if with_index {
+        let arrays = pools
+            .into_iter()
+            .map(|(i, pool)| object([("field", Json::from(table.columns[i].name.as_str())), ("pool", Json::List(pool))]))
+            .collect();
+        content.push(("arrays".to_string(), Json::List(arrays)));
+    }
     content.push(("rows".to_string(), Json::List(json_rows)));
     let content = Json::Object(content);
     let hash = format!("sha256:{}", sha256_hex(content.compact_sorted().as_bytes()));

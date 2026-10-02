@@ -29,6 +29,12 @@ struct FDrTableTestRow
 
 	UPROPERTY()
 	FName Code;
+
+	UPROPERTY()
+	int32 Reward_Start = 0;
+
+	UPROPERTY()
+	int32 Reward_Num = 0;
 };
 
 UCLASS()
@@ -60,6 +66,9 @@ public:
 
 	UPROPERTY()
 	TArray<int32> Code_Indices;
+
+	UPROPERTY()
+	TArray<int32> Reward_Pool;
 };
 
 UCLASS()

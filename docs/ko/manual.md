@@ -251,20 +251,37 @@ Quests:  Id: ID<int32>      Reward: ItemRef      MinLevel: Level=5
 
 ## 5. 배열
 
-스키마에서 `필드[0]`, `필드[1]`, … 처럼 번호를 붙인 필드는 고정 크기 배열 필드 하나가 됩니다. 데이터 엑셀의 1행에도 같은 이름(`Reward[0]`…)으로 열을 둡니다.
+배열은 스키마에 **필드 하나**로 선언하고, 자료형 뒤에 `[]`를 붙입니다. 원소 수는 행마다 데이터에서 정하므로 열을 늘리거나 줄여도 스키마는 그대로입니다.
 
 | 필드명 | 자료형 | 범위 |
 |---|---|---|
 | `Id` | `ID<int32>` | `all` |
-| `Reward[0]` | `int32` | `all` |
-| `Reward[1]` | `int32` | `all` |
-| `Reward[2]` | `int32` | `all` |
+| `Reward` | `int32[]` | `all` |
+| `Slots` | `ItemRef[4]` | `all` |
 
-- C++: C 스타일 배열 `int32 Reward[3] = {};`. 힙 할당 없이 행 안에 들어갑니다.
-- JSON: 실제 배열 `"Reward": [10, 20, 30]`.
-- 번호는 0부터 빈틈없이 이어져야 하고, 원소는 자료형·범위가 같아야 합니다. 배열은 키가 될 수 없습니다.
-- 언리얼은 C 스타일 배열을 블루프린트에 노출할 수 없어서 배열 속성은 `EditAnywhere`만 붙습니다.
-- 원소마다 기본값을 따로 줄 수 있습니다(`int32=10`, `int32=20`).
+- `int32[4]`처럼 숫자를 쓰면 **최대 길이**입니다. 넘는 행은 오류입니다. 숫자가 없으면 길이 제한이 없습니다.
+- 원소 자료형으로는 기본 자료형, 고정소수점, 시간, 열거형, `Ref<...>`, 별칭(`ItemID[]`)을 쓸 수 있습니다.
+- 배열은 키가 될 수 없고, 기본값을 줄 수 없습니다(빈 칸은 원소가 없는 것입니다).
+
+**데이터 엑셀에서 적는 방법은 두 가지**이고, 시트마다 고를 수 있습니다.
+
+| 방법 | 1행 | 칸 | 원소 수 |
+|---|---|---|---|
+| 원소 열 | `Reward[0]`, `Reward[1]`, `Reward[2]` … | 원소 하나씩 | 끝쪽 빈 칸을 뺀 칸 수 |
+| 한 칸 | `Reward` | `10, 20, 30` (쉼표로 구분) | 쉼표로 나눈 개수, 빈 칸이면 0 |
+
+- 원소 열은 필요한 만큼 늘리면 됩니다. 번호는 0부터 빈틈없이 이어지고, 행마다 앞에서부터 빈칸 없이 채웁니다(중간 빈 칸은 오류).
+- 한 칸 방식은 원소 사이 공백을 무시합니다. 쉼표가 든 글(`string`)은 원소 열로 씁니다. 숫자 하나만 적은 칸은 원소 하나입니다.
+- 같은 시트에서 두 방법을 함께 쓰면 오류입니다. 옛 문법(스키마의 `Reward[0]`, `Reward[1]` 행)은 바꾸는 방법을 알려 주는 오류가 납니다.
+
+**출력.**
+
+- 서버 JSON: 행마다 실제 배열 `"Reward": [10, 20, 30]`.
+- 클라 JSON·에셋: 원소를 테이블 하나의 **연속 배열(풀)** 에 모으고, 행에는 시작 위치와 개수만 둡니다. 행마다 힙 할당이 없습니다.
+  - 행 구조체: `int32 Reward_Start`, `int32 Reward_Num`
+  - 에셋 클래스: `TArray<int32> Reward_Pool`
+  - 행 함수(`--runtime-header`): `TConstArrayView<int32> GetReward() const` — 그 행의 원소들(`Num()`이 길이). 참조 배열에는 원소 하나를 행으로 바꾸는 `GetReward(int32 Index)`도 생깁니다.
+- 블루프린트에서는 `Reward_Start`·`Reward_Num`과 에셋의 `Reward_Pool`을 읽을 수 있습니다.
 
 ## 6. 열거형
 
@@ -289,7 +306,7 @@ Quests:  Id: ID<int32>      Reward: ItemRef      MinLevel: Level=5
 `Ref<Items>` 필드에는 `Items` 테이블의 기본키 값을 넣습니다. 필드의 실제 자료형은 대상 키의 자료형이라, 대상 키 자료형을 바꾸면 참조 필드도 따라 바뀝니다.
 
 ```
-Quests:   Id: ID<int32>   RewardItem: Ref<Items>   Next[0]: Ref<Quests>   Next[1]: Ref<Quests>
+Quests:   Id: ID<int32>   RewardItem: Ref<Items>   Next: Ref<Quests>[]
 ```
 
 - **빈 칸은 "참조 없음"**입니다. 숫자 키는 `0`, `name` 키는 빈 이름이 들어갑니다. 열거형 키 테이블을 가리키는 참조는 비울 수 없습니다(열거형에는 "없음" 값이 없기 때문).
@@ -427,7 +444,8 @@ FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
 - 행 구조체 `F<접두사><테이블>Row`, 에셋 클래스 `U<접두사><테이블>Table`, 열거형 `E<접두사><열거형>`. `--prefix` 기본값은 `Dr`이니 프로젝트 접두사로 바꿔 쓰세요.
 - 클라 필드(`all`, `client`)만 생성합니다.
 - **생성 코드는 스키마에만 의존합니다.** 데이터 값, 데이터 파일 이름, 행 수는 코드에 들어가지 않으므로, 데이터를 고치거나 파일·시트를 나눠도 코드는 바이트 단위로 같습니다. 첫 줄 주석에는 스키마 파일이 적힙니다(`// … Source: Items.schema.xlsx`).
-- 에셋 클래스에는 `Rows`(기본키 순 정렬), `PrimaryKeys`(같은 순서), 그리고 서브키마다 `<이름>_Keys`, `<이름>_Offsets`, `<이름>_Indices`(생성기가 계산한 CSR 인덱스)가 들어갑니다.
+- 에셋 클래스에는 `Rows`(기본키 순 정렬), `PrimaryKeys`(같은 순서), 서브키마다 `<이름>_Keys`, `<이름>_Offsets`, `<이름>_Indices`(생성기가 계산한 CSR 인덱스), 배열 필드마다 `<이름>_Pool`(5절)이 들어갑니다.
+- 모든 속성은 `VisibleAnywhere, BlueprintReadOnly`입니다. 데이터는 엑셀에서 고치고, 에디터와 블루프린트에서는 읽기만 합니다.
 
 **행 함수**(`--runtime-header`를 줄 때). 일반 C++ 멤버이고 블루프린트에는 노출하지 않습니다.
 
@@ -439,22 +457,24 @@ FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
 | `const F대상Row* Get<필드>() const` | `Ref<대상>` 필드 | 참조한 행 또는 nullptr |
 | `TArray<const F대상Row*> Get<필드>() const` | `Ref<대상.서브키>` 필드 | 참조한 행들 |
 | `FText Get<필드>() const` | `Ref<스트링테이블>` 필드 | 현재 언어의 글(비어 있으면 빈 글) |
-| `Get<필드>(int32 Index) const` | 참조 배열 | 위와 같되 원소 하나 |
+| `TConstArrayView<T> Get<필드>() const` | 배열 필드 | 그 행의 원소들(5절) |
+| `Get<필드>(int32 Index) const` | 참조 배열 | 원소 하나를 위처럼 행·글로 (범위 밖이면 nullptr·빈 글) |
 
 참조가 비어 있으면 조회 없이 바로 nullptr나 빈 배열을 돌려줍니다. 생성할 함수 이름이 필드와 겹치면(예: 필드 이름이 `Find`) 생성 오류입니다.
 
-생성 함수는 런타임 헤더가 제공하는 함수 네 개만 부릅니다(`GetText`는 스트링테이블 참조가 있을 때만). 언리얼 플러그인의 `DrTableRuntime.h`가 구현하고, 다른 환경이면 직접 구현해도 됩니다.
+생성 함수는 런타임 헤더가 제공하는 함수 다섯 개만 부릅니다(`GetArray`는 배열이, `GetText`는 스트링테이블 참조가 있을 때만). 언리얼 플러그인의 `DrTableRuntime.h`가 구현하고, 다른 환경이면 직접 구현해도 됩니다.
 
 ```cpp
 namespace DrTableRuntime {
   template <typename TRow, typename TKey> const TRow* FindByKey(const TKey& Key);
   template <typename TRow, typename TKey> TArray<const TRow*> FindAllBySubKey(FName SubKeyName, const TKey& Key);
   template <typename TRow> TConstArrayView<TRow> GetAll();
+  template <typename TRow, typename TElement> TConstArrayView<TElement> GetArray(FName Field, int32 Start, int32 Num);
   FText GetText(FName Table, FName Key);
 }
 ```
 
-`RegisterAll(Registry)`에 넘기는 레지스트리에는 `Register<행, 에셋>(FName 이름, TArray<행> 에셋::*행배열, TArray<키> 에셋::*키배열)`이 있어야 합니다. 그 반환값은 `WithSchemaHash(const TCHAR*)`와 `WithSubKey(FName, 키, 오프셋, 인덱스)`를 이어 부를 수 있어야 합니다.
+`RegisterAll(Registry)`에 넘기는 레지스트리에는 `Register<행, 에셋>(FName 이름, TArray<행> 에셋::*행배열, TArray<키> 에셋::*키배열)`이 있어야 합니다. 그 반환값은 `WithSchemaHash(const TCHAR*)`, `WithSubKey(FName, 키, 오프셋, 인덱스)`, `WithArray(FName, 풀)`을 이어 부를 수 있어야 합니다.
 
 ### JSON
 
@@ -469,11 +489,12 @@ namespace DrTableRuntime {
   "primary_keys": [1001, 1002],
   "sub_keys": [{"name": "Element", "field": "Element",
                 "keys": ["Fire", "Water"], "offsets": [0, 1, 2], "indices": [0, 1]}],
-  "rows": [{"Id": 1001, "Name": "Burn", "Element": "Fire"}, …]
+  "arrays": [{"field": "Reward", "pool": [10, 20, 30]}],
+  "rows": [{"Id": 1001, "Name": "Burn", "Element": "Fire", "Reward_Start": 0, "Reward_Num": 2}, …]
 }
 ```
 
-서버 JSON은 인덱스가 없고 서버 필드가 들어간다는 점만 다릅니다. 폴더마다 있는 `manifest.json`에는 다음이 들어갑니다.
+서버 JSON은 인덱스와 풀이 없고(배열은 행마다 `"Reward": [10, 20]`), 서버 필드가 들어간다는 점이 다릅니다. 폴더마다 있는 `manifest.json`에는 다음이 들어갑니다.
 
 - 테이블 목록: 행 수, 스키마·내용 해시, 스키마 파일(`schema`), 데이터 위치(`sources`: 파일·시트·행 수)
 - 열거형과 참조
@@ -509,7 +530,7 @@ drtable [--lang en|ko] …
 | `--asset-name` | 등록과 굽기에 쓰는 에셋 이름 형식. `{table}`이 반드시 들어가야 합니다. |
 | `--stamp` | manifest에 `generated_at`을 넣습니다(CI 추적용. 의도적으로 바이트 동일성이 깨집니다). |
 
-- `graph`는 GitHub에서 바로 그려지는 Mermaid `flowchart`를 씁니다. 테이블마다 노드(키 자료형 표시), 참조마다 화살표를 그립니다. 화살표 라벨에는 필드명과 배열이면 `[N]`을 붙입니다. 참조 필드가 서브키면 `(SubKey)`, 서브키를 참조하면 `→ 키 1:N`도 붙습니다.
+- `graph`는 GitHub에서 바로 그려지는 Mermaid `flowchart`를 씁니다. 테이블마다 노드(키 자료형 표시), 참조마다 화살표를 그립니다. 화살표 라벨에는 필드명과 배열이면 `[]`(최대 길이가 있으면 `[N]`)를 붙입니다. 참조 필드가 서브키면 `(SubKey)`, 서브키를 참조하면 `→ 키 1:N`도 붙습니다.
 - `check --client/--server`는 생성된 JSON만 읽으므로 CI에서 돌릴 수 있습니다. 끊긴 참조를 전부 출력합니다(예: `Quests.Next[2002](0) = 9999 → Quests 테이블에 없음`). 빈 참조는 건너뛰고, 대상에 "참조 없음" 값(0이나 빈 이름)과 같은 키가 있으면 경고합니다.
 - 경고(`경고: …`)는 표준 오류로 나가고 종료 코드에 영향을 주지 않습니다.
 

@@ -19,7 +19,7 @@ fn source(path: &Path) {
         ])
         .with("Quests", vec![
             row!["Id", "Reward", "Next[0]", "Next[1]"],
-            row!["ID<int32>", "SubKey<Ref<Items>>", "Ref<Quests>", "Ref<Quests>"],
+            row!["ID<int32>", "SubKey<Ref<Items>>", "Ref<Quests>[]", "Ref<Quests>[]"],
             row!["all", "all", "all", "all"],
             row![1, 1001, 2, ()],
             row![2, (), (), ()],
@@ -105,8 +105,9 @@ fn row_source_definitions() {
         "return DrTableRuntime::FindByKey<FDrQuestsRow>(Key);",
         "return DrTableRuntime::FindAllBySubKey<FDrQuestsRow>(FName(TEXT(\"Reward\")), Key);",
         "return DrTableRuntime::GetAll<FDrQuestsRow>();",
-        "    if (Index < 0 || Index >= 2 || Next[Index] == 0)",
-        "    return FDrQuestsRow::Find(Next[Index]);",
+        "TConstArrayView<int32> FDrQuestsRow::GetNext() const\n{\n    return DrTableRuntime::GetArray<FDrQuestsRow, int32>(FName(TEXT(\"Next\")), Next_Start, Next_Num);\n}",
+        "    const TConstArrayView<int32> Items = GetNext();\n    if (Index < 0 || Index >= Items.Num() || Items[Index] == 0)",
+        "    return FDrQuestsRow::Find(Items[Index]);",
     ] {
         assert!(quests.contains(line), "{line}");
     }
@@ -134,7 +135,7 @@ fn registration_header() {
         "namespace DrGeneratedTables",
         "    template <typename TRegistry>\n    void RegisterAll(TRegistry& Registry)",
         "Registry.template Register<FDrQuestsRow, UDrQuestsTable>(TEXT(\"BT_Quests\"), &UDrQuestsTable::Rows, &UDrQuestsTable::PrimaryKeys)",
-        "            .WithSchemaHash(QuestsSchemaHash)\n            .WithSubKey(TEXT(\"Reward\"), &UDrQuestsTable::Reward_Keys, &UDrQuestsTable::Reward_Offsets, &UDrQuestsTable::Reward_Indices);",
+        "            .WithSchemaHash(QuestsSchemaHash)\n            .WithSubKey(TEXT(\"Reward\"), &UDrQuestsTable::Reward_Keys, &UDrQuestsTable::Reward_Offsets, &UDrQuestsTable::Reward_Indices)\n            .WithArray(TEXT(\"Next\"), &UDrQuestsTable::Next_Pool);",
         "            .WithSchemaHash(MonstersSchemaHash);",
     ] {
         assert!(text.contains(part), "{part}");

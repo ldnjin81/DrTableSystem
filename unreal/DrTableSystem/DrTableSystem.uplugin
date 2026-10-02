@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 7,
-	"VersionName": "0.6.0",
+	"Version": 8,
+	"VersionName": "0.7.0",
 	"FriendlyName": "DrTableSystem",
 	"Description": "DrTableSystem (DesignToRuntime Table System) runtime and editor support: spreadsheet tables baked into DataAssets with prebuilt key indices, typed lookups and schema/content drift detection.",
 	"Category": "Data",

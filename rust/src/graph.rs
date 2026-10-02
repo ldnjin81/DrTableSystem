@@ -17,8 +17,8 @@ pub fn emit_graph(model: &DataModel, output: &Path) -> std::io::Result<()> {
         for column in columns {
             let Some(target) = &column.ref_target else { continue };
             let mut label = column.name.clone();
-            if let Some(size) = column.array_size {
-                label += &format!("[{size}]");
+            if let Some(shape) = &column.array {
+                label += &shape.max.map(|n| format!("[{n}]")).unwrap_or_else(|| "[]".into());
             }
             if let Some(key) = &column.ref_key {
                 label += &format!(" → {key} 1:N");

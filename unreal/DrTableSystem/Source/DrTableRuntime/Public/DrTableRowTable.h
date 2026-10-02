@@ -249,6 +249,48 @@ namespace DrTable::Private
 		const TArray<int32>* Offsets = nullptr;
 		const TArray<int32>* Indices = nullptr;
 	};
+	class FArrayPoolViewBase
+	{
+	public:
+		virtual ~FArrayPoolViewBase() = default;
+		virtual int32 GetElementSize() const = 0;
+		virtual bool Bind(const UPrimaryDataAsset& Asset) = 0;
+		virtual const void* GetData() const = 0;
+		virtual int32 Num() const = 0;
+		virtual void Reset() = 0;
+	};
+
+	/** The elements of one array field for every row, baked by the generator (<Field>_Pool). */
+	template <typename TAsset, typename TElement>
+	class TArrayPoolView final : public FArrayPoolViewBase
+	{
+	public:
+		explicit TArrayPoolView(TArray<TElement> TAsset::*InPoolMember)
+			: PoolMember(InPoolMember)
+		{
+		}
+
+		virtual int32 GetElementSize() const override { return sizeof(TElement); }
+
+		virtual bool Bind(const UPrimaryDataAsset& Asset) override
+		{
+			const TAsset* TypedAsset = Cast<TAsset>(&Asset);
+			if (!TypedAsset)
+			{
+				return false;
+			}
+			Pool = &(TypedAsset->*PoolMember);
+			return true;
+		}
+
+		virtual const void* GetData() const override { return Pool ? Pool->GetData() : nullptr; }
+		virtual int32 Num() const override { return Pool ? Pool->Num() : 0; }
+		virtual void Reset() override { Pool = nullptr; }
+
+	private:
+		TArray<TElement> TAsset::*PoolMember;
+		const TArray<TElement>* Pool = nullptr;
+	};
 } // namespace DrTable::Private
 
 /** Type-erased registered table. */
@@ -334,6 +376,15 @@ public:
 		return WithSubKey(Name, KeysMember, OffsetsMember, IndicesMember);
 	}
 
+	/** An array field: its elements for every row in the asset's pool; a row keeps Start and Num. */
+	template <typename TAsset, typename TElement>
+	TDrTableRowTable& WithArray(FName Name, TArray<TElement> TAsset::*PoolMember)
+	{
+		check(AssetClass == TAsset::StaticClass());
+		ArrayViews.Add(Name, MakeUnique<DrTable::Private::TArrayPoolView<TAsset, TElement>>(PoolMember));
+		return *this;
+	}
+
 	virtual bool Load(const UPrimaryDataAsset& Source) override
 	{
 		Reset();
@@ -355,6 +406,14 @@ public:
 				return false;
 			}
 		}
+		for (TPair<FName, TUniquePtr<DrTable::Private::FArrayPoolViewBase>>& Pair : ArrayViews)
+		{
+			if (!Pair.Value->Bind(Source))
+			{
+				Reset();
+				return false;
+			}
+		}
 		return true;
 	}
 
@@ -366,6 +425,10 @@ public:
 			PrimaryKeyView->Reset();
 		}
 		for (TPair<FName, TUniquePtr<DrTable::Private::FSubKeyViewBase>>& Pair : SubKeyViews)
+		{
+			Pair.Value->Reset();
+		}
+		for (TPair<FName, TUniquePtr<DrTable::Private::FArrayPoolViewBase>>& Pair : ArrayViews)
 		{
 			Pair.Value->Reset();
 		}
@@ -424,10 +487,31 @@ public:
 		return Result;
 	}
 
+	/**
+	 * Elements [Start, Start + Count) of an array field's pool (generated FMyRow::Get<Field>()).
+	 * Empty when the field is unknown, the element type differs or the range is outside the pool.
+	 */
+	template <typename TElement>
+	TConstArrayView<TElement> GetArray(FName Name, int32 Start, int32 Count) const
+	{
+		const TUniquePtr<DrTable::Private::FArrayPoolViewBase>* Found = ArrayViews.Find(Name);
+		if (!Found || (*Found)->GetElementSize() != sizeof(TElement) || !(*Found)->GetData())
+		{
+			return {};
+		}
+		const int32 PoolNum = (*Found)->Num();
+		if (Start < 0 || Count <= 0 || Start > PoolNum || Count > PoolNum - Start)
+		{
+			return {};
+		}
+		return TConstArrayView<TElement>(static_cast<const TElement*>((*Found)->GetData()) + Start, Count);
+	}
+
 private:
 	const UClass* AssetClass = nullptr;
 	TFunction<const TArray<TRow>*(const UPrimaryDataAsset&)> RowsBinder;
 	const TArray<TRow>* Rows = nullptr;
 	TUniquePtr<DrTable::Private::FPrimaryKeyViewBase> PrimaryKeyView;
 	TMap<FName, TUniquePtr<DrTable::Private::FSubKeyViewBase>> SubKeyViews;
+	TMap<FName, TUniquePtr<DrTable::Private::FArrayPoolViewBase>> ArrayViews;
 };

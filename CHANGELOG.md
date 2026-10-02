@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+Breaking: arrays are declared differently, and generated properties are read-only.
+
+- Arrays are one schema field with an array type: `Reward | int32[]` (any length) or `int32[4]` (a maximum). Each row sets its own length. Data sheets write element columns `Reward[0]`, `Reward[1]`, … (as many as needed; empty cells at the end are not elements, a gap is an error) or one comma-separated cell `Reward | 10, 20, 30`, chosen per sheet. The old per-element schema rows (`Reward[0]`, `Reward[1]`) are an error that shows the new form. Arrays have no default value.
+- Client JSON and assets keep each array field's elements in one pool per table (`"arrays": [{"field", "pool"}]`, asset `<Field>_Pool`); rows hold `<Field>_Start` and `<Field>_Num`. Server JSON keeps each row's array. The manifest's references say `"array": true|false` instead of `array_length`.
+- Generated C++: `TConstArrayView<T> Get<Field>() const` returns a row's elements (runtime `DrTableRuntime::GetArray`, registry `WithArray`); reference arrays keep `Get<Field>(int32 Index)`. Array members that clash with a field are an error.
+- Every generated property is `VisibleAnywhere, BlueprintReadOnly` (was `EditAnywhere`); array data is readable from Blueprints through `<Field>_Start`, `<Field>_Num` and `<Field>_Pool`.
+- Type aliases take an array suffix in fields (`ItemID[]`); an alias cannot itself be an array.
+- `drtable new` reference formulas show the field's type and scope above element columns too.
+- Unreal plugin: `TDrTableRowTable::WithArray` / `GetArray`, `UDrTableRegistry::GetArray`; `DrTableBake` bakes the pools (datetime / duration elements as ticks).
+
 ## 0.6.0
 
 - Time types: `datetime` / `datetime<zone>` with IANA zones (`Asia/Seoul`, daylight saving time by date), `UTC`, `GMT`, `KST`, `JST`, `HKT`, `SGT` or `±HH:MM`; ambiguous or seasonal abbreviations (CST, IST, EST) are errors (Excel values read in that zone, stored as Unix milliseconds UTC; a written `Z`/offset wins) and `duration` (time cells, `1:30:00`, `90s`, `1h30m`, `2d`, `500ms`, plain seconds; milliseconds). C++ `FDateTime` / `FTimespan` with `DrTimeZone` metadata; `DrTableBake` converts the milliseconds to ticks.

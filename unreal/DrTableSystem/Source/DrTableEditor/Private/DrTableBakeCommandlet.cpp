@@ -59,6 +59,45 @@ namespace DrTableBake
 		return true;
 	}
 
+	constexpr int64 UnixEpochTicks = 621355968000000000LL;
+
+	/** Milliseconds (Unix time for a datetime) as FDateTime / FTimespan JSON: {"Ticks": "<int64>"}. */
+	TSharedPtr<FJsonValue> ToTicks(const TSharedPtr<FJsonValue>& Value, bool bDateTime)
+	{
+		if (!Value.IsValid() || Value->Type != EJson::Number)
+		{
+			return Value;
+		}
+		const int64 Milliseconds = static_cast<int64>(Value->AsNumber());
+		const int64 Ticks = (bDateTime ? UnixEpochTicks : 0) + Milliseconds * ETimespan::TicksPerMillisecond;
+		TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
+		Object->SetStringField(TEXT("Ticks"), LexToString(Ticks));
+		return MakeShared<FJsonValueObject>(Object);
+	}
+
+	/** Elements of an array pool whose element type is FDateTime or FTimespan, as ticks. */
+	TArray<TSharedPtr<FJsonValue>> ConvertTimePool(const FArrayProperty& PoolProperty, const TArray<TSharedPtr<FJsonValue>>& Pool)
+	{
+		const FStructProperty* Inner = CastField<FStructProperty>(PoolProperty.Inner);
+		if (!Inner || !Inner->Struct)
+		{
+			return Pool;
+		}
+		const FName StructName = Inner->Struct->GetFName();
+		const bool bDateTime = StructName == FName(TEXT("DateTime"));
+		if (!bDateTime && StructName != FName(TEXT("Timespan")))
+		{
+			return Pool;
+		}
+		TArray<TSharedPtr<FJsonValue>> Result;
+		Result.Reserve(Pool.Num());
+		for (const TSharedPtr<FJsonValue>& Item : Pool)
+		{
+			Result.Add(ToTicks(Item, bDateTime));
+		}
+		return Result;
+	}
+
 	/**
 	 * datetime and duration fields are milliseconds in JSON (Unix time for datetime); the row
 	 * struct holds FDateTime / FTimespan. Rewrites them as {"Ticks": "<int64>"} (a string, so
@@ -73,7 +112,6 @@ namespace DrTableBake
 		}
 		static const FName NameDateTime(TEXT("DateTime"));
 		static const FName NameTimespan(TEXT("Timespan"));
-		constexpr int64 UnixEpochTicks = 621355968000000000LL;
 		TArray<TPair<FString, bool>> Fields;
 		for (TFieldIterator<FStructProperty> It(Inner->Struct); It; ++It)
 		{
@@ -87,18 +125,6 @@ namespace DrTableBake
 		{
 			return Rows;
 		}
-		auto ToTicks = [](const TSharedPtr<FJsonValue>& Value, bool bDateTime) -> TSharedPtr<FJsonValue>
-		{
-			if (!Value.IsValid() || Value->Type != EJson::Number)
-			{
-				return Value;
-			}
-			const int64 Milliseconds = static_cast<int64>(Value->AsNumber());
-			const int64 Ticks = (bDateTime ? UnixEpochTicks : 0) + Milliseconds * ETimespan::TicksPerMillisecond;
-			TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
-			Object->SetStringField(TEXT("Ticks"), LexToString(Ticks));
-			return MakeShared<FJsonValueObject>(Object);
-		};
 		TArray<TSharedPtr<FJsonValue>> Result;
 		Result.Reserve(Rows.Num());
 		for (const TSharedPtr<FJsonValue>& Row : Rows)
@@ -204,6 +230,30 @@ namespace DrTableBake
 				|| !SetArrayProperty(Asset, FName(Field + TEXT("_Indices")), *Indices, Table))
 			{
 				return false;
+			}
+		}
+		// Array fields: every row's elements in one pool per field (rows keep <Field>_Start / _Num).
+		const TArray<TSharedPtr<FJsonValue>>* Arrays = nullptr;
+		if (Payload->TryGetArrayField(TEXT("arrays"), Arrays))
+		{
+			for (const TSharedPtr<FJsonValue>& ArrayValue : *Arrays)
+			{
+				const TSharedPtr<FJsonObject>* Entry = nullptr;
+				FString Field;
+				const TArray<TSharedPtr<FJsonValue>>* Pool = nullptr;
+				if (!ArrayValue.IsValid() || !ArrayValue->TryGetObject(Entry) || !Entry || !Entry->IsValid()
+					|| !(*Entry)->TryGetStringField(TEXT("field"), Field) || !(*Entry)->TryGetArrayField(TEXT("pool"), Pool))
+				{
+					UE_LOG(LogDrTableBake, Error, TEXT("[%s] An arrays entry is missing field/pool."), *Table);
+					return false;
+				}
+				const FName PoolName(Field + TEXT("_Pool"));
+				const FArrayProperty* PoolProperty = FindFProperty<FArrayProperty>(Asset->GetClass(), PoolName);
+				const TArray<TSharedPtr<FJsonValue>> PoolValues = PoolProperty ? ConvertTimePool(*PoolProperty, *Pool) : *Pool;
+				if (!SetArrayProperty(Asset, PoolName, PoolValues, Table))
+				{
+					return false;
+				}
 			}
 		}
 		Asset->SchemaHash = SchemaHash;

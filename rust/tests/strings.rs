@@ -156,19 +156,20 @@ fn server_scope_languages_go_to_the_server_output() {
 fn references_to_string_tables_return_text() {
     let project = Project::new();
     project.ui_strings(sample_rows());
-    project.schema("Items", &[("Id", "ID<int32>", "all"), ("Name", "Ref<UIString>", "all"), ("Tips[0]", "Ref<UIString>", "client")]);
+    project.schema("Items", &[("Id", "ID<int32>", "all"), ("Name", "Ref<UIString>", "all"), ("Tips", "Ref<UIString>[]", "client")]);
     project.data("Items.xlsx", vec![("Items", sheet(row!["Id", "Name", "Tips[0]"], vec![row![1, "Btn_OK", "Title_Main"]]))]);
     let result = project.build(&["--ue-plugin"]);
     assert_eq!(result.code, 0, "{}", result.stderr);
     let header = project.read("cpp/DrItemsRow.h");
     assert!(header.contains("FText GetName() const;"), "{header}");
     assert!(header.contains("FText GetTips(int32 Index) const;"));
+    assert!(header.contains("TConstArrayView<FName> GetTips() const;"));
     assert!(!header.contains("struct FDrUIStringRow;"));
     let source = project.read("cpp/DrItemsRow.cpp");
     assert!(!source.contains("DrUIStringRow.h"));
     assert!(source.contains("    if (Name.IsNone())\n    {\n        return FText::GetEmpty();\n    }"), "{source}");
     assert!(source.contains("    return DrTableRuntime::GetText(FName(TEXT(\"UIString\")), Name);"));
-    assert!(source.contains("    return DrTableRuntime::GetText(FName(TEXT(\"UIString\")), Tips[Index]);"));
+    assert!(source.contains("    return DrTableRuntime::GetText(FName(TEXT(\"UIString\")), Items[Index]);"));
     assert!(!project.read("cpp/DrTableRegistration.h").contains("UIString"));
     // The reference checker knows the string keys.
     let check = |dir: &Path| drtable(["check", "--client", &s(dir)]);

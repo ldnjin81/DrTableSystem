@@ -71,8 +71,10 @@ pub fn new_workbook(target: &Path, table: &str, schemas: &Schemas, errors: &mut 
                         lookup(&format!("SUBSTITUTE({letter}${NAME_ROW},\"-\",\"_\")"))
                     )
                 } else {
+                    // An array's element columns (Reward[0], Reward[1], ...) show the field Reward.
+                    let key = format!("IFERROR(LEFT({letter}${NAME_ROW},FIND(\"[\",{letter}${NAME_ROW})-1),{letter}${NAME_ROW})");
                     format!(
-                        "=IFERROR(INDEX({reference}!${source}:${source},MATCH({letter}${NAME_ROW},{reference}!$A:$A,0)),\"{missing}\")"
+                        "=IFERROR(INDEX({reference}!${source}:${source},MATCH({key},{reference}!$A:$A,0)),\"{missing}\")"
                     )
                 };
                 sheet.write_formula((row - 1) as u32, column, formula.as_str())?;

@@ -72,7 +72,7 @@ public:
 	UPROPERTY(Transient)
 	FString AssetRoot;
 
-	/** Registers a table. Called by the generated RegisterAll. Registering the same id, row and asset class again returns the existing table. */
+	/** Registers a table. Called by the generated RegisterAll (then WithSchemaHash, WithSubKey and WithArray). Registering the same id, row and asset class again returns the existing table. */
 	template <typename TRow, typename TAsset, typename TPrimaryKey>
 	TDrTableRowTable<TRow>& Register(FName TableId, TArray<TRow> TAsset::*RowsMember, TArray<TPrimaryKey> TAsset::*PrimaryKeysMember)
 	{
@@ -142,6 +142,13 @@ public:
 	{
 		const TDrTableRowTable<TRow>* Table = FindTable<TRow>();
 		return Table ? Table->FindAllByKey(SubKeyName, Key) : TConstArrayView<int32>();
+	}
+
+	template <typename TRow, typename TElement>
+	TConstArrayView<TElement> GetArray(FName Field, int32 Start, int32 Count) const
+	{
+		const TDrTableRowTable<TRow>* Table = FindTable<TRow>();
+		return Table ? Table->template GetArray<TElement>(Field, Start, Count) : TConstArrayView<TElement>();
 	}
 
 	template <typename TRow>

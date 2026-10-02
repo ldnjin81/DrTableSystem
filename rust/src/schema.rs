@@ -24,8 +24,12 @@ pub const TYPE_ROW: usize = 2;
 pub const SCOPE_ROW: usize = 3;
 pub const DATA_ROW: usize = 4;
 
+/// `Reward[0]`: the old per-element array field name (now an error with a hint).
 static ARRAY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^([A-Za-z][A-Za-z0-9_]*)\[(\d+)\]$").unwrap());
+/// `int32[]`, `Ref<Item>[]`, `int32[4]`: an array type, with an optional maximum length.
+pub static TYPE_ARRAY_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(.*\S)\s*\[\s*(\d*)\s*\]$").unwrap());
 static ROLE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^(id|subkey)\s*<\s*([^<>]+)\s*>$").unwrap());
 static REF_RE: LazyLock<Regex> =
@@ -177,7 +181,8 @@ pub struct ColumnSchema {
     pub scope: String,
     pub source_columns: Vec<usize>,
     pub header_cells: Vec<String>,
-    pub array_size: Option<usize>,
+    /// Some for an array field (`int32[]`, `int32[4]`).
+    pub array: Option<ArrayShape>,
     pub default_values: Vec<Option<Value>>,
     pub ref_target: Option<String>,
     pub ref_key: Option<String>,
@@ -187,9 +192,17 @@ pub struct ColumnSchema {
     pub alias: Option<String>,
 }
 
+/// An array field: any number of elements per row, up to `max` when declared (`int32[4]`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArrayShape {
+    pub max: Option<usize>,
+    /// How this data sheet writes it: one cell `10,20,30` (true) or columns `Reward[0]`, `Reward[1]`, ... (false).
+    pub cells: bool,
+}
+
 impl ColumnSchema {
     pub fn is_array(&self) -> bool {
-        self.array_size.is_some()
+        self.array.is_some()
     }
 
     pub fn is_role(&self, role: &str) -> bool {
@@ -276,6 +289,8 @@ impl TableSchema {
 #[derive(Clone, Debug)]
 pub struct ParsedType {
     pub type_name: String,
+    /// `[]` → Some(None), `[4]` → Some(Some(4)).
+    pub array: Option<Option<usize>>,
     pub role: Option<String>,
     pub default_text: Option<String>,
     pub ref_target: Option<String>,
@@ -301,6 +316,32 @@ pub fn parse_type(
     if let Some((head, tail)) = text.clone().split_once('=') {
         text = head.trim().to_string();
         default_text = Some(tail.trim().to_string());
+    }
+    let mut array: Option<Option<usize>> = None;
+    if let Some(captures) = TYPE_ARRAY_RE.captures(&text.clone()) {
+        let max = match &captures[2] {
+            "" => None,
+            n => match n.parse::<usize>() {
+                Ok(n) if n >= 1 => Some(n),
+                _ => {
+                    errors.add(sheet, cell, tr("배열의 최대 길이는 1 이상이어야 합니다", "an array's maximum length must be at least 1"));
+                    return None;
+                }
+            },
+        };
+        array = Some(max);
+        text = captures[1].trim().to_string();
+        if default_text.is_some() {
+            errors.add(sheet, cell, tr(
+                "배열에는 기본값을 줄 수 없습니다 (행마다 원소 수가 정해지므로 빈 칸은 원소가 없는 것입니다)",
+                "an array cannot have a default value (each row sets its own elements; an empty cell is no element)",
+            ));
+            return None;
+        }
+        if KEY_ROLE_PREFIX_RE.is_match(&text) || BASE_RE.is_match(&text) {
+            errors.add(sheet, cell, tr("배열은 키로 지정할 수 없습니다", "an array cannot be a key"));
+            return None;
+        }
     }
     let mut role: Option<String> = None;
     if BASE_RE.is_match(&text) {
@@ -422,7 +463,7 @@ pub fn parse_type(
         errors.add(sheet, cell, tr("기본키와 서브키에는 기본값을 지정할 수 없습니다", "primary keys and sub keys cannot have a default value"));
         default_text = None;
     }
-    Some(ParsedType { type_name: text, role, default_text, ref_target, ref_key, ref_scope })
+    Some(ParsedType { type_name: text, array, role, default_text, ref_target, ref_key, ref_scope })
 }
 
 fn resolve(
@@ -473,7 +514,8 @@ pub fn validate_enum_type(type_name: &str, enums: &Enums, sheet: &str, cell: &st
 /// (index, name, type, scope) of one field definition.
 pub type RawColumn = (usize, Cell, Cell, Cell);
 
-/// Turns field definitions into logical fields, grouping Name[0], Name[1], ... into arrays.
+/// Turns field definitions into logical fields. An array is one field with an array type
+/// (`int32[]`); the old per-element names (`Reward[0]`, `Reward[1]`) are rejected with a hint.
 /// `cell_of(index, header_row)` gives the cell to report for a definition.
 pub fn build_columns(
     raw_columns: &[RawColumn],
@@ -483,17 +525,10 @@ pub fn build_columns(
     table_keys: Option<&TableKeys>,
     cell_of: &dyn Fn(usize, usize) -> String,
 ) -> Vec<ColumnSchema> {
-    struct ArrayPart {
-        column: usize,
-        index: usize,
-        parsed: Option<ParsedType>,
-        scope: String,
-        cell: String,
-    }
-    let mut scalars: Vec<(usize, ColumnSchema)> = Vec::new();
-    let mut arrays: Vec<(String, Vec<ArrayPart>)> = Vec::new();
-    let mut scalar_headers: HashMap<String, String> = HashMap::new();
+    let mut columns: Vec<ColumnSchema> = Vec::new();
+    let mut headers: HashMap<String, String> = HashMap::new();
     let mut resolved: HashMap<String, String> = HashMap::new();
+    let mut old_arrays: BTreeSet<String> = BTreeSet::new();
 
     for (column_index, raw_name, raw_type, raw_scope) in raw_columns {
         let column_index = *column_index;
@@ -514,164 +549,65 @@ pub fn build_columns(
         if scope == "#" {
             continue;
         }
-        let array_match = ARRAY_RE.captures(&name);
-        let base_name = array_match.as_ref().map(|c| c[1].to_string()).unwrap_or_else(|| name.clone());
-        if array_match.is_none() && !is_identifier(&name) {
+        if let Some(captures) = ARRAY_RE.captures(&name) {
+            let base = captures[1].to_string();
+            if old_arrays.insert(base.clone()) {
+                let element = raw_type.text_or_empty();
+                errors.add(sheet, &header_cell, tr(
+                    format!("배열은 원소마다가 아니라 필드 하나로 선언합니다: 필드명 '{base}', 자료형 '{element}[]' (최대 길이는 '{element}[4]'처럼). 데이터에서는 {base}[0], {base}[1], ... 열이나 한 칸에 쉼표로 적습니다"),
+                    format!("declare an array as one field, not one per element: name '{base}', type '{element}[]' (a maximum as '{element}[4]'). Data sheets write {base}[0], {base}[1], ... columns or one comma-separated cell"),
+                ));
+            }
+            continue;
+        }
+        if !is_identifier(&name) {
             errors.add(sheet, &header_cell, tr(format!("올바르지 않은 필드명 '{name}'"), format!("invalid field name '{name}'")));
             continue;
         }
-        let parsed = parse_type(raw_type, sheet, &type_cell, errors, table_keys, Some(&mut resolved));
-        if let Some(parsed) = &parsed {
-            validate_enum_type(&parsed.type_name, enums, sheet, &type_cell, errors);
-            if let (Some(_), Some(ref_scope)) = (&parsed.ref_key, &parsed.ref_scope) {
-                let outputs = |s: &str| -> Vec<&'static str> {
-                    match s {
-                        "all" => vec!["client", "server"],
-                        "client" => vec!["client"],
-                        "server" => vec!["server"],
-                        _ => vec![],
-                    }
-                };
-                let target = outputs(ref_scope);
-                if !outputs(&scope).iter().all(|s| target.contains(s)) {
-                    errors.add(sheet, &type_cell, tr(
-                        format!("참조 범위 {scope}가 대상 서브키 범위 {ref_scope}보다 넓습니다"),
-                        format!("reference scope {scope} is wider than the target sub key scope {ref_scope}"),
-                    ));
-                }
-            }
-        }
-        if let Some(captures) = &array_match {
-            let index: usize = captures[2].parse().unwrap_or(usize::MAX);
-            let part = ArrayPart { column: column_index, index, parsed, scope: scope.clone(), cell: header_cell.clone() };
-            match arrays.iter_mut().find(|(n, _)| *n == base_name) {
-                Some((_, parts)) => parts.push(part),
-                None => arrays.push((base_name.clone(), vec![part])),
-            }
-        } else if let Some(parsed) = &parsed {
-            let default_value = convert_default(parsed, enums, sheet, &type_cell, errors);
-            scalars.push((
-                column_index,
-                ColumnSchema {
-                    name: name.clone(),
-                    type_name: parsed.type_name.clone(),
-                    role: parsed.role.clone(),
-                    scope: scope.clone(),
-                    source_columns: vec![column_index],
-                    header_cells: vec![header_cell.clone()],
-                    array_size: None,
-                    default_values: vec![default_value],
-                    ref_target: parsed.ref_target.clone(),
-                    ref_key: parsed.ref_key.clone(),
-                    ref_strings: false,
-                    alias: None,
-                },
+        if let Some(first) = headers.get(&name) {
+            errors.add(sheet, &header_cell, tr(
+                format!("필드명 '{name}'이 중복되었습니다 (처음: {first})"),
+                format!("duplicate field name '{name}' (first at {first})"),
             ));
+            continue;
         }
-        if array_match.is_none() {
-            if scalar_headers.contains_key(&base_name) {
-                errors.add(sheet, &header_cell, tr(
-                    format!("필드명 '{base_name}'이 중복되었습니다"),
-                    format!("duplicate field name '{base_name}'"),
+        headers.insert(name.clone(), header_cell.clone());
+        let Some(parsed) = parse_type(raw_type, sheet, &type_cell, errors, table_keys, Some(&mut resolved)) else { continue };
+        validate_enum_type(&parsed.type_name, enums, sheet, &type_cell, errors);
+        if let (Some(_), Some(ref_scope)) = (&parsed.ref_key, &parsed.ref_scope) {
+            let outputs = |s: &str| -> Vec<&'static str> {
+                match s {
+                    "all" => vec!["client", "server"],
+                    "client" => vec!["client"],
+                    "server" => vec!["server"],
+                    _ => vec![],
+                }
+            };
+            let target = outputs(ref_scope);
+            if !outputs(&scope).iter().all(|s| target.contains(s)) {
+                errors.add(sheet, &type_cell, tr(
+                    format!("참조 범위 {scope}가 대상 서브키 범위 {ref_scope}보다 넓습니다"),
+                    format!("reference scope {scope} is wider than the target sub key scope {ref_scope}"),
                 ));
-            } else {
-                scalar_headers.insert(base_name.clone(), header_cell.clone());
             }
         }
+        let default_value = convert_default(&parsed, enums, sheet, &type_cell, errors);
+        columns.push(ColumnSchema {
+            name: name.clone(),
+            type_name: parsed.type_name.clone(),
+            role: parsed.role.clone(),
+            scope: scope.clone(),
+            source_columns: vec![column_index],
+            header_cells: vec![header_cell.clone()],
+            array: parsed.array.map(|max| ArrayShape { max, cells: false }),
+            default_values: vec![default_value],
+            ref_target: parsed.ref_target.clone(),
+            ref_key: parsed.ref_key.clone(),
+            ref_strings: false,
+            alias: None,
+        });
     }
 
-    let mut grouped: Vec<(usize, ColumnSchema)> = Vec::new();
-    let scalar_names: BTreeSet<String> = scalars.iter().map(|(_, c)| c.name.clone()).collect();
-    for (name, parts) in &arrays {
-        let mut by_position: Vec<&ArrayPart> = parts.iter().collect();
-        by_position.sort_by_key(|p| p.column);
-        let mut by_index: Vec<&ArrayPart> = parts.iter().collect();
-        by_index.sort_by_key(|p| (p.index, p.column));
-        let first = by_index[0];
-        let group_cell = by_position[0].cell.clone();
-        if scalar_names.contains(name) {
-            errors.add(sheet, &first.cell, tr(
-                format!("필드명 '{name}'이 스칼라와 배열로 중복되었습니다"),
-                format!("field '{name}' is used both as a scalar and as an array"),
-            ));
-        }
-        let mut seen: BTreeSet<usize> = BTreeSet::new();
-        for part in &by_position {
-            if seen.contains(&part.index) {
-                errors.add(sheet, &part.cell, tr(
-                    format!("배열 '{name}'의 인덱스 {}가 중복되었습니다", part.index),
-                    format!("array '{name}' has index {} twice", part.index),
-                ));
-            }
-            seen.insert(part.index);
-        }
-        if !seen.iter().copied().eq(0..seen.len()) {
-            errors.add(sheet, &group_cell, tr(
-                format!("배열 '{name}'의 인덱스는 0부터 연속이어야 합니다"),
-                format!("array '{name}' indices must start at 0 without gaps"),
-            ));
-        }
-        let first_type = first.parsed.as_ref();
-        if first_type.is_some_and(|t| t.role.is_some()) {
-            errors.add(sheet, &cell_of(first.column, TYPE_ROW), tr(
-                format!("배열 '{name}'은 키로 지정할 수 없습니다"),
-                format!("array '{name}' cannot be a key"),
-            ));
-        }
-        for part in &by_index[1..] {
-            if let (Some(parsed), Some(first_type)) = (&part.parsed, first_type)
-                && (&parsed.type_name, &parsed.ref_target, &parsed.ref_key)
-                    != (&first_type.type_name, &first_type.ref_target, &first_type.ref_key)
-                {
-                    errors.add(sheet, &cell_of(part.column, TYPE_ROW), tr(
-                        format!("배열 '{name}'의 자료형이 일치하지 않습니다"),
-                        format!("array '{name}' elements have different types"),
-                    ));
-                }
-            if part.parsed.as_ref().is_some_and(|p| p.role.is_some()) {
-                errors.add(sheet, &cell_of(part.column, TYPE_ROW), tr(
-                    format!("배열 '{name}'은 키로 지정할 수 없습니다"),
-                    format!("array '{name}' cannot be a key"),
-                ));
-            }
-            if part.scope != first.scope {
-                errors.add(sheet, &cell_of(part.column, SCOPE_ROW), tr(
-                    format!("배열 '{name}'의 범위가 일치하지 않습니다"),
-                    format!("array '{name}' elements have different scopes"),
-                ));
-            }
-        }
-        if let Some(first_type) = first_type {
-            let defaults = by_index
-                .iter()
-                .map(|part| match &part.parsed {
-                    Some(parsed) => convert_default(parsed, enums, sheet, &cell_of(part.column, TYPE_ROW), errors),
-                    None => None,
-                })
-                .collect();
-            grouped.push((
-                parts.iter().map(|p| p.column).min().unwrap_or(0),
-                ColumnSchema {
-                    name: name.clone(),
-                    type_name: first_type.type_name.clone(),
-                    role: None,
-                    scope: first.scope.clone(),
-                    source_columns: by_index.iter().map(|p| p.column).collect(),
-                    header_cells: by_index.iter().map(|p| p.cell.clone()).collect(),
-                    array_size: Some(seen.len()),
-                    default_values: defaults,
-                    ref_target: first_type.ref_target.clone(),
-                    ref_key: first_type.ref_key.clone(),
-                    ref_strings: false,
-                    alias: None,
-                },
-            ));
-        }
-    }
-
-    let mut all: Vec<(usize, ColumnSchema)> = scalars.into_iter().chain(grouped).collect();
-    all.sort_by_key(|(index, _)| *index);
-    let columns: Vec<ColumnSchema> = all.into_iter().map(|(_, c)| c).collect();
     let ids: Vec<&ColumnSchema> = columns.iter().filter(|c| c.is_role("id")).collect();
     if ids.len() != 1 {
         let first = raw_columns.first().map(|c| c.0).unwrap_or(1);
@@ -714,7 +650,8 @@ pub fn calculate_schema_hash(columns: &[ColumnSchema], enums: Option<&Enums>) ->
             ("type".to_string(), Json::Str(type_text)),
             ("role".to_string(), column.role.as_deref().map(Json::from).unwrap_or(Json::Null)),
             ("scope".to_string(), Json::from(column.scope.as_str())),
-            ("array_size".to_string(), column.array_size.map(|n| Json::Int(n as i64)).unwrap_or(Json::Null)),
+            // An array's maximum is structure; how a data sheet writes it (cells or columns) is not.
+            ("array".to_string(), column.array.as_ref().map(|a| a.max.map(|n| Json::Int(n as i64)).unwrap_or(Json::Bool(true))).unwrap_or(Json::Null)),
         ];
         if column.default_values.iter().any(Option::is_some) {
             let defaults = column

@@ -47,9 +47,10 @@ fn new_creates_a_workbook_with_reference_formulas() {
     let formula = |row: u32, column: u32| formulas.get_value((row, column)).cloned().unwrap_or_default();
     assert_eq!(
         formula(1, 0).trim_start_matches('='),
-        "IFERROR(INDEX('[1]Items'!$B:$B,MATCH(A$1,'[1]Items'!$A:$A,0)),\"(스키마에 없음)\")",
+        // An array's element columns (Reward[0], ...) look up the field name before "[".
+        "IFERROR(INDEX('[1]Items'!$B:$B,MATCH(IFERROR(LEFT(A$1,FIND(\"[\",A$1)-1),A$1),'[1]Items'!$A:$A,0)),\"(스키마에 없음)\")",
     );
-    assert!(formula(2, 1).trim_start_matches('=').starts_with("IFERROR(INDEX('[1]Items'!$C:$C,MATCH(B$1,"));
+    assert!(formula(2, 1).trim_start_matches('=').starts_with("IFERROR(INDEX('[1]Items'!$C:$C,MATCH(IFERROR(LEFT(B$1,"));
     assert!(link_targets(&out)[0].contains("Target=\"Schemas/Items.schema.xlsx\""));
     // The build does not read rows 2-3, so this is an empty table.
     assert_eq!(build_tables(&tmp).code, 0);

@@ -12,7 +12,7 @@ use crate::headers::link_warnings;
 use crate::i18n::tr;
 use crate::reader::{read_workbook, Grid, Sheet};
 use crate::schema::{
-    build_columns, calculate_schema_hash, cell_name, parse_type, ColumnSchema, EnumSchema, EnumValue, Enums,
+    build_columns, calculate_schema_hash, cell_name, parse_type, ArrayShape, ColumnSchema, EnumSchema, EnumValue, Enums,
     TableKeys, TableSchema, TableSource, DATA_ROW, KEY_ROLE_PREFIX_RE, NAME_ROW, TYPE_ROW,
 };
 use crate::schemafile::{
@@ -60,6 +60,8 @@ struct SheetRef<'a> {
 
 /// Format arguments such as {0} or {Name} in a string.
 static PLACEHOLDER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\{[^{}]*\}").unwrap());
+/// `Reward[2]`: one element column of an array field in a data sheet.
+static ELEMENT_COLUMN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([A-Za-z][A-Za-z0-9_]*)\[(\d+)\]$").unwrap());
 
 impl SheetRef<'_> {
     fn where_(&self) -> String {
@@ -299,7 +301,27 @@ pub fn load_model(
 fn bind(schema: &Schema, columns: &[ColumnSchema], part: &SheetRef, errors: &mut ErrorCollector) -> Option<Vec<ColumnSchema>> {
     let where_ = part.where_();
     let mut ok = true;
+    // Schema row of each array field: its data columns may be Name[0], Name[1], ... or one cell.
+    let array_rows: HashSet<usize> = columns.iter().filter(|c| c.is_array()).map(|c| c.source_columns[0]).collect();
+    let mut defined: Vec<(String, (usize, String))> = Vec::new();
+    for (row, raw_name, _, raw_scope) in schema.raw_columns() {
+        let name = raw_name.py_str().trim().to_string();
+        // Old per-element schema names (Reward[0]) are reported by the schema; not again here.
+        if ELEMENT_COLUMN_RE.is_match(&name) {
+            continue;
+        }
+        let value = (row, raw_scope.py_str().trim().to_lowercase());
+        match defined.iter_mut().find(|(n, _)| *n == name) {
+            Some(entry) => entry.1 = value,
+            None => defined.push((name, value)),
+        }
+    }
+    let is_array_field = |name: &str| defined.iter().any(|(n, (row, _))| n == name && array_rows.contains(row));
+
+    // Plain headers by name; element headers (Name[i]) by field: (index, column, cell).
+    type ElementColumns = Vec<(usize, usize, String)>;
     let mut header: Vec<(String, usize)> = Vec::new();
+    let mut elements: Vec<(String, ElementColumns)> = Vec::new();
     for (index, raw_name) in header_names(part.grid) {
         let mut name = raw_name.py_str().trim().to_string();
         if name.starts_with('#') {
@@ -308,23 +330,55 @@ fn bind(schema: &Schema, columns: &[ColumnSchema], part: &SheetRef, errors: &mut
         if schema.is_strings {
             name = name.replace('-', "_");
         }
+        let cell = cell_name(index, NAME_ROW);
+        if let Some(captures) = ELEMENT_COLUMN_RE.captures(&name) {
+            let field = captures[1].to_string();
+            if !is_array_field(&field) {
+                let (ko, en) = if defined.iter().any(|(n, _)| *n == field) {
+                    (format!("필드 '{field}'은 배열이 아니라 '{name}' 열을 쓸 수 없습니다"), format!("field '{field}' is not an array, so there is no '{name}' column"))
+                } else {
+                    (format!("필드 '{field}'이 스키마 {}에 없습니다. 필드 추가는 스키마에서 합니다", schema.where_()), format!("field '{field}' is not in the schema {}; fields are added in the schema", schema.where_()))
+                };
+                errors.add(&where_, &cell, tr(ko, en));
+                ok = false;
+                continue;
+            }
+            let position: usize = captures[2].parse().unwrap_or(usize::MAX);
+            match elements.iter_mut().find(|(n, _)| *n == field) {
+                Some((_, list)) => {
+                    if list.iter().any(|(p, _, _)| *p == position) {
+                        errors.add(&where_, &cell, tr(format!("열 '{name}'이 중복되었습니다"), format!("duplicate column '{name}'")));
+                        ok = false;
+                        continue;
+                    }
+                    list.push((position, index, cell));
+                }
+                None => elements.push((field, vec![(position, index, cell)])),
+            }
+            continue;
+        }
         if header.iter().any(|(n, _)| *n == name) {
-            errors.add(&where_, &cell_name(index, NAME_ROW), tr(
-                format!("필드명 '{name}'이 중복되었습니다"),
-                format!("duplicate field name '{name}'"),
-            ));
+            errors.add(&where_, &cell, tr(format!("필드명 '{name}'이 중복되었습니다"), format!("duplicate field name '{name}'")));
             ok = false;
             continue;
         }
         header.push((name, index));
     }
-    let mut defined: Vec<(String, (usize, String))> = Vec::new();
-    for (row, raw_name, _, raw_scope) in schema.raw_columns() {
-        let name = raw_name.py_str().trim().to_string();
-        let value = (row, raw_scope.py_str().trim().to_lowercase());
-        match defined.iter_mut().find(|(n, _)| *n == name) {
-            Some(entry) => entry.1 = value,
-            None => defined.push((name, value)),
+    for (field, list) in &mut elements {
+        list.sort();
+        if header.iter().any(|(n, _)| n == field) {
+            errors.add(&where_, &list[0].2, tr(
+                format!("배열 '{field}'을 한 칸('{field}' 열)과 원소 열('{field}[0]'…)로 함께 쓸 수 없습니다. 한 가지만 쓰세요"),
+                format!("array '{field}' cannot have both a single-cell column ('{field}') and element columns ('{field}[0]', ...); use one"),
+            ));
+            ok = false;
+        }
+        if !list.iter().map(|(p, _, _)| *p).eq(0..list.len()) {
+            errors.add(&where_, &list[0].2, tr(
+                format!("배열 '{field}'의 열 번호는 0부터 빈틈없이 이어져야 합니다 ({field}[0], {field}[1], ...)"),
+                format!("array '{field}' columns must be numbered from 0 without gaps ({field}[0], {field}[1], ...)"),
+            ));
+            ok = false;
         }
     }
     for (name, index) in &header {
@@ -337,7 +391,8 @@ fn bind(schema: &Schema, columns: &[ColumnSchema], part: &SheetRef, errors: &mut
         }
     }
     for (name, (row, scope)) in &defined {
-        if scope != "#" && !header.iter().any(|(n, _)| n == name) {
+        let present = header.iter().any(|(n, _)| n == name) || elements.iter().any(|(n, _)| n == name);
+        if scope != "#" && !present {
             errors.add(&where_, "A1", tr(
                 format!("필드 '{name}'의 열이 없습니다 (스키마 {})", schema.at(*row)),
                 format!("no column for field '{name}' (schema {})", schema.at(*row)),
@@ -348,16 +403,26 @@ fn bind(schema: &Schema, columns: &[ColumnSchema], part: &SheetRef, errors: &mut
     if !ok {
         return None;
     }
-    let by_row: HashMap<usize, usize> = defined
+    // Schema row -> (data columns, written as one cell).
+    let by_row: HashMap<usize, (Vec<usize>, bool)> = defined
         .iter()
-        .filter_map(|(name, (row, _))| header.iter().find(|(n, _)| n == name).map(|(_, index)| (*row, *index)))
+        .filter_map(|(name, (row, _))| {
+            if let Some((_, index)) = header.iter().find(|(n, _)| n == name) {
+                return Some((*row, (vec![*index], array_rows.contains(row))));
+            }
+            elements.iter().find(|(n, _)| n == name).map(|(_, list)| (*row, (list.iter().map(|(_, index, _)| *index).collect(), false)))
+        })
         .collect();
     Some(
         columns
             .iter()
-            .map(|column| ColumnSchema {
-                source_columns: column.source_columns.iter().map(|row| by_row.get(row).copied().unwrap_or(0)).collect(),
-                ..column.clone()
+            .map(|column| {
+                let (sources, cells) = by_row.get(&column.source_columns[0]).cloned().unwrap_or((vec![0], false));
+                ColumnSchema {
+                    source_columns: sources,
+                    array: column.array.as_ref().map(|shape| ArrayShape { cells, ..shape.clone() }),
+                    ..column.clone()
+                }
             })
             .collect(),
     )
@@ -588,21 +653,8 @@ fn read_rows(
         let mut converted: Vec<Value> = Vec::with_capacity(columns.len());
         for column in columns {
             let references_enum = column.ref_target.is_some() && column.type_name.starts_with('E');
-            if column.is_array() {
-                for &source in &column.source_columns {
-                    if references_enum && grid.value(row, source).is_blank() {
-                        errors.add(&where_, &cell_name(source, row), empty_reference());
-                    }
-                }
-                let items = column
-                    .source_columns
-                    .iter()
-                    .enumerate()
-                    .map(|(position, &source)| {
-                        convert_cell(grid.value(row, source), &column.default_values[position], &column.type_name, enums, &where_, &cell_name(source, row), errors)
-                    })
-                    .collect();
-                converted.push(Value::List(items));
+            if let Some(shape) = &column.array {
+                converted.push(Value::List(read_array(grid, row, column, shape, enums, &where_, errors)));
             } else {
                 let source = column.source_columns[0];
                 let raw_value = grid.value(row, source);
@@ -697,6 +749,61 @@ fn convert_cell(
     }
 }
 
+/// One row's elements of an array field. Columns (`Reward[0]`, `Reward[1]`, ...): empty cells at
+/// the end are not elements, an empty cell before a filled one is an error. One cell: elements
+/// separated by commas (`10, 20, 30`), an empty cell is no element.
+fn read_array(grid: &Grid, row: usize, column: &ColumnSchema, shape: &ArrayShape, enums: &Enums, where_: &str, errors: &mut ErrorCollector) -> Vec<Value> {
+    let mut items = Vec::new();
+    let first_cell = cell_name(column.source_columns[0], row);
+    if shape.cells {
+        let source = column.source_columns[0];
+        let value = grid.value(row, source);
+        match value {
+            _ if value.is_blank() => {}
+            Cell::Str(text) => {
+                for (position, piece) in text.split(',').enumerate() {
+                    let piece = piece.trim();
+                    if piece.is_empty() {
+                        errors.add(where_, &first_cell, tr(
+                            format!("배열 '{}'의 {}번째 원소가 비어 있습니다 ('{text}')", column.name, position + 1),
+                            format!("element {} of array '{}' is empty ('{text}')", position + 1, column.name),
+                        ));
+                        continue;
+                    }
+                    if let Some(v) = convert_value(&Cell::Str(piece.to_string()), &column.type_name, enums, where_, &first_cell, errors, false) {
+                        items.push(v);
+                    }
+                }
+            }
+            // A number or date typed into the cell is one element.
+            other => items.extend(convert_value(other, &column.type_name, enums, where_, &first_cell, errors, false)),
+        }
+    } else {
+        let last = column.source_columns.iter().rposition(|&source| !grid.value(row, source).is_blank());
+        if let Some(last) = last {
+            for &source in &column.source_columns[..=last] {
+                let value = grid.value(row, source);
+                if value.is_blank() {
+                    errors.add(where_, &cell_name(source, row), tr(
+                        format!("배열 '{}' 중간의 칸이 비어 있습니다. 원소는 앞에서부터 빈칸 없이 채웁니다", column.name),
+                        format!("an empty cell in the middle of array '{}'; fill elements from the first without gaps", column.name),
+                    ));
+                    continue;
+                }
+                items.extend(convert_value(value, &column.type_name, enums, where_, &cell_name(source, row), errors, false));
+            }
+        }
+    }
+    if let Some(max) = shape.max
+        && items.len() > max {
+            errors.add(where_, &first_cell, tr(
+                format!("배열 '{}'의 원소가 {}개로 최대 {max}개를 넘습니다", column.name, items.len()),
+                format!("array '{}' has {} elements, more than its maximum {max}", column.name, items.len()),
+            ));
+        }
+    items
+}
+
 /// (column, field name) from row 1, up to the first empty cell.
 fn header_names(grid: &Grid) -> Vec<(usize, Cell)> {
     let mut names = Vec::new();
@@ -777,6 +884,10 @@ fn expand_aliases(schemas: &mut crate::schemafile::Schemas, errors: &mut ErrorCo
             continue;
         }
         match resolve_alias_text(&alias.name, &schemas.aliases) {
+            Some(text) if crate::schema::TYPE_ARRAY_RE.is_match(text.split('=').next().unwrap_or("").trim()) => errors.add(&alias.location, &format!("B{}", alias.row), tr(
+                format!("별칭 '{}'은 배열이 될 수 없습니다. 원소 자료형으로 정의하고 필드에서 {}[]로 씁니다", alias.name, alias.name),
+                format!("alias '{}' cannot be an array; define the element type and write {}[] in the field", alias.name, alias.name),
+            )),
             Some(text) => {
                 valid.insert(alias.name.clone(), text);
             }
@@ -800,6 +911,11 @@ fn expand_aliases(schemas: &mut crate::schemafile::Schemas, errors: &mut ErrorCo
                 Some(c) => (Some(c[1].to_string()), c[2].to_string()),
                 None => (None, head.clone()),
             };
+            // `ItemID[]` / `ItemID[4]`: an array of the alias's type.
+            let (inner, array_suffix) = match crate::schema::TYPE_ARRAY_RE.captures(&inner) {
+                Some(c) => (c[1].trim().to_string(), format!("[{}]", &c[2])),
+                None => (inner, String::new()),
+            };
             let Some(expanded) = valid.get(&inner) else { continue };
             let (base, alias_default) = match expanded.split_once('=') {
                 Some((h, d)) => (h.to_string(), Some(d.to_string())),
@@ -807,7 +923,7 @@ fn expand_aliases(schemas: &mut crate::schemafile::Schemas, errors: &mut ErrorCo
             };
             let mut result = match role {
                 Some(role) => format!("{role}<{base}>"),
-                None => base,
+                None => format!("{base}{array_suffix}"),
             };
             if let Some(default) = field_default.or(alias_default) {
                 result = format!("{result}={default}");

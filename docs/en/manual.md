@@ -251,20 +251,37 @@ Quests:  Id: ID<int32>      Reward: ItemRef      MinLevel: Level=5
 
 ## 5. Arrays
 
-In a schema, fields numbered `Field[0]`, `Field[1]`, … form one fixed-size array field. Data workbooks use the same names (`Reward[0]`, …) in row 1.
+An array is **one field** in the schema, with `[]` after its type. Each row sets its own number of elements in the data, so adding or removing columns never touches the schema.
 
 | Field | Type | Scope |
 |---|---|---|
 | `Id` | `ID<int32>` | `all` |
-| `Reward[0]` | `int32` | `all` |
-| `Reward[1]` | `int32` | `all` |
-| `Reward[2]` | `int32` | `all` |
+| `Reward` | `int32[]` | `all` |
+| `Slots` | `ItemRef[4]` | `all` |
 
-- C++: a C-style array, `int32 Reward[3] = {};`, stored inline in the row with no heap allocation.
-- JSON: a real array, `"Reward": [10, 20, 30]`.
-- Indices must start at 0 without gaps, and all elements must share type and scope. Arrays cannot be keys.
-- Unreal cannot expose C-style arrays to Blueprint, so array properties are `EditAnywhere` only.
-- Each element may declare its own default (`int32=10`, `int32=20`).
+- A number, as in `int32[4]`, is a **maximum length**; a longer row is an error. Without one there is no limit.
+- Elements can be any primitive, fixed-point, time or enum type, a `Ref<...>` or an alias (`ItemID[]`).
+- Arrays cannot be keys and cannot have a default (an empty cell is no element).
+
+**Data workbooks write an array in one of two ways**, chosen per sheet.
+
+| Form | Row 1 | Cells | Elements |
+|---|---|---|---|
+| Element columns | `Reward[0]`, `Reward[1]`, `Reward[2]`, … | one element each | the cells up to the last filled one |
+| One cell | `Reward` | `10, 20, 30` (comma separated) | the comma-separated values; an empty cell is none |
+
+- Add as many element columns as needed. They are numbered from 0 without gaps, and each row fills them from the first without gaps (an empty cell in the middle is an error).
+- Spaces around elements in one cell are ignored. Text containing commas (`string`) goes in element columns. A cell holding just a number is one element.
+- Using both forms in one sheet is an error. The old syntax (schema rows `Reward[0]`, `Reward[1]`) is an error that shows the new form.
+
+**Output.**
+
+- Server JSON: each row's array, `"Reward": [10, 20, 30]`.
+- Client JSON and assets: every row's elements in one **contiguous pool** per field; rows hold only where their run starts and its length, with no allocation per row.
+  - Row struct: `int32 Reward_Start`, `int32 Reward_Num`
+  - Asset class: `TArray<int32> Reward_Pool`
+  - Row function (`--runtime-header`): `TConstArrayView<int32> GetReward() const`, the row's elements (`Num()` is its length). Reference arrays also get `GetReward(int32 Index)`, which resolves one element.
+- Blueprints can read `Reward_Start`, `Reward_Num` and the asset's `Reward_Pool`.
 
 ## 6. Enums
 
@@ -289,7 +306,7 @@ An enum's values become a C++ `UENUM`, so they **belong to the schema**. Each en
 A `Ref<Items>` field holds a primary key value of table `Items`. Its actual type is the type of the target key, so changing that key type changes the reference field too.
 
 ```
-Quests:   Id: ID<int32>   RewardItem: Ref<Items>   Next[0]: Ref<Quests>   Next[1]: Ref<Quests>
+Quests:   Id: ID<int32>   RewardItem: Ref<Items>   Next: Ref<Quests>[]
 ```
 
 - **An empty cell means "no reference"**: `0` for numeric keys, an empty name for `name` keys. References to an enum-keyed table cannot be empty (an enum has no "none" value).
@@ -430,7 +447,8 @@ With `--runtime-header` (or `--ue-plugin`) also:
 - Row struct `F<Prefix><Table>Row`, asset class `U<Prefix><Table>Table`, enum `E<Prefix><Enum>`. The default `--prefix` is `Dr`; set your project's prefix.
 - Only client fields (`all`, `client`) are generated.
 - **Generated code depends on the schemas only.** Data values, data file names and row counts never reach the code, so editing data or splitting it into files and sheets leaves the code byte-for-byte the same. The first comment line names the schema file (`// … Source: Items.schema.xlsx`).
-- The asset class holds `Rows` (sorted by primary key), `PrimaryKeys` (same order) and, per sub key, `<Name>_Keys`, `<Name>_Offsets`, `<Name>_Indices` (a CSR index computed by the generator).
+- The asset class holds `Rows` (sorted by primary key), `PrimaryKeys` (same order), per sub key `<Name>_Keys`, `<Name>_Offsets`, `<Name>_Indices` (a CSR index computed by the generator) and per array field `<Name>_Pool` (section 5).
+- Every property is `VisibleAnywhere, BlueprintReadOnly`: data is edited in the workbooks and only read in the editor and in Blueprints.
 
 **Row functions** (with `--runtime-header`). Plain C++ members, not exposed to Blueprint.
 
@@ -442,22 +460,24 @@ With `--runtime-header` (or `--ue-plugin`) also:
 | `const FTargetRow* Get<Field>() const` | `Ref<Target>` fields | the referenced row or nullptr |
 | `TArray<const FTargetRow*> Get<Field>() const` | `Ref<Target.SubKey>` fields | the referenced rows |
 | `FText Get<Field>() const` | `Ref<StringTable>` fields | the text in the current language (empty when the reference is empty) |
-| `Get<Field>(int32 Index) const` | reference arrays | as above, for one element |
+| `TConstArrayView<T> Get<Field>() const` | array fields | the row's elements (section 5) |
+| `Get<Field>(int32 Index) const` | reference arrays | one element resolved as above (nullptr / empty text outside the range) |
 
 Empty references return nullptr or an empty array without a lookup. A generated name that clashes with a field (e.g. a field named `Find`) is a generation error.
 
-Generated functions call only four functions provided by the runtime header (`GetText` only when there are string table references). The Unreal plugin's `DrTableRuntime.h` implements them; other environments can implement them too.
+Generated functions call only five functions provided by the runtime header (`GetArray` only with array fields, `GetText` only with string table references). The Unreal plugin's `DrTableRuntime.h` implements them; other environments can implement them too.
 
 ```cpp
 namespace DrTableRuntime {
   template <typename TRow, typename TKey> const TRow* FindByKey(const TKey& Key);
   template <typename TRow, typename TKey> TArray<const TRow*> FindAllBySubKey(FName SubKeyName, const TKey& Key);
   template <typename TRow> TConstArrayView<TRow> GetAll();
+  template <typename TRow, typename TElement> TConstArrayView<TElement> GetArray(FName Field, int32 Start, int32 Num);
   FText GetText(FName Table, FName Key);
 }
 ```
 
-The registry passed to `RegisterAll(Registry)` needs `Register<Row, Asset>(FName Name, TArray<Row> Asset::*Rows, TArray<Key> Asset::*Keys)`, whose result must accept chained `WithSchemaHash(const TCHAR*)` and `WithSubKey(FName, Keys, Offsets, Indices)` calls.
+The registry passed to `RegisterAll(Registry)` needs `Register<Row, Asset>(FName Name, TArray<Row> Asset::*Rows, TArray<Key> Asset::*Keys)`, whose result must accept chained `WithSchemaHash(const TCHAR*)`, `WithSubKey(FName, Keys, Offsets, Indices)` and `WithArray(FName, Pool)` calls.
 
 ### JSON
 
@@ -472,11 +492,12 @@ Client `Effects.json`:
   "primary_keys": [1001, 1002],
   "sub_keys": [{"name": "Element", "field": "Element",
                 "keys": ["Fire", "Water"], "offsets": [0, 1, 2], "indices": [0, 1]}],
-  "rows": [{"Id": 1001, "Name": "Burn", "Element": "Fire"}, …]
+  "arrays": [{"field": "Reward", "pool": [10, 20, 30]}],
+  "rows": [{"Id": 1001, "Name": "Burn", "Element": "Fire", "Reward_Start": 0, "Reward_Num": 2}, …]
 }
 ```
 
-Server JSON has no indices and includes server fields. Each folder's `manifest.json` lists:
+Server JSON has no indices and no pools (each row keeps its array, `"Reward": [10, 20]`) and includes server fields. Each folder's `manifest.json` lists:
 
 - the tables: row count, schema and content hashes, schema file (`schema`) and where the data comes from (`sources`: file, sheet, rows)
 - the enums and the references
@@ -512,7 +533,7 @@ drtable [--lang en|ko] …
 | `--asset-name` | Asset name pattern for registration and baking. Must contain `{table}`. |
 | `--stamp` | Adds `generated_at` to the manifest (for CI traceability; deliberately breaks byte-identical output). |
 
-- `graph` writes a Mermaid `flowchart` that GitHub renders directly: one node per table (with its key type), one edge per reference, labelled with the field name, `[N]` for arrays, `(SubKey)` when the referencing field is a sub key and `→ Key 1:N` for sub key references.
+- `graph` writes a Mermaid `flowchart` that GitHub renders directly: one node per table (with its key type), one edge per reference, labelled with the field name, `[]` for arrays (`[N]` with a maximum), `(SubKey)` when the referencing field is a sub key and `→ Key 1:N` for sub key references.
 - `check --client/--server` reads only the generated JSON, so it runs in CI. It lists every broken reference (e.g. `Quests.Next[2002](0) = 9999 → not in Quests`), skips empty references, and warns when a target table has a key equal to the "no reference" value (0 or an empty name).
 - Warnings (`warning: …`) go to standard error and do not change the exit code.
 

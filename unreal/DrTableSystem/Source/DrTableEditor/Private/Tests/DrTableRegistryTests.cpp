@@ -32,6 +32,12 @@ namespace DrTableTests
 		Asset.Code_Keys = {TEXT("FirstCode"), TEXT("SecondCode")};
 		Asset.Code_Offsets = {0, 1, 2};
 		Asset.Code_Indices = {0, 1};
+		// Array field Reward: row 10 has [7, 8, 9], row 20 has none.
+		Asset.Rows[0].Reward_Start = 0;
+		Asset.Rows[0].Reward_Num = 3;
+		Asset.Rows[1].Reward_Start = 3;
+		Asset.Rows[1].Reward_Num = 0;
+		Asset.Reward_Pool = {7, 8, 9};
 	}
 
 	/** A registry that only loads what a test adds to ExtraAssets. */
@@ -47,7 +53,8 @@ namespace DrTableTests
 	{
 		return Registry.Register<FDrTableTestRow, UDrTableTestAsset>(TableId, &UDrTableTestAsset::Rows, &UDrTableTestAsset::PrimaryKeys)
 			.WithSubKey(TEXT("Group"), &UDrTableTestAsset::Group_Keys, &UDrTableTestAsset::Group_Offsets, &UDrTableTestAsset::Group_Indices)
-			.WithUniqueSubKey(TEXT("Code"), &UDrTableTestAsset::Code_Keys, &UDrTableTestAsset::Code_Offsets, &UDrTableTestAsset::Code_Indices);
+			.WithUniqueSubKey(TEXT("Code"), &UDrTableTestAsset::Code_Keys, &UDrTableTestAsset::Code_Offsets, &UDrTableTestAsset::Code_Indices)
+			.WithArray(TEXT("Reward"), &UDrTableTestAsset::Reward_Pool);
 	}
 
 	struct FFixture
@@ -92,6 +99,33 @@ bool FDrTablePrimaryKeyTest::RunTest(const FString&)
 	TestNotNull(TEXT("lookup by key text"), Fixture.Registry->FindRow<FDrTableTestRow>(Fixture.Id(), TEXT("10")));
 	TestNull(TEXT("missing key"), Fixture.Registry->FindRowByKey<FDrTableTestRow>(15));
 	TestNull(TEXT("key type must match exactly"), Fixture.Registry->FindRowByKey<FDrTableTestRow>(int64{20}));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableArrayPoolTest, "DrTable.Registry.ArrayPool", DrTableTests::Flags)
+bool FDrTableArrayPoolTest::RunTest(const FString&)
+{
+	DrTableTests::FFixture Fixture;
+	const FDrTableTestRow* Row = Fixture.Registry->FindRowByKey<FDrTableTestRow>(10);
+	if (!TestNotNull(TEXT("row"), Row))
+	{
+		return false;
+	}
+	const TConstArrayView<int32> Items = Fixture.Registry->GetArray<FDrTableTestRow, int32>(TEXT("Reward"), Row->Reward_Start, Row->Reward_Num);
+	TestEqual(TEXT("the row's run"), Items.Num(), 3);
+	if (Items.Num() == 3)
+	{
+		TestEqual(TEXT("elements in order"), Items[0] * 100 + Items[1] * 10 + Items[2], 789);
+	}
+	TestEqual(TEXT("an empty run"), Fixture.Registry->GetArray<FDrTableTestRow, int32>(TEXT("Reward"), 3, 0).Num(), 0);
+	TestEqual(TEXT("a run past the pool is empty"), Fixture.Registry->GetArray<FDrTableTestRow, int32>(TEXT("Reward"), 2, 5).Num(), 0);
+	TestEqual(TEXT("a negative start is empty"), Fixture.Registry->GetArray<FDrTableTestRow, int32>(TEXT("Reward"), -1, 1).Num(), 0);
+	TestEqual(TEXT("an unknown field is empty"), Fixture.Registry->GetArray<FDrTableTestRow, int32>(TEXT("Missing"), 0, 1).Num(), 0);
+	TestEqual(TEXT("a different element type is empty"), Fixture.Registry->GetArray<FDrTableTestRow, int64>(TEXT("Reward"), 0, 1).Num(), 0);
+	{
+		DrTableTests::FScopedOverride Override(Fixture.Registry);
+		TestEqual(TEXT("through the runtime contract"), DrTableRuntime::GetArray<FDrTableTestRow, int32>(TEXT("Reward"), 1, 2).Num(), 2);
+	}
 	return true;
 }
 

@@ -7,7 +7,6 @@ use crate::excel::DataModel;
 use crate::i18n::tr;
 use crate::schema::{datetime_zone, enum_of, fixed_of, in_scopes, ColumnSchema, EnumSchema, Enums, TableSchema, CLIENT_SCOPES};
 use crate::value::{json_string, py_float_repr, Value};
-use crate::values::default_value;
 
 pub const DEFAULT_ASSET_BASE: &str = "UPrimaryDataAsset";
 pub const DEFAULT_ASSET_BASE_HEADER: &str = "Engine/DataAsset.h";
@@ -165,7 +164,6 @@ fn table_header(table: &TableSchema, prefix: &str, enums: &Enums, accessors: boo
         String::new(),
     ]);
     for column in client_columns(table) {
-        let specifiers = if column.is_array() { "EditAnywhere" } else { "EditAnywhere, BlueprintReadOnly" };
         let mut meta: Vec<String> = Vec::new();
         if let Some(target) = &column.ref_target {
             meta.push(format!("TableRef = \"{target}\""));
@@ -182,28 +180,32 @@ fn table_header(table: &TableSchema, prefix: &str, enums: &Enums, accessors: boo
         if let Some(alias) = &column.alias {
             meta.push(format!("DrType = \"{alias}\""));
         }
-        let metadata = if meta.is_empty() { String::new() } else { format!(", meta = ({})", meta.join(", ")) };
-        lines.push(format!("    UPROPERTY({specifiers}, Category = \"{prefix}|{}\"{metadata})", table.name));
-        let mut declaration = format!("{} {}", cpp_type(column, prefix), column.name);
-        if let Some(size) = column.array_size {
-            declaration += &format!("[{size}]");
-            if column.default_values.iter().any(Option::is_some) {
-                let values: Vec<String> = column
-                    .default_values
-                    .iter()
-                    .map(|value| {
-                        let value = value.clone().unwrap_or_else(|| default_value(&column.type_name, enums));
-                        cpp_value(&column.type_name, &value, prefix)
-                    })
-                    .collect();
-                declaration += &format!(" = {{{}}}", values.join(", "));
-            } else {
-                declaration += " = {}";
-            }
+        let category = format!("Category = \"{prefix}|{}\"", table.name);
+        // Rows come from the tables: read-only in the editor and in Blueprints.
+        let property = |meta: &[String]| {
+            let metadata = if meta.is_empty() { String::new() } else { format!(", meta = ({})", meta.join(", ")) };
+            format!("    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, {category}{metadata})")
+        };
+        if let Some(shape) = &column.array {
+            // Elements live in the table asset's <Field>_Pool; the row keeps where its run starts
+            // and how long it is (no allocation per row).
+            let shown = format!("{}[{}]", array_element_text(column), shape.max.map(|n| n.to_string()).unwrap_or_default());
+            lines.push(format!(
+                "    // {}: {shown}. Elements: U{prefix}{}Table::{}_Pool[{}_Start .. {}_Start + {}_Num)",
+                column.name, table.name, column.name, column.name, column.name, column.name
+            ));
+            let mut start_meta = meta.clone();
+            start_meta.push(format!("DrArray = \"{}\"", column.name));
+            lines.push(property(&start_meta));
+            lines.push(format!("    int32 {}_Start = 0;", column.name));
+            lines.push(String::new());
+            lines.push(property(&[format!("DrArray = \"{}\"", column.name)]));
+            lines.push(format!("    int32 {}_Num = 0;", column.name));
         } else {
-            declaration += &cpp_initializer(column, prefix, enums);
+            lines.push(property(&meta));
+            let declaration = format!("{} {}{}", cpp_type(column, prefix), column.name, cpp_initializer(column, prefix, enums));
+            lines.push(format!("    {declaration};"));
         }
-        lines.push(format!("    {declaration};"));
         if let Some((scale, wide)) = fixed_of(&column.type_name) {
             // Stored in 1/scale units: 1234 means 0.1234 for fixed<10000>.
             lines.push(format!("    static constexpr {} {}Scale = {scale};", if wide { "int64" } else { "int32" }, column.name));
@@ -215,6 +217,19 @@ fn table_header(table: &TableSchema, prefix: &str, enums: &Enums, accessors: boo
     }
     lines.extend(["};".into(), String::new()]);
     lines.join("\n")
+}
+
+/// The element type as the schema wrote it (`int32`, `Ref<Item>`), for comments.
+fn array_element_text(column: &ColumnSchema) -> String {
+    match (&column.ref_target, &column.ref_key) {
+        (Some(target), Some(key)) => format!("Ref<{target}.{key}>"),
+        (Some(target), None) => format!("Ref<{target}>"),
+        _ => column.alias.clone().unwrap_or_else(|| column.type_name.clone()),
+    }
+}
+
+fn client_arrays(table: &TableSchema) -> Vec<&ColumnSchema> {
+    table.columns.iter().filter(|c| c.is_array() && in_scopes(&c.scope, &CLIENT_SCOPES)).collect()
 }
 
 fn client_refs(table: &TableSchema) -> Vec<&ColumnSchema> {
@@ -253,6 +268,13 @@ fn accessor_declarations(table: &TableSchema, prefix: &str) -> Vec<String> {
         lines.push(format!("    static TArray<const {row}*> FindBy{}({} Key);", column.name, cpp_type(column, prefix)));
     }
     lines.push(format!("    static TConstArrayView<{row}> GetAll();"));
+    let arrays = client_arrays(table);
+    if !arrays.is_empty() {
+        lines.extend([String::new(), "    // Array elements (generated): a view into the table's pool, Num() long.".to_string()]);
+    }
+    for column in &arrays {
+        lines.push(format!("    TConstArrayView<{}> Get{}() const;", cpp_type(column, prefix), column.name));
+    }
     let refs = client_refs(table);
     if !refs.is_empty() {
         lines.extend([
@@ -274,7 +296,14 @@ pub fn generated_member_names(table: &TableSchema) -> Vec<(String, String)> {
     let primary_cell = table.primary_key().header_cells[0].clone();
     let mut names = vec![("Find".to_string(), primary_cell.clone()), ("GetAll".to_string(), primary_cell)];
     names.extend(client_sub_keys(table).iter().map(|c| (format!("FindBy{}", c.name), c.header_cells[0].clone())));
-    names.extend(client_refs(table).iter().map(|c| (format!("Get{}", c.name), c.header_cells[0].clone())));
+    // An array's element view and its reference accessor are overloads of one name.
+    names.extend(
+        table
+            .columns
+            .iter()
+            .filter(|c| in_scopes(&c.scope, &CLIENT_SCOPES) && (c.is_array() || c.ref_target.is_some()))
+            .map(|c| (format!("Get{}", c.name), c.header_cells[0].clone())),
+    );
     names
 }
 
@@ -314,6 +343,21 @@ fn row_source(table: &TableSchema, prefix: &str, runtime_header: &str) -> String
         "}".into(),
         String::new(),
     ]);
+    for column in client_arrays(table) {
+        lines.extend([
+            format!("TConstArrayView<{}> {row}::Get{}() const", cpp_type(column, prefix), column.name),
+            "{".into(),
+            format!(
+                "    return DrTableRuntime::GetArray<{row}, {}>(FName(TEXT(\"{}\")), {}_Start, {}_Num);",
+                cpp_type(column, prefix),
+                column.name,
+                column.name,
+                column.name
+            ),
+            "}".into(),
+            String::new(),
+        ]);
+    }
     for column in client_refs(table) {
         let target_row = format!("F{prefix}{}Row", column.ref_target.as_deref().unwrap_or(""));
         let empty = if column.ref_strings {
@@ -327,16 +371,19 @@ fn row_source(table: &TableSchema, prefix: &str, runtime_header: &str) -> String
             Some(key) => format!("FindBy{key}"),
             None => "Find".to_string(),
         };
-        let value = if column.is_array() { format!("{}[Index]", column.name) } else { column.name.clone() };
+        let value = if column.is_array() { "Items[Index]".to_string() } else { column.name.clone() };
         let mut guards = Vec::new();
-        if let Some(size) = column.array_size {
-            guards.push(format!("Index < 0 || Index >= {size}"));
+        if column.is_array() {
+            guards.push("Index < 0 || Index >= Items.Num()".to_string());
         }
         if let Some(absent) = absent_check(column, &value) {
             guards.push(absent);
         }
         let argument = if column.is_array() { "int32 Index" } else { "" };
         lines.extend([format!("{} {row}::Get{}({argument}) const", ref_return(column, prefix), column.name), "{".into()]);
+        if column.is_array() {
+            lines.push(format!("    const TConstArrayView<{}> Items = Get{}();", cpp_type(column, prefix), column.name));
+        }
         if !guards.is_empty() {
             lines.extend([
                 format!("    if ({})", guards.join(" || ")),
@@ -370,8 +417,8 @@ fn registration_header(model: &DataModel, prefix: &str, asset_name: &str) -> Str
         format!("namespace {prefix}GeneratedTables"),
         "{".into(),
         "    // The registry provides Register<Row, Asset>(Name, RowsMember, PrimaryKeysMember). Its result".into(),
-        "    // must chain WithSchemaHash(Hash) and WithSubKey(Name, KeysMember, OffsetsMember,".into(),
-        "    // IndicesMember). Generated code depends on the schema only, never on data values.".into(),
+        "    // must chain WithSchemaHash(Hash), WithSubKey(Name, KeysMember, OffsetsMember, IndicesMember)".into(),
+        "    // and WithArray(Name, PoolMember). Generated code depends on the schema only, never on data values.".into(),
         "    template <typename TRegistry>".into(),
         "    void RegisterAll(TRegistry& Registry)".into(),
         "    {".into(),
@@ -389,6 +436,9 @@ fn registration_header(model: &DataModel, prefix: &str, asset_name: &str) -> Str
                 "            .WithSubKey(TEXT(\"{0}\"), &{asset}::{0}_Keys, &{asset}::{0}_Offsets, &{asset}::{0}_Indices)",
                 column.name
             ));
+        }
+        for column in client_arrays(table) {
+            lines.push(format!("            .WithArray(TEXT(\"{0}\"), &{asset}::{0}_Pool)", column.name));
         }
         if let Some(last) = lines.last_mut() {
             last.push(';');
@@ -420,7 +470,7 @@ fn asset_header(table: &TableSchema, prefix: &str, asset_base: &str, asset_base_
         String::new(),
         "public:".into(),
         "    // All rows in one contiguous array, sorted by primary key.".into(),
-        format!("    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = \"{prefix}|{}\")", table.name),
+        format!("    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = \"{prefix}|{}\")", table.name),
         format!("    TArray<F{prefix}{}Row> Rows;", table.name),
         String::new(),
         "    // Primary keys in the same order as Rows, searched with a binary search.".into(),
@@ -443,6 +493,14 @@ fn asset_header(table: &TableSchema, prefix: &str, asset_base: &str, asset_base_
             String::new(),
             "    UPROPERTY()".into(),
             format!("    TArray<int32> {}_Indices;", column.name),
+            String::new(),
+        ]);
+    }
+    for column in client_arrays(table) {
+        lines.extend([
+            format!("    // Elements of every row's {0} array; a row's run is {0}_Pool[{0}_Start .. {0}_Start + {0}_Num).", column.name),
+            format!("    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = \"{prefix}|{}\")", table.name),
+            format!("    TArray<{}> {}_Pool;", cpp_type(column, prefix), column.name),
             String::new(),
         ]);
     }

@@ -20,7 +20,7 @@ fn add_enum(book: &mut Book) {
 fn add_table(book: &mut Book) -> &mut Sheet {
     book.add("Effects", vec![
         row!["Id", "Name", "Element", "ClientOnly", "ServerOnly", "Memo", "Reward[1]", "Reward[0]"],
-        row!["ID<int32>", "SubKey<name>", "SubKey<EElement>", "float", "int64", "설명", "int32", "int32"],
+        row!["ID<int32>", "SubKey<name>", "SubKey<EElement>", "float", "int64", "설명", "int32[]", "int32[]"],
         row!["all", "all", "all", "client", "server", "#", "all", "all"],
         row![1001, "Burn", "Fire", 12.5, 99, "무시", 20, 10],
         row![1002, "Freeze", "Water", (), 100, "무시", (), 30],
@@ -92,15 +92,22 @@ fn build_outputs_scope_array_and_determinism() {
         "FName Name;",
         "EDrElement Element = EDrElement::Fire;",
         "float ClientOnly = 0.0f;",
-        "int32 Reward[2] = {};",
+        "int32 Reward_Start = 0;",
+        "int32 Reward_Num = 0;",
     ] {
         assert!(header.contains(line), "{line}");
     }
     assert!(!header.contains("ServerOnly"));
     let client = json(&tmp.join("client/Effects.json"));
     let server = json(&tmp.join("server/Effects.json"));
-    assert_eq!(client["rows"][0]["Reward"], json!([10, 20]));
-    assert_eq!(client["rows"][1]["Reward"], json!([30, 0]));
+    // Element columns are read in index order, and empty cells at the end are not elements.
+    assert_eq!(server["rows"][0]["Reward"], json!([10, 20]));
+    assert_eq!(server["rows"][1]["Reward"], json!([30]));
+    // The client keeps the elements in one pool; rows hold where their run starts and its length.
+    assert_eq!(client["arrays"], json!([{"field": "Reward", "pool": [10, 20, 30]}]));
+    assert_eq!((client["rows"][0]["Reward_Start"].clone(), client["rows"][0]["Reward_Num"].clone()), (json!(0), json!(2)));
+    assert_eq!((client["rows"][1]["Reward_Start"].clone(), client["rows"][1]["Reward_Num"].clone()), (json!(2), json!(1)));
+    assert!(!client["rows"][0].as_object().unwrap().contains_key("Reward"));
     let client_row = client["rows"][0].as_object().unwrap();
     let server_row = server["rows"][0].as_object().unwrap();
     assert!(client_row.contains_key("ClientOnly") && !client_row.contains_key("ServerOnly"));
@@ -113,14 +120,20 @@ fn build_outputs_scope_array_and_determinism() {
 }
 
 #[test]
-fn cpp_array_property_is_not_exposed_to_blueprint() {
+fn cpp_properties_are_read_only() {
     let tmp = Tmp::new();
     let source = tmp.join("Tables.xlsx");
     save_valid(&source);
     assert_eq!(build(&source, &tmp.join("output"), &[]).code, 0);
     let header = read(&tmp.join("output/cpp/DrEffectsRow.h"));
-    assert!(header.contains("    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = \"Dr|Effects\")\n    int32 Id = 0;"));
-    assert!(header.contains("    UPROPERTY(EditAnywhere, Category = \"Dr|Effects\")\n    int32 Reward[2] = {};"));
+    assert!(!header.contains("EditAnywhere"));
+    assert!(header.contains("    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = \"Dr|Effects\")\n    int32 Id = 0;"));
+    assert!(header.contains(
+        "    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = \"Dr|Effects\", meta = (DrArray = \"Reward\"))\n    int32 Reward_Start = 0;\n\n    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = \"Dr|Effects\", meta = (DrArray = \"Reward\"))\n    int32 Reward_Num = 0;"
+    ), "{header}");
+    let asset = read(&tmp.join("output/cpp/DrEffectsTable.h"));
+    assert!(!asset.contains("EditAnywhere"));
+    assert!(asset.contains("    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = \"Dr|Effects\")\n    TArray<int32> Reward_Pool;"), "{asset}");
 }
 
 #[test]
@@ -170,13 +183,13 @@ fn column_defaults_apply_to_cpp_and_empty_cells_deterministically() {
     add_enum(&mut book);
     book.add("Defaults", vec![
         row!["Id", "Multiplier", "Count", "Enabled", "Label", "Name", "DisplayName", "StateTag", "Icon",
-             "Element", "Reward[0]", "Reward[1]"],
+             "Element"],
         row!["ID<int32>", "float=1.0", "int32=7", "bool=true", "string=기본값", "name=Fallback", "text=표시값",
-             "tag=State.Default", "path=/Game/UI/T_Default.T_Default", "EElement=Water", "int32=10", "int32=20"],
-        vec![V::from("all"); 12],
-        row![1, (), (), (), (), (), (), (), (), (), (), ()],
+             "tag=State.Default", "path=/Game/UI/T_Default.T_Default", "EElement=Water"],
+        vec![V::from("all"); 10],
+        row![1, (), (), (), (), (), (), (), (), ()],
         row![2, 2.5, 3, false, "직접값", "Direct", "직접 표시", "State.Direct", "/Game/UI/T_Direct.T_Direct",
-             "Fire", 30, 40],
+             "Fire"],
     ]);
     let source = tmp.join("defaults.xlsx");
     book.save(&source);
@@ -194,14 +207,13 @@ fn column_defaults_apply_to_cpp_and_empty_cells_deterministically() {
         "FGameplayTag StateTag = FGameplayTag::RequestGameplayTag(FName(TEXT(\"State.Default\")), false);",
         "FSoftObjectPath Icon = FSoftObjectPath(TEXT(\"/Game/UI/T_Default.T_Default\"));",
         "EDrElement Element = EDrElement::Water;",
-        "int32 Reward[2] = {10, 20};",
     ] {
         assert!(header.contains(line), "{line}");
     }
     let expected = json!({
         "Id": 1, "Multiplier": 1.0, "Count": 7, "Enabled": true, "Label": "기본값", "Name": "Fallback",
         "DisplayName": "표시값", "StateTag": "State.Default", "Icon": "/Game/UI/T_Default.T_Default",
-        "Element": "Water", "Reward": [10, 20],
+        "Element": "Water",
     });
     assert_eq!(json(&output.join("client/Defaults.json"))["rows"][0], expected);
     assert_eq!(json(&output.join("server/Defaults.json"))["rows"][0], expected);
@@ -447,11 +459,13 @@ fn validation_errors() {
 
 #[test]
 fn array_validation_errors() {
-    let cases: [(&str, &str, &str, &str); 4] = [
-        ("G1", "Reward[2]", "[Effects.schema.xlsx]Effects!A8", "연속"),
-        ("G1", "Reward[0]", "[Effects.schema.xlsx]Effects!A9", "중복"),
-        ("G2", "float", "[Effects.schema.xlsx]Effects!B8", "자료형"),
-        ("G3", "client", "[Effects.schema.xlsx]Effects!C8", "범위"),
+    // Data columns G = Reward[1], H = Reward[0]; the schema field Reward is row 8.
+    let cases: [(&str, &str, &str, &str); 5] = [
+        ("G1", "Reward[2]", "Effects!H1", "빈틈없이"),
+        ("G1", "Reward[0]", "Effects!H1", "중복"),
+        ("G1", "Reward", "Effects!H1", "함께"),
+        ("G2", "int32[]=5", "[Effects.schema.xlsx]Effects!B8", "기본값"),
+        ("G2", "int32[0]", "[Effects.schema.xlsx]Effects!B8", "최대 길이"),
     ];
     for (cell, value, location, message) in cases {
         assert_effects_error(cell, V::from(value), location, message);

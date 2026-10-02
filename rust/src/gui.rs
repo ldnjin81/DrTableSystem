@@ -625,7 +625,7 @@ impl App {
                             column.scope.clone()
                         };
                         ui.label(scope);
-                        ui.label(column.array_size.map(|n| format!("[{n}]")).unwrap_or_default());
+                        ui.label(column.array.as_ref().map(|a| a.max.map(|n| format!("[{n}]")).unwrap_or_else(|| "[]".into())).unwrap_or_default());
                         let reference = match (&column.ref_target, &column.ref_key) {
                             (Some(t), Some(k)) => format!("{t}.{k} (1:N)"),
                             (Some(t), None) => t.clone(),
@@ -717,8 +717,8 @@ impl App {
                 let Some(target) = &column.ref_target else { continue };
                 let broken = self.broken.contains(&(table.name.clone(), column.name.clone()));
                 let mut label = column.name.clone();
-                if let Some(size) = column.array_size {
-                    label += &format!("[{size}]");
+                if let Some(shape) = &column.array {
+                    label += &shape.max.map(|n| format!("[{n}]")).unwrap_or_else(|| "[]".into());
                 }
                 if let Some(key) = &column.ref_key {
                     label += &format!(" → {key} 1:N");

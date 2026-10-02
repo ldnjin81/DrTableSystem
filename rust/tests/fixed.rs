@@ -8,10 +8,12 @@ use common::*;
 use serde_json::json;
 use std::path::Path;
 
+/// Bonus is an array of types[1], written as two element columns.
 fn source(path: &Path, types: [&str; 3], data: Vec<Row>) {
+    let bonus = format!("{}[]", types[1]);
     let mut rows = vec![
         row!["Id", "CritRate", "Bonus[0]", "Bonus[1]", "Gold"],
-        row!["ID<int32>", types[0], types[1], types[1], types[2]],
+        row!["ID<int32>", types[0], bonus.as_str(), bonus.as_str(), types[2]],
         row!["all", "all", "all", "all", "all"],
     ];
     rows.extend(data);
@@ -19,7 +21,7 @@ fn source(path: &Path, types: [&str; 3], data: Vec<Row>) {
 }
 
 fn default_types() -> [&'static str; 3] {
-    ["fixed<10000>", "fixed<100>=0.5", "fixed64<1000000>"]
+    ["fixed<10000>=0.05", "fixed<100>", "fixed64<1000000>"]
 }
 
 #[test]
@@ -33,17 +35,20 @@ fn decimals_become_scaled_integers() {
     ]);
     let result = build(&path, &tmp, &[]);
     assert_eq!(result.code, 0, "{}", result.stderr);
-    let rows = json(&tmp.join("client/Items.json"))["rows"].clone();
-    assert_eq!(rows[0], json!({"Id": 1, "CritRate": 1234, "Bonus": [125, 50], "Gold": 123456789012i64}));
+    let rows = json(&tmp.join("server/Items.json"))["rows"].clone();
+    assert_eq!(rows[0], json!({"Id": 1, "CritRate": 1234, "Bonus": [125], "Gold": 123456789012i64}));
     assert_eq!(rows[1], json!({"Id": 2, "CritRate": 1234, "Bonus": [-50, 200], "Gold": 0}));
-    assert_eq!(rows[2], json!({"Id": 3, "CritRate": 0, "Bonus": [50, 50], "Gold": 0}));
-    // The server gets the same exact integers.
-    assert_eq!(json(&tmp.join("server/Items.json"))["rows"], rows);
+    // The declared default is scaled once (0.05 -> 500); an empty array has no elements.
+    assert_eq!(rows[2], json!({"Id": 3, "CritRate": 500, "Bonus": [], "Gold": 0}));
+    // The client gets the same exact integers, the array elements in its pool.
+    let client = json(&tmp.join("client/Items.json"));
+    assert_eq!(client["arrays"], json!([{"field": "Bonus", "pool": [125, -50, 200]}]));
+    assert_eq!(client["rows"][2], json!({"Id": 3, "CritRate": 500, "Bonus_Start": 3, "Bonus_Num": 0, "Gold": 0}));
 
     let header = read(&tmp.join("cpp/DrItemsRow.h"));
     for part in [
-        "    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = \"Dr|Items\", meta = (DrFixedScale = \"10000\"))\n    int32 CritRate = 0;\n    static constexpr int32 CritRateScale = 10000;",
-        "    UPROPERTY(EditAnywhere, Category = \"Dr|Items\", meta = (DrFixedScale = \"100\"))\n    int32 Bonus[2] = {50, 50};\n    static constexpr int32 BonusScale = 100;",
+        "    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = \"Dr|Items\", meta = (DrFixedScale = \"10000\"))\n    int32 CritRate = 500;\n    static constexpr int32 CritRateScale = 10000;",
+        "    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = \"Dr|Items\", meta = (DrFixedScale = \"100\", DrArray = \"Bonus\"))\n    int32 Bonus_Start = 0;\n\n    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = \"Dr|Items\", meta = (DrArray = \"Bonus\"))\n    int32 Bonus_Num = 0;\n    static constexpr int32 BonusScale = 100;",
         "    int64 Gold = 0;\n    static constexpr int64 GoldScale = 1000000;",
     ] {
         assert!(header.contains(part), "{part}\n---\n{header}");

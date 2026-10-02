@@ -158,6 +158,7 @@ File paths are relative to the input folder (data) or the schema folder.
 |---|---|---|---|
 | `int32`, `int64` | `int32`, `int64` | number | number |
 | `float`, `double` | `float`, `double` | number | number |
+| `fixed<N>`, `fixed64<N>` | `int32`, `int64` (in 1/N units) | integer | integer |
 | `bool` | `bool` | true/false | true/false |
 | `name` | `FName` | string | string |
 | `string` | `FString` | string | string |
@@ -171,6 +172,21 @@ File paths are relative to the input folder (data) or the schema folder.
 - `path` is always an untyped `FSoftObjectPath`. Convert with `TSoftObjectPtr<T>(Path)` at runtime when you need a typed pointer.
 - `bool` accepts TRUE/FALSE, 1/0 and the strings `true`/`false`.
 - Nested structs are not supported; use arrays (section 5) or references to other tables (section 7).
+
+### Fixed point: `fixed<N>`
+
+Use `fixed<N>` for **decimals that must not drift**, such as chances and multipliers. The value is stored as an integer count of 1/N. Clients and servers compute with the same integers, so their results match to the bit (`float` results can differ in the last digit between devices and compilers).
+
+| Schema | Written in Excel | JSON and assets | C++ |
+|---|---|---|---|
+| `CritRate: fixed<10000>` (per ten thousand) | `0.1234` or `12.34%` | `1234` | `int32 CritRate = 1234;` |
+| `Gold: fixed64<1000000>` | `12.345678` | `12345678` | `int64 Gold = 12345678;` |
+
+- `N` is a power of ten such as 10, 100, 1000 (`fixed` up to 10⁹, `fixed64` up to 10¹⁸).
+- Write decimals or percentages in Excel; percent-formatted cells (`12.34%`) work as they are. A value finer than the scale (`0.12345` with 10000) or out of range (`fixed<10000>` holds ±214748) is an error, so rounding never changes a value silently.
+- The row struct gets a scale constant, `static constexpr int32 CritRateScale = 10000;`, and the property gets `meta = (DrFixedScale = "10000")`.
+- Compute with integers, e.g. `Damage * CritRate / FGmItemsRow::CritRateScale` (use `int64` when the product can overflow). Convert only for display, e.g. `CritRate / 100.0f`.
+- Defaults (`fixed<10000>=0.05` → 500) and arrays work; fixed-point fields cannot be keys.
 
 ## 4. Keys and defaults
 

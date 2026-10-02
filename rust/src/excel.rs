@@ -20,7 +20,7 @@ use crate::schemafile::{
 };
 use crate::sources::{find_files, is_identifier, table_name_of};
 use crate::value::{Cell, Value};
-use crate::values::{convert_value, value_to_cell};
+use crate::values::convert_value;
 
 pub struct DataModel {
     pub source_files: Vec<String>,
@@ -564,9 +564,7 @@ fn read_rows(
                     .iter()
                     .enumerate()
                     .map(|(position, &source)| {
-                        let raw = with_default(grid.value(row, source), &column.default_values[position]);
-                        convert_value(&raw, &column.type_name, enums, &where_, &cell_name(source, row), errors, true)
-                            .unwrap_or(Value::Null)
+                        convert_cell(grid.value(row, source), &column.default_values[position], &column.type_name, enums, &where_, &cell_name(source, row), errors)
                     })
                     .collect();
                 converted.push(Value::List(items));
@@ -579,11 +577,7 @@ fn read_rows(
                 if column.is_role("id") && raw_value.is_blank() {
                     errors.add(&where_, &cell_name(source, row), tr("기본키 값이 비어 있습니다", "the primary key is empty"));
                 }
-                let raw = with_default(raw_value, &column.default_values[0]);
-                converted.push(
-                    convert_value(&raw, &column.type_name, enums, &where_, &cell_name(source, row), errors, true)
-                        .unwrap_or(Value::Null),
-                );
+                converted.push(convert_cell(raw_value, &column.default_values[0], &column.type_name, enums, &where_, &cell_name(source, row), errors));
             }
         }
         if table.columns.iter().any(ColumnSchema::is_lang) {
@@ -651,10 +645,20 @@ fn check_name_case(
     }
 }
 
-fn with_default(value: &Cell, declared: &Option<Value>) -> Cell {
+/// A cell's value; an empty cell takes the declared default, which is already converted
+/// (converting it again would scale a fixed-point default twice).
+fn convert_cell(
+    value: &Cell,
+    declared: &Option<Value>,
+    type_name: &str,
+    enums: &Enums,
+    sheet: &str,
+    cell: &str,
+    errors: &mut ErrorCollector,
+) -> Value {
     match declared {
-        Some(default) if value.is_blank() => value_to_cell(default),
-        _ => value.clone(),
+        Some(default) if value.is_blank() => default.clone(),
+        _ => convert_value(value, type_name, enums, sheet, cell, errors, true).unwrap_or(Value::Null),
     }
 }
 

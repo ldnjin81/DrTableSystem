@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::excel::DataModel;
 use crate::i18n::tr;
-use crate::schema::{enum_of, in_scopes, ColumnSchema, EnumSchema, Enums, TableSchema, CLIENT_SCOPES};
+use crate::schema::{enum_of, fixed_of, in_scopes, ColumnSchema, EnumSchema, Enums, TableSchema, CLIENT_SCOPES};
 use crate::value::{json_string, py_float_repr, Value};
 use crate::values::default_value;
 
@@ -14,6 +14,9 @@ pub const DEFAULT_ASSET_BASE_HEADER: &str = "Engine/DataAsset.h";
 pub const DEFAULT_ASSET_NAME: &str = "DA_{table}";
 
 fn cpp_type_of(type_name: &str, prefix: &str) -> String {
+    if let Some((_, wide)) = fixed_of(type_name) {
+        return if wide { "int64" } else { "int32" }.to_string();
+    }
     if let Some(rest) = type_name.strip_prefix('E') {
         return format!("E{prefix}{rest}");
     }
@@ -148,6 +151,9 @@ fn table_header(table: &TableSchema, prefix: &str, enums: &Enums, accessors: boo
     for column in client_columns(table) {
         let specifiers = if column.is_array() { "EditAnywhere" } else { "EditAnywhere, BlueprintReadOnly" };
         let mut metadata = String::new();
+        if let Some((scale, _)) = fixed_of(&column.type_name) {
+            metadata = format!(", meta = (DrFixedScale = \"{scale}\")");
+        }
         if let Some(target) = &column.ref_target {
             metadata = format!(", meta = (TableRef = \"{target}\"");
             if let Some(key) = &column.ref_key {
@@ -175,7 +181,12 @@ fn table_header(table: &TableSchema, prefix: &str, enums: &Enums, accessors: boo
         } else {
             declaration += &cpp_initializer(column, prefix, enums);
         }
-        lines.extend([format!("    {declaration};"), String::new()]);
+        lines.push(format!("    {declaration};"));
+        if let Some((scale, wide)) = fixed_of(&column.type_name) {
+            // Stored in 1/scale units: 1234 means 0.1234 for fixed<10000>.
+            lines.push(format!("    static constexpr {} {}Scale = {scale};", if wide { "int64" } else { "int32" }, column.name));
+        }
+        lines.push(String::new());
     }
     if accessors {
         lines.extend(accessor_declarations(table, prefix));
@@ -445,6 +456,9 @@ fn cpp_initializer(column: &ColumnSchema, prefix: &str, enums: &Enums) -> String
     if let Some(Some(value)) = column.default_values.first() {
         return format!(" = {}", cpp_value(&column.type_name, value, prefix));
     }
+    if fixed_of(&column.type_name).is_some() {
+        return " = 0".into();
+    }
     match column.type_name.as_str() {
         "int32" | "int64" => return " = 0".into(),
         "float" => return " = 0.0f".into(),
@@ -474,6 +488,9 @@ fn float_text(value: &Value) -> String {
 }
 
 fn cpp_value(type_name: &str, value: &Value, prefix: &str) -> String {
+    if fixed_of(type_name).is_some() {
+        return value.py_str();
+    }
     match type_name {
         "int32" | "int64" => value.py_str(),
         "float" => format!("{}f", float_text(value)),

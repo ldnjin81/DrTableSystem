@@ -60,7 +60,7 @@ cargo build --release --features gui --bin drtable-gui  # rust/target/release/dr
 ```
 
 
-For Unreal, copy `unreal/DrTableSystem` into your project's `Plugins/` folder ([section 11](#10-unreal-plugin)). The plugin is developed and tested with Unreal Engine 5.8.
+For Unreal, copy `unreal/DrTableSystem` into your project's `Plugins/` folder ([section 11](#11-unreal-plugin)). The plugin is developed and tested with Unreal Engine 5.8.
 
 Messages are in English by default. Pass `--lang ko` or set `DRTABLE_LANG=ko` for Korean. Generated files are always in English.
 
@@ -82,9 +82,10 @@ Design/Tables/                    ← --input (data)
     UI.xlsx
 ```
 
-- One schema file per table, and one file per enum in the enum folder. The file name must match the name it defines (`Items.schema.xlsx` ↔ table `Items`).
+- One schema file per table, and one file per enum in the enum folder. The file name must match the name it defines (`Items.schema.xlsx` ↔ table `Items`). String table schemas (`UIString.string.xlsx`) go in the schema folder too (section 8).
 - The enum folder sits **next to** the table schema folder. Without `--enums`, `Enums` next to the schema folder is used (`Table/Schema` → `Table/Enums`).
-- Without `--schema`, `*.schema.xlsx` files are looked up anywhere under the input folder and the enum folder is `Enums` inside it. Schema files are skipped when reading data.
+- Without `--schema`, `*.schema.xlsx` and `*.string.xlsx` files are looked up anywhere under the input folder, and the enum and strings folders are `Enums` and `Strings` inside it. Schema files are skipped when reading data.
+- Workbooks in the strings folder are read as string table data only (section 8).
 - Excel lock files (`~$…`) and hidden folders (starting with `.`) are skipped.
 
 ### Schema files
@@ -281,6 +282,8 @@ Design/Tables/Strings/  string table data (--strings, default: Strings next to t
 - **An empty cell in another language takes the base language text at build time**, with one warning line per language. That way the game never shows a gap while only the current language is loaded.
 - A translation whose format arguments (`{0}`, `{Name}`) differ from the base text is warned per cell.
 - A cell that holds only a number (`100`) is read as text.
+- Row 1 must have **every language column** of the schema (keep the column even before it is translated). Column order is free, and `#` note columns may be added.
+- Create a new data workbook with `drtable new --table UI --out Design/Tables/Strings/UI.xlsx --schema Design/Tables/Schema` (`--table` takes `UI` or `UIString`).
 
 ### Outputs
 
@@ -309,7 +312,7 @@ FText Name = Sword->GetName();   // ItemString text in the current language
 
 ### In Unreal
 
-`DrTableBake` writes one asset per language (`<AssetRoot>/Strings/<language>/DA_<Table>`). It also writes the language list asset `<AssetRoot>/Strings/DA_DrStrings`. A table without a language uses its base language asset for it.
+`DrTableBake` writes one asset per language (`<AssetRoot>/Strings/<language>/DA_<Table>`, e.g. `/Game/Data/Strings/en/DA_UIString`; names follow `--asset-name`). It also writes the language list asset `<AssetRoot>/Strings/DA_DrStrings`. A table without a language uses its base language asset for it.
 
 `UDrStringSubsystem` (a GameInstance subsystem) picks the starting language and loads it **synchronously**, so the first frame already has text. The starting language is chosen in this order:
 1. the language chosen last time (`GameUserSettings.ini`)
@@ -324,7 +327,7 @@ FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
 ```
 
 - `SetLanguage` loads the new language's assets **asynchronously**. The previous language stays on screen until they have loaded.
-- When everything has loaded, the languages are swapped at once. The previous language's assets are released and the garbage collector unloads them. Then `OnLanguageChanged` fires (Blueprint). C++ can also use `UDrStringTables::OnLanguageChanged`.
+- When everything has loaded, the languages are swapped at once. The previous language's assets are released and the garbage collector unloads them. Then `OnLanguageChanged` fires (Blueprint). C++ can also use `Strings->GetTables()->OnLanguageChanged` (a native delegate).
 - If another language is requested while one is loading, only the last request takes effect. An unknown language logs a warning and keeps the current one.
 - A missing key shows `<Table.Key>` and warns once in development builds. Shipping builds return empty text.
 - Text is returned as `FText::AsCultureInvariant`. It does not mix with engine localization (.locres) and works with `FText::Format`.
@@ -339,10 +342,11 @@ FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
 ### C++
 
 ```
-<out-cpp>/EDtElement.h          one per enum
-<out-cpp>/DtEffectsRow.h        row struct per table
-<out-cpp>/DtEffectsTable.h      DataAsset class per table
-<out-cpp>/DtGeneratedTables.h   name, key and schema hash constants
+<out-cpp>/EDrElement.h          one per enum
+<out-cpp>/DrEffectsRow.h        row struct per table
+<out-cpp>/DrEffectsTable.h      DataAsset class per table
+<out-cpp>/DrGeneratedTables.h   name, key and schema hash constants
+<out-cpp>/DrUIStringKeys.h      string table key constants (only with --string-keys)
 ```
 
 With `--runtime-header` (or `--ue-plugin`) also:
@@ -366,17 +370,19 @@ With `--runtime-header` (or `--ue-plugin`) also:
 | `static TConstArrayView<FRow> GetAll()` | every table | all rows |
 | `const FTargetRow* Get<Field>() const` | `Ref<Target>` fields | the referenced row or nullptr |
 | `TArray<const FTargetRow*> Get<Field>() const` | `Ref<Target.SubKey>` fields | the referenced rows |
+| `FText Get<Field>() const` | `Ref<StringTable>` fields | the text in the current language (empty when the reference is empty) |
 | `Get<Field>(int32 Index) const` | reference arrays | as above, for one element |
 
 Empty references return nullptr or an empty array without a lookup. A generated name that clashes with a field (e.g. a field named `Find`) is a generation error.
 
-Generated functions call only three templates provided by the runtime header. The Unreal plugin's `DrTableRuntime.h` implements them; other environments can implement them too.
+Generated functions call only four functions provided by the runtime header (`GetText` only when there are string table references). The Unreal plugin's `DrTableRuntime.h` implements them; other environments can implement them too.
 
 ```cpp
 namespace DrTableRuntime {
   template <typename TRow, typename TKey> const TRow* FindByKey(const TKey& Key);
   template <typename TRow, typename TKey> TArray<const TRow*> FindAllBySubKey(FName SubKeyName, const TKey& Key);
   template <typename TRow> TConstArrayView<TRow> GetAll();
+  FText GetText(FName Table, FName Key);
 }
 ```
 
@@ -403,6 +409,7 @@ Server JSON has no indices and includes server fields. Each folder's `manifest.j
 
 - the tables: row count, schema and content hashes, schema file (`schema`) and where the data comes from (`sources`: file, sheet, rows)
 - the enums and the references
+- the string tables (`string_tables`): base language, languages, content hash per language, schema file and data sources (section 8)
 - the naming rules the bake tool uses (`cpp_prefix`, `asset_name`)
 
 Outputs are **deterministic**: the same input gives the same bytes (LF line endings, fixed key order, no timestamps unless `--stamp` is given). Output folders are cleared before writing, so removed tables leave no files behind.
@@ -414,9 +421,9 @@ drtable build --input <xlsx|folder> --out-cpp <dir> --out-client <dir> --out-ser
                [--schema <folder>] [--enums <folder>] [--strings <folder>] [--string-keys]
                [--prefix Dr] [--ue-plugin] [--asset-base <Class> --asset-base-header <Header.h>]
                [--runtime-header <Header.h>] [--asset-name DA_{table}] [--stamp <ISO8601>]
-drtable graph --input <xlsx|folder> --out references.md [--schema …] [--enums …]
+drtable graph --input <xlsx|folder> --out references.md [--schema …] [--enums …] [--strings …]
 drtable check --client <client JSON folder> [--server <server JSON folder>]
-drtable check --input <xlsx|folder> [--schema …] [--enums …]   # validate only, write nothing
+drtable check --input <xlsx|folder> [--schema …] [--enums …] [--strings …]   # validate only, write nothing
 drtable new --table <Table> --out <new xlsx> --schema <folder> [--enums …]  # new data workbook with reference formulas
 drtable [--lang en|ko] …
 ```
@@ -540,6 +547,7 @@ Every table has two hashes.
 
 - If the schema changed but nobody regenerated, rebuilt and re-baked, the runtime rejects the old assets.
 - Values that changed without a bake are caught by the bake check (`-Verify`). The content hash is kept out of generated code, since otherwise data edits would change the code. Run `-Verify` before shipping and in CI.
+- String tables have a content hash per language, so editing one language re-bakes only that language's asset. `-Verify` also checks the per-language assets and the language list (`DA_DrStrings`).
 
 ## 13. Lookup correctness rules
 
@@ -576,6 +584,7 @@ A `v*` tag builds the executables for each platform and attaches them to a Relea
 
 | Message | Cause and fix |
 |---|---|
+| `no schema or data workbook found` | The `--input` folder is empty. Check the path (building an empty folder would delete all generated code, so it stops with an error). |
 | `no schema. Define the fields in 'X.schema.xlsx'` | No schema matches the data sheet's name. Create one, or check the `--schema` path. |
 | `field 'X' is not in the schema …` | Row 1 has a name the schema does not define. Fix the typo or add the field to the schema (programmers). For a note column, start the name with `#`. |
 | `no column for field 'X'` | A schema field has no column in the data sheet. Add the column. |

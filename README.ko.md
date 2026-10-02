@@ -14,9 +14,9 @@
 - 한 테이블을 여러 시트·파일로 나누기, 결정적 산출물, 영어·한국어 메시지.
 
 ```
-Schema/*.schema.xlsx       ─┐                 ┌─▶ C++ 헤더 ─▶ 컴파일
-Enums/*.enum.xlsx          ─┼▶ drtable build ─┼─▶ 클라 JSON ─▶ DrTableBake ─▶ DataAsset ─▶ 런타임 조회
-데이터 엑셀(*.xlsx)         ─┘                 └─▶ 서버 JSON ─▶ 서버
+Schema/*.schema.xlsx ─┐                  ┌─▶ C++ 헤더 ─▶ 컴파일
+Enums/*.enum.xlsx    ─┼── drtable build ─┼─▶ 클라 JSON ─▶ DrTableBake ─▶ DataAsset ─▶ 런타임 조회
+*.xlsx               ─┘                  └─▶ 서버 JSON ─▶ 서버
 ```
 
 ## 빠른 시작

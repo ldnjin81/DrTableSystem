@@ -10,12 +10,16 @@ DrTableSystem (DesignToRuntime Table System) carries the data designers write in
 The **DrTableSystem Unreal plugin** bakes the client JSON into DataAssets, loads them at runtime without copying or building indices, and detects stale assets. String tables are baked per language; only the current language stays in memory, and `OnLanguageChanged` tells the UI when the language changes.
 
 ```
-Schemas (Schema/*.schema.xlsx, *.string.xlsx, Enums/*.enum.xlsx) ─┐                 ┌─▶ C++ headers ─────────────▶ compile
-                                                      ├▶ drtable build ─┼─▶ client JSON ─▶ DrTableBake ─▶ DA_*.uasset ─▶ runtime lookups
-Data workbooks (*.xlsx, Strings/*.xlsx: field names in row 1) ──┘                 └─▶ server JSON ─▶ your server
-                 drtable check  ◀─ client/server JSON  (reference integrity, CI)
-                 drtable graph  ─▶ references.md       (Mermaid diagram)
+Schema/*.schema.xlsx, *.string.xlsx ─┐                  ┌─▶ C++ headers ─▶ compile
+Enums/*.enum.xlsx                   ─┼── drtable build ─┼─▶ client JSON ─▶ DrTableBake ─▶ DA_*.uasset ─▶ runtime lookups
+*.xlsx, Strings/*.xlsx              ─┘                  └─▶ server JSON ─▶ your server
+
+drtable check ◀── client/server JSON: reference integrity (CI)
+drtable graph ──▶ references.md: Mermaid diagram of the references
 ```
+
+The schema folder holds the structure (fields, types, scopes, enum values, string table languages); data workbooks (`*.xlsx`, translations in `Strings/*.xlsx`) hold field names in row 1 and values from row 4.
+
 
 | Who | Edits | Effect |
 |---|---|---|

@@ -168,6 +168,7 @@ File paths are relative to the input folder (data) or the schema folder.
 | `E<Enum>` | `E<Prefix><Enum>` | enumerator name | enumerator name |
 | `Ref<Table>` / `Ref<Table.SubKey>` | type of the target key | same as the target | same as the target |
 
+- **Prefer `fixed<N>` for decimals (see Fixed point below).** `float` and `double` work, but Excel values become binary fractions with rounding errors (`0.1` → `0.100000001…`), and the last digits of results can differ between client, server and devices. Use `fixed<N>` for values that decide outcomes (chances, multipliers, damage factors) and keep `float` for presentation values that may differ slightly (effect timings, offsets).
 - The server is not assumed to be Unreal: `name`, `string`, `text`, `tag` and `path` are plain strings in server JSON.
 - `path` is always an untyped `FSoftObjectPath`. Convert with `TSoftObjectPtr<T>(Path)` at runtime when you need a typed pointer.
 - `bool` accepts TRUE/FALSE, 1/0 and the strings `true`/`false`.
@@ -175,7 +176,7 @@ File paths are relative to the input folder (data) or the schema folder.
 
 ### Fixed point: `fixed<N>`
 
-Use `fixed<N>` for **decimals that must not drift**, such as chances and multipliers. The value is stored as an integer count of 1/N. Clients and servers compute with the same integers, so their results match to the bit (`float` results can differ in the last digit between devices and compilers).
+**`fixed<N>` is the recommended type for decimals in game data**, above all for values that must not drift, such as chances and multipliers. The value is stored as an integer count of 1/N. Clients and servers compute with the same integers, so their results match to the bit (`float` results can differ in the last digit between devices and compilers).
 
 | Schema | Written in Excel | JSON and assets | C++ |
 |---|---|---|---|

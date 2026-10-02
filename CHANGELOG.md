@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - Fixed-point types `fixed<N>` (int32) and `fixed64<N>` (int64), N a power of ten: decimals or percentages in Excel become exact integer counts of 1/N in JSON, assets and C++ (with a `<Field>Scale` constant and `DrFixedScale` metadata). Values finer than the scale or out of range are errors.
 - A declared default fills empty cells as converted once (a fixed-point default used to be scaled twice).

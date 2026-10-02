@@ -74,6 +74,7 @@ Design/Tables/                    ← --input (데이터)
   Monsters.xlsx
   event/Summer.xlsx               ← 하위 폴더도 읽습니다
   Schema/                         ← --schema (테이블 스키마)
+    Types.using.xlsx              ← 타입 별칭(3절)
     Items.schema.xlsx
     Monsters.schema.xlsx
   Enums/                          ← --enums (열거형 스키마, 기본값: 스키마 폴더 옆 Enums)
@@ -188,6 +189,32 @@ Design/Tables/
 - 행 구조체에는 배율 상수가 붙습니다: `static constexpr int32 CritRateScale = 10000;`. 속성에는 `meta = (DrFixedScale = "10000")`가 붙습니다.
 - 계산은 정수로 합니다. 예: `Damage * CritRate / FGmItemsRow::CritRateScale`(곱셈이 넘칠 수 있으면 `int64`로). 화면에 보여 줄 때만 `CritRate / 100.0f` 같은 식으로 바꿉니다.
 - 기본값(`fixed<10000>=0.05` → 500)과 배열을 쓸 수 있고, 키로는 쓸 수 없습니다.
+
+### 타입 별칭: `*.using.xlsx`
+
+여러 테이블에 같은 뜻의 자료형이 나오면 **이름을 한 번 붙여 두고** 그 이름으로 씁니다. 별칭 하나만 고치면 그 별칭을 쓰는 필드가 모두 함께 바뀝니다(예: 아이템 키를 `int32`에서 `int64`로).
+
+`Schema/Types.using.xlsx`(시트 이름은 자유):
+
+| | A 이름 | B 자료형 | C 설명 |
+|---|---|---|---|
+| **1** | `Name` | `Type` | `Comment` |
+| **2** | `ItemID` | `int32` | 아이템 키 |
+| **3** | `ItemRef` | `Ref<Items>` | 아이템 참조 |
+| **4** | `Rate` | `fixed<10000>` | 만분율 |
+| **5** | `Level` | `int32=1` | 기본값 1 |
+
+```
+Items:   Id: ID<ItemID>     DropRate: Rate
+Quests:  Id: ID<int32>      Reward: ItemRef      MinLevel: Level=5
+```
+
+- 별칭은 **모든 자료형**을 가리킬 수 있습니다: 기본형, `fixed<N>`, 열거형, `Ref<…>`, 다른 별칭, 기본값.
+- 필드에서는 그대로(`Rate`), 키로(`ID<ItemID>`, `SubKey<ItemRef>`), 기본값을 붙여(`Level=5`) 씁니다. 필드의 기본값이 별칭의 기본값보다 우선합니다. 키 규칙(키가 될 수 있는 자료형, 키에는 기본값 없음)은 풀어 쓴 자료형에 그대로 적용됩니다.
+- `*.using.xlsx`는 스키마 폴더에 몇 개든 둘 수 있습니다(예: `Items.using.xlsx`, `Combat.using.xlsx`). 이름이 겹치면 오류입니다. 별칭에는 키 역할(`ID<…>`)을 넣지 않습니다.
+- 자료형 이름(`int32` 등)이나 테이블 이름, 열거형 자료형(`E…`)과 같은 이름, 서로 돌고 도는 별칭은 오류입니다.
+- 스키마 해시는 풀어 쓴 자료형으로 계산합니다. 별칭 이름만 바꾸면 해시는 그대로이고, 별칭이 가리키는 자료형을 바꾸면 해시가 바뀝니다.
+- C++: 언리얼 리플렉션이 typedef를 읽지 못하므로 구조체 필드는 실제 자료형으로 나갑니다. 대신 속성에 `meta = (DrType = "ItemID")`가 붙고, 게임 코드용 별칭 헤더 `<접두사>Types.h`를 만듭니다(`using GmItemID = int32;`, 고정소수점이면 `GmRateScale` 상수도).
 
 ## 4. 기본키·서브키·기본값
 
@@ -361,6 +388,7 @@ FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
 <out-cpp>/DrEffectsTable.h      테이블마다 DataAsset 클래스
 <out-cpp>/DrGeneratedTables.h   이름·키·스키마 해시 상수
 <out-cpp>/DrUIStringKeys.h      스트링테이블 키 상수(--string-keys일 때만)
+<out-cpp>/DrTypes.h             타입 별칭(*.using.xlsx가 있을 때만)
 ```
 
 `--runtime-header`(또는 `--ue-plugin`)를 주면 다음도 만듭니다.

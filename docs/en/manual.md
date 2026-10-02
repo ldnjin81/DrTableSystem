@@ -74,6 +74,7 @@ Design/Tables/                    ← --input (data)
   Monsters.xlsx
   event/Summer.xlsx               ← subfolders are read too
   Schema/                         ← --schema (table schemas)
+    Types.using.xlsx              ← type aliases (section 3)
     Items.schema.xlsx
     Monsters.schema.xlsx
   Enums/                          ← --enums (enum schemas, default: Enums next to the schema folder)
@@ -188,6 +189,32 @@ File paths are relative to the input folder (data) or the schema folder.
 - The row struct gets a scale constant, `static constexpr int32 CritRateScale = 10000;`, and the property gets `meta = (DrFixedScale = "10000")`.
 - Compute with integers, e.g. `Damage * CritRate / FGmItemsRow::CritRateScale` (use `int64` when the product can overflow). Convert only for display, e.g. `CritRate / 100.0f`.
 - Defaults (`fixed<10000>=0.05` → 500) and arrays work; fixed-point fields cannot be keys.
+
+### Type aliases: `*.using.xlsx`
+
+When the same kind of value appears in many tables, **name its type once** and use the name. Changing the alias changes every field that uses it (for example item keys from `int32` to `int64`).
+
+`Schema/Types.using.xlsx` (any sheet name):
+
+| | A Name | B Type | C Comment |
+|---|---|---|---|
+| **1** | `Name` | `Type` | `Comment` |
+| **2** | `ItemID` | `int32` | item key |
+| **3** | `ItemRef` | `Ref<Items>` | item reference |
+| **4** | `Rate` | `fixed<10000>` | per ten thousand |
+| **5** | `Level` | `int32=1` | default 1 |
+
+```
+Items:   Id: ID<ItemID>     DropRate: Rate
+Quests:  Id: ID<int32>      Reward: ItemRef      MinLevel: Level=5
+```
+
+- An alias can stand for **any type**: primitives, `fixed<N>`, enums, `Ref<…>`, other aliases, and defaults.
+- Use it as a field type (`Rate`), as a key (`ID<ItemID>`, `SubKey<ItemRef>`) or with a default (`Level=5`). A field's default wins over the alias default. Key rules (which types can be keys, no defaults on keys) apply to the expanded type.
+- Any number of `*.using.xlsx` files can sit in the schema folder (e.g. `Items.using.xlsx`, `Combat.using.xlsx`); a name defined twice is an error. An alias carries no key role (`ID<…>`).
+- A name that is a type name (`int32` …), a table name or an enum type (`E…`), and aliases that loop, are errors.
+- The schema hash uses the expanded types: renaming an alias keeps it, changing the type an alias stands for changes it.
+- C++: Unreal reflection cannot read typedefs, so struct fields use the underlying types. Their properties get `meta = (DrType = "ItemID")`, and an alias header `<Prefix>Types.h` is written for game code (`using GmItemID = int32;`, plus `GmRateScale` for fixed point).
 
 ## 4. Keys and defaults
 
@@ -364,6 +391,7 @@ FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
 <out-cpp>/DrEffectsTable.h      DataAsset class per table
 <out-cpp>/DrGeneratedTables.h   name, key and schema hash constants
 <out-cpp>/DrUIStringKeys.h      string table key constants (only with --string-keys)
+<out-cpp>/DrTypes.h             type aliases (only when *.using.xlsx exist)
 ```
 
 With `--runtime-header` (or `--ue-plugin`) also:

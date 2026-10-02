@@ -4,6 +4,8 @@
 //! * Enum schemas: `<Enum>.enum.xlsx` in the enum folder (default: `Enums` next to the schema folder).
 //! * String table schemas: `<Name>String.string.xlsx` in the schema folder (the name ends with
 //!   `String`). They define the table `<Name>String`: an `Id` name key and one column per language.
+//! * Type aliases: `*.using.xlsx` in the schema folder, from row 2 one alias per row
+//!   (A name, B type, C comment), e.g. `ItemID | Ref<Items>`. Any number of files and sheets.
 //!
 //! Table schema: one sheet named after the table; row 1 labels, from row 2 one field per row
 //! (A name, B type, C scope, D comment). Enum schema: one sheet named after the enum; from
@@ -24,7 +26,8 @@ use crate::value::Cell;
 pub const TABLE_SUFFIXES: [&str; 1] = [".schema.xlsx"];
 pub const ENUM_SUFFIXES: [&str; 1] = [".enum.xlsx"];
 pub const STRING_SUFFIXES: [&str; 1] = [".string.xlsx"];
-pub const SCHEMA_SUFFIXES: [&str; 3] = [".schema.xlsx", ".enum.xlsx", ".string.xlsx"];
+pub const USING_SUFFIXES: [&str; 1] = [".using.xlsx"];
+pub const SCHEMA_SUFFIXES: [&str; 4] = [".schema.xlsx", ".enum.xlsx", ".string.xlsx", ".using.xlsx"];
 /// String table names end with this (UIString.string.xlsx).
 pub const STRING_TABLE_SUFFIX: &str = "String";
 pub const DEFAULT_ENUM_FOLDER: &str = "Enums";
@@ -70,10 +73,22 @@ impl Schema {
     }
 }
 
+/// A type alias (`ItemID = Ref<Items>`) from a `.using.xlsx` file.
+#[derive(Clone, Debug)]
+pub struct Alias {
+    pub name: String,
+    pub type_cell: Cell,
+    pub comment: String,
+    /// "[Types.using.xlsx]Types"
+    pub location: String,
+    pub row: usize,
+}
+
 #[derive(Default)]
 pub struct Schemas {
     pub tables: BTreeMap<String, Schema>,
     pub enums: BTreeMap<String, Schema>,
+    pub aliases: BTreeMap<String, Alias>,
 }
 
 impl Schemas {
@@ -161,7 +176,7 @@ pub fn load_schemas(
                 Err(_) => path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
             };
             let lower = path.to_string_lossy().to_lowercase();
-            if lower.ends_with(".schema.xlsx") || lower.ends_with(".string.xlsx") {
+            if lower.ends_with(".schema.xlsx") || lower.ends_with(".string.xlsx") || lower.ends_with(".using.xlsx") {
                 errors.add(&format!("[{relative}]"), "A1", tr(
                     "열거형 폴더에는 열거형 스키마(.enum.xlsx)만 둡니다",
                     "the enum folder holds enum schemas (.enum.xlsx) only",
@@ -178,6 +193,11 @@ pub fn load_schemas(
     collect(&table_files, ".schema.xlsx", Kind::Table, &mut result.tables, errors);
     collect(&string_files, ".string.xlsx", Kind::Strings, &mut result.tables, errors);
     collect(&enum_files, ".enum.xlsx", Kind::Enum, &mut result.enums, errors);
+    for (path, relative) in find_files(schema_root, &USING_SUFFIXES, true)? {
+        if !inside(&path, &enum_resolved) {
+            read_aliases(&path, &relative, &mut result.aliases, errors);
+        }
+    }
     Ok(result)
 }
 
@@ -311,6 +331,56 @@ fn is_marked(cell: &Cell) -> bool {
         other => {
             let text = other.text_or_empty().to_lowercase();
             !text.is_empty() && text != "false" && text != "0"
+        }
+    }
+}
+
+/// Aliases from every non-note sheet of a `.using.xlsx` file: from row 2, A name, B type, C comment.
+fn read_aliases(path: &Path, relative: &str, into: &mut BTreeMap<String, Alias>, errors: &mut ErrorCollector) {
+    let sheets = match read_workbook(path, |title| !title.starts_with('#')) {
+        Ok(sheets) => sheets,
+        Err(error) => {
+            errors.add(&format!("[{relative}]"), "A1", tr(
+                format!("xlsx 파일을 읽을 수 없습니다: {error}"),
+                format!("cannot read the xlsx file: {error}"),
+            ));
+            return;
+        }
+    };
+    for sheet in sheets.into_iter().filter(|s| !s.title.starts_with('#')) {
+        let location = format!("[{relative}]{}", sheet.title);
+        let Some(grid) = sheet.grid else { continue };
+        for row in 2..=grid.max_row() {
+            let name_cell = grid.value(row, 1);
+            let type_cell = grid.value(row, 2).clone();
+            if name_cell.is_blank() && type_cell.is_blank() {
+                continue;
+            }
+            let name = name_cell.py_str().trim().to_string();
+            if name_cell.is_blank() || !is_identifier(&name) {
+                errors.add(&location, &format!("A{row}"), tr(
+                    format!("올바르지 않은 별칭 이름 '{}'", name_cell.text_or_empty()),
+                    format!("invalid alias name '{}'", name_cell.text_or_empty()),
+                ));
+                continue;
+            }
+            if type_cell.is_blank() {
+                errors.add(&location, &format!("B{row}"), tr(
+                    format!("별칭 '{name}'의 자료형이 비어 있습니다"),
+                    format!("alias '{name}' has no type"),
+                ));
+                continue;
+            }
+            if let Some(existing) = into.get(&name) {
+                errors.add(&location, &format!("A{row}"), tr(
+                    format!("별칭 '{name}'이 {}!A{}에도 있습니다", existing.location, existing.row),
+                    format!("alias '{name}' is also defined at {}!A{}", existing.location, existing.row),
+                ));
+                continue;
+            }
+            let comment = grid.value(row, 3);
+            let comment = if comment.is_blank() { String::new() } else { comment.py_str() };
+            into.insert(name.clone(), Alias { name, type_cell, comment, location: location.clone(), row });
         }
     }
 }

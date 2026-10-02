@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Type aliases: `*.using.xlsx` in the schema folder names a type once (`ItemID | int32`, `ItemRef | Ref<Items>`, `Rate | fixed<10000>`, `Level | int32=1`); fields use it as a type, key (`ID<ItemID>`) or with a default. C++ fields keep the underlying type with `meta = (DrType = "...")`, and `<Prefix>Types.h` declares `using` aliases for game code. The GUI shows the alias next to the type.
+
 ## 0.4.0
 
 - Fixed-point types `fixed<N>` (int32) and `fixed64<N>` (int64), N a power of ten: decimals or percentages in Excel become exact integer counts of 1/N in JSON, assets and C++ (with a `<Field>Scale` constant and `DrFixedScale` metadata). Values finer than the scale or out of range are errors.

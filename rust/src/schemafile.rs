@@ -25,7 +25,7 @@ pub const TABLE_SUFFIXES: [&str; 1] = [".schema.xlsx"];
 pub const ENUM_SUFFIXES: [&str; 1] = [".enum.xlsx"];
 pub const STRING_SUFFIXES: [&str; 1] = [".string.xlsx"];
 pub const SCHEMA_SUFFIXES: [&str; 3] = [".schema.xlsx", ".enum.xlsx", ".string.xlsx"];
-/// String table names end with this (UIString.string.xlsx); data sheets may leave it out (`UI`).
+/// String table names end with this (UIString.string.xlsx).
 pub const STRING_TABLE_SUFFIX: &str = "String";
 pub const DEFAULT_ENUM_FOLDER: &str = "Enums";
 pub const DEFAULT_STRINGS_FOLDER: &str = "Strings";
@@ -50,15 +50,6 @@ pub struct Schema {
 impl Schema {
     pub fn where_(&self) -> String {
         format!("[{}]{}", self.file, if self.title.is_empty() { &self.name } else { &self.title })
-    }
-
-    /// The name a data sheet may use: `UI` for the string table `UIString`, otherwise the name.
-    pub fn short_name(&self) -> String {
-        if self.is_strings {
-            self.name.strip_suffix(STRING_TABLE_SUFFIX).unwrap_or(&self.name).to_string()
-        } else {
-            self.name.clone()
-        }
     }
 
     pub fn cell(row: usize, column: usize) -> String {

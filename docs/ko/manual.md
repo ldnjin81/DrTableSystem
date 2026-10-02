@@ -79,7 +79,7 @@ Design/Tables/                    ← --input (데이터)
   Enums/                          ← --enums (열거형 스키마, 기본값: 스키마 폴더 옆 Enums)
     ItemType.enum.xlsx
   Strings/                        ← --strings (스트링테이블 데이터, 기본값: 스키마 폴더 옆 Strings, 8절)
-    UI.xlsx
+    UIString.xlsx
 ```
 
 - 스키마는 테이블마다 파일 하나, 열거형은 열거형 폴더에 열거형마다 파일 하나입니다. 파일 이름은 정의한 이름과 같아야 합니다(`Items.schema.xlsx` ↔ 테이블 `Items`). 스트링테이블 스키마(`UIString.string.xlsx`)도 스키마 폴더에 둡니다(8절).
@@ -270,17 +270,17 @@ Design/Tables/          일반 데이터
 Design/Tables/Schema/   스키마 (스트링테이블 스키마도 여기)
 Design/Tables/Enums/    열거형
 Design/Tables/Strings/  스트링테이블 데이터 (--strings, 기본: 스키마 폴더 옆 Strings)
-  UI.xlsx               시트 UI (= UIString): 1행 Id ko en zh-Hans, 4행부터 데이터
+  UIString.xlsx         시트 UIString: 1행 Id ko en zh-Hans, 4행부터 데이터
 ```
 
-- 스트링 폴더의 시트 이름에는 `String`을 생략해도 됩니다. 시트 `UI`는 `UIString` 테이블이 되고, `UIString`이라고 다 써도 됩니다.
-- `--schema`를 주지 않으면 입력 폴더 안의 `Strings`입니다. 시트·파일 나누기(`UI#메뉴`)는 일반 테이블과 같습니다.
+- 시트 이름은 일반 테이블처럼 **테이블 이름 그대로**(`UIString`)입니다. 스키마·데이터·코드가 모두 같은 이름을 씁니다.
+- `--schema`를 주지 않으면 입력 폴더 안의 `Strings`입니다. 시트·파일 나누기(`UIString#메뉴`)는 일반 테이블과 같습니다.
 - 스트링테이블 시트가 스트링 폴더 밖에 있거나, 일반 테이블 시트가 스트링 폴더 안에 있으면 오류입니다.
 - 기준 언어 칸이 비면 오류입니다. **다른 언어 칸이 비면 빌드할 때 기준 언어 글로 채우고** 언어마다 경고를 한 줄 냅니다. 그래서 게임은 설정 언어 하나만 올려도 빈 글이 없습니다.
 - 서식 인자(`{0}`, `{Name}`)가 기준 언어와 다른 번역은 칸마다 경고합니다.
 - 숫자만 적은 칸(`100`)도 글로 읽습니다.
 - 1행에는 스키마의 **모든 언어 열**이 있어야 합니다(아직 번역하지 않은 언어도 열은 둡니다). 열 순서는 자유이고, `#`으로 시작하는 메모 열을 더해도 됩니다.
-- 새 데이터 파일은 `drtable new --table UI --out Design/Tables/Strings/UI.xlsx --schema Design/Tables/Schema`로 만듭니다(`--table`에는 `UI`나 `UIString`).
+- 새 데이터 파일은 `drtable new --table UIString --out Design/Tables/Strings/UIString.xlsx --schema Design/Tables/Schema`로 만듭니다.
 
 ### 산출물
 
@@ -594,6 +594,7 @@ UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # 빠졌거나 오�
 | `스트링테이블 'X'의 데이터는 스트링 폴더(…)에 두어야 합니다` | 스트링테이블 데이터 엑셀을 스트링 폴더로 옮기세요(반대로 일반 테이블은 그 폴더 밖으로). |
 | `기준 언어를 하나 표시하세요` | `<이름>String.string.xlsx`에서 기준 언어 하나의 B칸(Base)에 ✓ 등을 적으세요. |
 | `스트링테이블 스키마가 없습니다` | 스트링 폴더의 시트 이름에 맞는 `<이름>String.string.xlsx`가 없습니다. |
+| `시트 이름은 테이블 이름 그대로 'XString'으로 쓰세요` | 스트링 폴더의 시트 이름을 테이블 이름(`String`까지)으로 바꾸세요. |
 | `스트링테이블 이름은 String으로 끝나야 합니다` | 스키마 파일과 시트 이름을 `<이름>String`으로 바꾸세요. |
 | `… 번역 N칸이 비어 기준 언어(…) 값으로 채웠습니다` (경고) | 아직 번역하지 않은 칸입니다. 게임에는 기준 언어 글이 나옵니다. |
 | `No text for Table.Key` (언리얼 경고) | 그 키가 스트링테이블에 없거나 굽지 않았습니다. 생성 → 굽기. |

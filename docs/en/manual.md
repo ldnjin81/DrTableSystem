@@ -79,7 +79,7 @@ Design/Tables/                    ← --input (data)
   Enums/                          ← --enums (enum schemas, default: Enums next to the schema folder)
     ItemType.enum.xlsx
   Strings/                        ← --strings (string table data, default: Strings next to the schema folder, section 8)
-    UI.xlsx
+    UIString.xlsx
 ```
 
 - One schema file per table, and one file per enum in the enum folder. The file name must match the name it defines (`Items.schema.xlsx` ↔ table `Items`). String table schemas (`UIString.string.xlsx`) go in the schema folder too (section 8).
@@ -270,11 +270,11 @@ Design/Tables/          data
 Design/Tables/Schema/   schemas (string table schemas too)
 Design/Tables/Enums/    enums
 Design/Tables/Strings/  string table data (--strings, default: Strings next to the schema folder)
-  UI.xlsx               sheet UI (= UIString): row 1 Id ko en zh-Hans, data from row 4
+  UIString.xlsx         sheet UIString: row 1 Id ko en zh-Hans, data from row 4
 ```
 
-- Sheets in the strings folder may leave out `String`: sheet `UI` belongs to `UIString` (writing `UIString` works too).
-- Without `--schema`, the strings folder is `Strings` inside the input folder. Splitting sheets and files (`UI#Menu`) works as for other tables.
+- As for other tables, **the sheet is named after the table** (`UIString`). Schema, data and code all use the same name.
+- Without `--schema`, the strings folder is `Strings` inside the input folder. Splitting sheets and files (`UIString#Menu`) works as for other tables.
 - These are errors:
   - a string table sheet outside the strings folder
   - another table's sheet inside the strings folder
@@ -283,7 +283,7 @@ Design/Tables/Strings/  string table data (--strings, default: Strings next to t
 - A translation whose format arguments (`{0}`, `{Name}`) differ from the base text is warned per cell.
 - A cell that holds only a number (`100`) is read as text.
 - Row 1 must have **every language column** of the schema (keep the column even before it is translated). Column order is free, and `#` note columns may be added.
-- Create a new data workbook with `drtable new --table UI --out Design/Tables/Strings/UI.xlsx --schema Design/Tables/Schema` (`--table` takes `UI` or `UIString`).
+- Create a new data workbook with `drtable new --table UIString --out Design/Tables/Strings/UIString.xlsx --schema Design/Tables/Schema`.
 
 ### Outputs
 
@@ -597,6 +597,7 @@ A `v*` tag builds the executables for each platform and attaches them to a Relea
 | `string table 'X' data belongs in the strings folder (…)` | Move the string table workbook into the strings folder (and other tables' workbooks out of it). |
 | `mark one base language` | In `<Name>String.string.xlsx`, put a mark (✓) in column B (Base) of one language. |
 | `no string table schema` | No `<Name>String.string.xlsx` matches the sheet name in the strings folder. |
+| `name the sheet after the table: 'XString'` | Rename the sheet in the strings folder to the full table name (with `String`). |
 | `a string table name must end with String` | Rename the schema file and sheet to `<Name>String`. |
 | `… empty … translation(s) filled from the base language` (warning) | Cells not translated yet; the game shows the base language text. |
 | `No text for Table.Key` (Unreal warning) | The key is not in the string table, or it was not baked. Generate → bake. |

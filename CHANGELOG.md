@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- String table data sheets are named after the table (`UIString`); the short form (`UI`) is no longer accepted. `drtable new --table` takes the full name.
+- Manual: string tables in the overview and the other chapters; link and example fixes.
+
 ## 0.3.0
 
 - String tables: `<Name>String.string.xlsx` lists the languages (code, base mark, scope); data sheets `<Name>` (or `<Name>String`) in the strings folder (`--strings`, default `Strings` next to the schema folder). Empty translations take the base text at build time; format arguments that differ from the base text are warned. Output per language (`Strings/<culture>/<Table>.json`), no generated code for string tables (`--string-keys` adds optional key constants).

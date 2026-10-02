@@ -1,5 +1,5 @@
 //! String tables: `<Name>String.string.xlsx` language lists, the strings folder, per-language
-//! output and text references. Data sheets may leave out the String suffix (`UI` for `UIString`).
+//! output and text references. Data sheets are named after the table (`UIString`).
 
 #[macro_use]
 mod common;
@@ -63,7 +63,7 @@ impl Project {
 
     fn ui_strings(&self, data: Vec<Row>) {
         self.string_schema("UIString", &UI_LANGUAGES);
-        self.data("Strings/UI.xlsx", vec![("UI", sheet(row!["Id", "ko", "en", "zh-Hans"], data))]);
+        self.data("Strings/UIString.xlsx", vec![("UIString", sheet(row!["Id", "ko", "en", "zh-Hans"], data))]);
     }
 
     fn build(&self, extra: &[&str]) -> Output {
@@ -106,7 +106,7 @@ fn string_table_outputs_one_file_per_language() {
     let zh = project.json("client/Strings/zh-Hans/UIString.json");
     assert_eq!(zh["values"], json!(["확인", "{0} 金币", "主界面"]));
     assert!(result.stderr.contains("[UIString.string.xlsx]UIString: zh-Hans 번역 1칸이 비어 기준 언어(ko) 값으로 채웠습니다"), "{}", result.stderr);
-    assert!(result.stderr.contains("[Strings/UI.xlsx]UI!D5"), "{}", result.stderr);
+    assert!(result.stderr.contains("[Strings/UIString.xlsx]UIString!D5"), "{}", result.stderr);
     // The structure hash is shared; each language has its own content hash.
     assert_eq!(ko["schema_hash"], zh["schema_hash"]);
     assert_ne!(ko["content_hash"], zh["content_hash"]);
@@ -119,7 +119,7 @@ fn string_table_outputs_one_file_per_language() {
     assert_eq!(entry["base_language"], "ko");
     assert_eq!(entry["languages"], json!(["ko", "en", "zh-Hans"]));
     assert_eq!(entry["content_hashes"]["en"], project.json("client/Strings/en/UIString.json")["content_hash"]);
-    assert_eq!(entry["sources"], json!([{"file": "Strings/UI.xlsx", "sheet": "UI", "rows": 3}]));
+    assert_eq!(entry["sources"], json!([{"file": "Strings/UIString.xlsx", "sheet": "UIString", "rows": 3}]));
     // Languages default to client scope: nothing for the server.
     assert!(!project.out.join("server/Strings").exists());
     assert!(project.json("server/manifest.json").get("string_tables").is_none());
@@ -130,7 +130,7 @@ fn string_table_outputs_one_file_per_language() {
 
 #[test]
 fn a_string_table_and_a_table_may_share_a_name() {
-    // UIString.string.xlsx defines UIString; its data sheets are named UI, and a regular table UI is unaffected.
+    // UIString.string.xlsx defines UIString, so a regular table UI is unaffected.
     let project = Project::new();
     project.ui_strings(sample_rows());
     project.schema("UI", &[("Id", "ID<int32>", "all")]);
@@ -145,7 +145,7 @@ fn a_string_table_and_a_table_may_share_a_name() {
 fn server_scope_languages_go_to_the_server_output() {
     let project = Project::new();
     project.string_schema("MailString", &[("ko", true, "all"), ("en", false, "")]);
-    project.data("Strings/Mail.xlsx", vec![("Mail", sheet(row!["Id", "ko", "en"], vec![row!["Welcome", "환영", "Welcome"]]))]);
+    project.data("Strings/MailString.xlsx", vec![("MailString", sheet(row!["Id", "ko", "en"], vec![row!["Welcome", "환영", "Welcome"]]))]);
     assert_eq!(project.build(&[]).code, 0);
     assert_eq!(project.json("server/manifest.json")["string_tables"][0]["languages"], json!(["ko"]));
     assert!(project.out.join("server/Strings/ko/MailString.json").exists());
@@ -220,14 +220,14 @@ fn string_data_belongs_in_the_strings_folder() {
     let project = Project::new();
     project.string_schema("UIString", &UI_LANGUAGES);
     project.schema("Items", &[("Id", "ID<int32>", "all")]);
-    project.data("UI.xlsx", vec![("UI", sheet(row!["Id", "ko", "en", "zh-Hans"], vec![row!["A", "가", (), ()]]))]);
+    project.data("UIString.xlsx", vec![("UIString", sheet(row!["Id", "ko", "en", "zh-Hans"], vec![row!["A", "가", (), ()]]))]);
     project.data("Strings/Items.xlsx", vec![("Items", sheet(row!["Id"], vec![row![1]]))]);
-    project.data("Strings/Other.xlsx", vec![("Menu", sheet(row!["Id", "ko"], vec![row!["A", "가"]]))]);
+    project.data("Strings/Other.xlsx", vec![("MenuString", sheet(row!["Id", "ko"], vec![row!["A", "가"]]))]);
     let result = project.build(&[]);
     assert_eq!(result.code, 1);
-    assert!(result.stderr.contains("[UI.xlsx]UI!A1: 스트링테이블 'UIString'의 데이터는 스트링 폴더("), "{}", result.stderr);
+    assert!(result.stderr.contains("[UIString.xlsx]UIString!A1: 스트링테이블 'UIString'의 데이터는 스트링 폴더("), "{}", result.stderr);
     assert!(result.stderr.contains("[Strings/Items.xlsx]Items!A1: 일반 테이블 'Items'의 데이터는 스트링 폴더("), "{}", result.stderr);
-    assert!(result.stderr.contains("[Strings/Other.xlsx]Menu!A1: 스트링테이블 스키마가 없습니다. 언어 목록을 'MenuString.string.xlsx'에"), "{}", result.stderr);
+    assert!(result.stderr.contains("[Strings/Other.xlsx]MenuString!A1: 스트링테이블 스키마가 없습니다. 언어 목록을 'MenuString.string.xlsx'에"), "{}", result.stderr);
 }
 
 #[test]
@@ -237,18 +237,18 @@ fn strings_folder_option_and_default_without_a_schema_folder() {
     project.string_schema("UIString", &UI_LANGUAGES);
     let elsewhere = project.table.parent().unwrap().join("Localization");
     Book::new()
-        .with("UI", sheet(row!["Id", "ko", "en", "zh-Hans"], vec![row!["A", "가", "A", "甲"]]))
-        .save_plain(&elsewhere.join("UI.xlsx"));
+        .with("UIString", sheet(row!["Id", "ko", "en", "zh-Hans"], vec![row!["A", "가", "A", "甲"]]))
+        .save_plain(&elsewhere.join("UIString.xlsx"));
     let result = project.build(&["--strings", &s(&elsewhere)]);
     assert_eq!(result.code, 0, "{}", result.stderr);
-    assert_eq!(project.json("client/manifest.json")["string_tables"][0]["sources"][0]["file"], "Localization/UI.xlsx");
+    assert_eq!(project.json("client/manifest.json")["string_tables"][0]["sources"][0]["file"], "Localization/UIString.xlsx");
 
     // Without --schema the schemas sit in the input folder and the strings in <input>/Strings.
     let tmp = Tmp::new();
     Book::new()
         .with("UIString", vec![row!["Language", "Base", "Scope"], row!["ko", true], row!["en"]])
         .save_plain(&tmp.join("UIString.string.xlsx"));
-    Book::new().with("UI", sheet(row!["Id", "ko", "en"], vec![row!["A", "가", ()]])).save_plain(&tmp.join("Strings/UI.xlsx"));
+    Book::new().with("UIString", sheet(row!["Id", "ko", "en"], vec![row!["A", "가", ()]])).save_plain(&tmp.join("Strings/UIString.xlsx"));
     let result = build(&tmp, &tmp.join("out"), &[]);
     assert_eq!(result.code, 0, "{}", result.stderr);
     assert!(tmp.join("out/client/Strings/en/UIString.json").exists());
@@ -265,7 +265,7 @@ fn language_list_rules() {
     for (languages, cell, message) in cases {
         let project = Project::new();
         project.string_schema("UIString", languages);
-        project.data("Strings/UI.xlsx", vec![("UI", sheet(row!["Id", "ko", "en"], vec![]))]);
+        project.data("Strings/UIString.xlsx", vec![("UIString", sheet(row!["Id", "ko", "en"], vec![]))]);
         let result = project.build(&[]);
         assert_eq!(result.code, 1, "{message}");
         assert!(result.stderr.contains(&format!("[UIString.string.xlsx]UIString!{cell}")), "{message}: {}", result.stderr);
@@ -289,7 +289,7 @@ fn base_language_cells_are_required() {
     project.ui_strings(vec![row!["Btn_OK", (), "OK", ()]]);
     let result = project.build(&[]);
     assert_eq!(result.code, 1);
-    assert!(result.stderr.contains("[Strings/UI.xlsx]UI!B4: 기준 언어(ko) 칸이 비어 있습니다"), "{}", result.stderr);
+    assert!(result.stderr.contains("[Strings/UIString.xlsx]UIString!B4: 기준 언어(ko) 칸이 비어 있습니다"), "{}", result.stderr);
 }
 
 #[test]
@@ -298,8 +298,8 @@ fn format_arguments_must_match_the_base_text() {
     project.ui_strings(vec![row!["Msg", "{Name}님 {0} 골드", "{0} gold", "{Name} {0} 金币"]]);
     let result = project.build(&[]);
     assert_eq!(result.code, 0);
-    assert!(result.stderr.contains("[Strings/UI.xlsx]UI!C4: en 번역의 서식 인자가 기준 언어(ko)와 다릅니다: {0} / {0} {Name}"), "{}", result.stderr);
-    assert!(!result.stderr.contains("UI!D4"));
+    assert!(result.stderr.contains("[Strings/UIString.xlsx]UIString!C4: en 번역의 서식 인자가 기준 언어(ko)와 다릅니다: {0} / {0} {Name}"), "{}", result.stderr);
+    assert!(!result.stderr.contains("UIString!D4"));
 }
 
 #[test]
@@ -325,16 +325,16 @@ fn string_keys_differing_only_by_case_are_rejected() {
 fn new_creates_a_string_data_workbook() {
     let project = Project::new();
     project.string_schema("UIString", &UI_LANGUAGES);
-    let out = project.table.join("Strings/UI.xlsx");
-    let result = drtable(["new", "--table", "UI", "--out", &s(&out), "--schema", &s(&project.table.join("Schema"))]);
+    let out = project.table.join("Strings/UIString.xlsx");
+    let result = drtable(["new", "--table", "UIString", "--out", &s(&out), "--schema", &s(&project.table.join("Schema"))]);
     assert_eq!(result.code, 0, "{}", result.stderr);
     use calamine::{Reader, Xlsx, open_workbook};
     let mut workbook: Xlsx<_> = open_workbook(&out).unwrap();
-    assert_eq!(workbook.sheet_names(), ["UI"]);
-    let values = workbook.worksheet_range("UI").unwrap();
+    assert_eq!(workbook.sheet_names(), ["UIString"]);
+    let values = workbook.worksheet_range("UIString").unwrap();
     let names: Vec<String> = (0..4).map(|c| values.get_value((0, c)).unwrap().to_string()).collect();
     assert_eq!(names, ["Id", "ko", "en", "zh-Hans"]);
-    let formulas = workbook.worksheet_formula("UI").unwrap();
+    let formulas = workbook.worksheet_formula("UIString").unwrap();
     let base_view = formulas.get_value((1, 1)).cloned().unwrap_or_default();
     assert!(base_view.contains("SUBSTITUTE(B$1,\"-\",\"_\")"), "{base_view}");
     // The new workbook builds (an empty string table).
@@ -351,14 +351,11 @@ fn string_table_names_end_with_string() {
 }
 
 #[test]
-fn data_sheets_may_use_the_full_name() {
+fn data_sheets_are_named_after_the_table() {
     let project = Project::new();
     project.string_schema("UIString", &UI_LANGUAGES);
-    project.data("Strings/UI.xlsx", vec![
-        ("UI", sheet(row!["Id", "ko", "en", "zh-Hans"], vec![row!["A", "가", (), ()]])),
-        ("UIString#more", sheet(row!["Id", "ko", "en", "zh-Hans"], vec![row!["B", "나", (), ()]])),
-    ]);
+    project.data("Strings/UI.xlsx", vec![("UI", sheet(row!["Id", "ko", "en", "zh-Hans"], vec![row!["A", "가", (), ()]]))]);
     let result = project.build(&[]);
-    assert_eq!(result.code, 0, "{}", result.stderr);
-    assert_eq!(project.json("client/Strings/ko/UIString.json")["keys"], json!(["A", "B"]));
+    assert_eq!(result.code, 1);
+    assert!(result.stderr.contains("[Strings/UI.xlsx]UI!A1: 시트 이름은 테이블 이름 그대로 'UIString'으로 쓰세요"), "{}", result.stderr);
 }

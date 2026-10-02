@@ -304,10 +304,13 @@ fn bind(schema: &Schema, columns: &[ColumnSchema], part: &SheetRef, errors: &mut
     // Schema row of each array field: its data columns may be Name[0], Name[1], ... or one cell.
     let array_rows: HashSet<usize> = columns.iter().filter(|c| c.is_array()).map(|c| c.source_columns[0]).collect();
     let mut defined: Vec<(String, (usize, String))> = Vec::new();
+    // Fields the schema still declares the old way (Reward[0]): reported by the schema, so their
+    // data columns are not reported again here.
+    let mut old_arrays: HashSet<String> = HashSet::new();
     for (row, raw_name, _, raw_scope) in schema.raw_columns() {
         let name = raw_name.py_str().trim().to_string();
-        // Old per-element schema names (Reward[0]) are reported by the schema; not again here.
-        if ELEMENT_COLUMN_RE.is_match(&name) {
+        if let Some(captures) = ELEMENT_COLUMN_RE.captures(&name) {
+            old_arrays.insert(captures[1].to_string());
             continue;
         }
         let value = (row, raw_scope.py_str().trim().to_lowercase());
@@ -333,6 +336,10 @@ fn bind(schema: &Schema, columns: &[ColumnSchema], part: &SheetRef, errors: &mut
         let cell = cell_name(index, NAME_ROW);
         if let Some(captures) = ELEMENT_COLUMN_RE.captures(&name) {
             let field = captures[1].to_string();
+            if old_arrays.contains(&field) {
+                ok = false;
+                continue;
+            }
             if !is_array_field(&field) {
                 let (ko, en) = if defined.iter().any(|(n, _)| *n == field) {
                     (format!("필드 '{field}'은 배열이 아니라 '{name}' 열을 쓸 수 없습니다"), format!("field '{field}' is not an array, so there is no '{name}' column"))

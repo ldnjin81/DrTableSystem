@@ -5,21 +5,23 @@ DrTableSystem (DesignToRuntime Table System) carries the data designers write in
 - **Unreal C++**: `USTRUCT` row types, `UENUM` enums, one DataAsset class per table, and optionally typed lookup functions and a registration header. **Generated from the schemas only**, so data edits never change code.
 - **Client JSON**: the rows a game client needs, plus prebuilt key indices, ready to be baked into DataAssets.
 - **Server JSON**: the rows a server needs (server-only fields included, client-only fields excluded).
+- **String tables**: text that differs per language, such as UI text and item names. Each language gets its own file and asset; the game loads only the current language and switches at runtime (section 8).
 
-The **DrTableSystem Unreal plugin** bakes the client JSON into DataAssets, loads them at runtime without copying or building indices, and detects stale assets.
+The **DrTableSystem Unreal plugin** bakes the client JSON into DataAssets, loads them at runtime without copying or building indices, and detects stale assets. String tables are baked per language; only the current language stays in memory, and `OnLanguageChanged` tells the UI when the language changes.
 
 ```
-Schemas (Schema/*.schema.xlsx, Enums/*.enum.xlsx) ─┐                 ┌─▶ C++ headers ─────────────▶ compile
+Schemas (Schema/*.schema.xlsx, *.string.xlsx, Enums/*.enum.xlsx) ─┐                 ┌─▶ C++ headers ─────────────▶ compile
                                                       ├▶ drtable build ─┼─▶ client JSON ─▶ DrTableBake ─▶ DA_*.uasset ─▶ runtime lookups
-Data workbooks (*.xlsx: field names in row 1, data) ──┘                 └─▶ server JSON ─▶ your server
+Data workbooks (*.xlsx, Strings/*.xlsx: field names in row 1) ──┘                 └─▶ server JSON ─▶ your server
                  drtable check  ◀─ client/server JSON  (reference integrity, CI)
                  drtable graph  ─▶ references.md       (Mermaid diagram)
 ```
 
 | Who | Edits | Effect |
 |---|---|---|
-| Programmers | schemas (fields, types, scopes, enum values) | code changes → reviewed |
+| Programmers | schemas (fields, types, scopes, enum values, string table languages) | code changes → reviewed |
 | Designers | data workbooks (values, rows, splitting into files and sheets) | only JSON and assets change; code stays the same |
+| Translators | string data in the `Strings/` folder | only per-language JSON and assets change; code stays the same |
 
 Contents
 
@@ -501,6 +503,8 @@ drtable-gui --input Design/Tables --schema Design/Tables/Schema --out-cpp Source
    ```
 
 When designers changed only data, rerun `drtable build` (step 3) and the bake (step 5). The code does not change, so nothing needs compiling.
+
+String tables (section 8) need no registration. The same bake writes the per-language assets and the language list, and `UDrStringSubsystem` loads them when the game starts.
 
 ### Loading
 

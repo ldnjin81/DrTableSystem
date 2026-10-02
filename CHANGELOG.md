@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - Time types: `datetime` / `datetime<zone>` with IANA zones (`Asia/Seoul`, daylight saving time by date), `UTC`, `GMT`, `KST`, `JST`, `HKT`, `SGT` or `±HH:MM`; ambiguous or seasonal abbreviations (CST, IST, EST) are errors (Excel values read in that zone, stored as Unix milliseconds UTC; a written `Z`/offset wins) and `duration` (time cells, `1:30:00`, `90s`, `1h30m`, `2d`, `500ms`, plain seconds; milliseconds). C++ `FDateTime` / `FTimespan` with `DrTimeZone` metadata; `DrTableBake` converts the milliseconds to ticks.
 - Excel date cells keep milliseconds.

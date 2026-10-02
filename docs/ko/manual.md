@@ -60,7 +60,7 @@ cargo build --release --features gui --bin drtable-gui  # rust/target/release/dr
 ```
 
 
-언리얼 쪽은 `unreal/DrTableSystem`을 프로젝트의 `Plugins/` 폴더에 복사합니다([11절](#10-언리얼-플러그인)). 플러그인은 Unreal Engine 5.8에서 개발·검증했습니다.
+언리얼 쪽은 `unreal/DrTableSystem`을 프로젝트의 `Plugins/` 폴더에 복사합니다([11절](#11-언리얼-플러그인)). 플러그인은 Unreal Engine 5.8에서 개발·검증했습니다.
 
 메시지는 기본이 영어입니다. 한국어로 보려면 `--lang ko`를 주거나 환경변수 `DRTABLE_LANG=ko`를 설정합니다. 생성되는 파일은 언제나 영어입니다.
 
@@ -82,9 +82,10 @@ Design/Tables/                    ← --input (데이터)
     UI.xlsx
 ```
 
-- 스키마는 테이블마다 파일 하나, 열거형은 열거형 폴더에 열거형마다 파일 하나입니다. 파일 이름은 정의한 이름과 같아야 합니다(`Items.schema.xlsx` ↔ 테이블 `Items`).
+- 스키마는 테이블마다 파일 하나, 열거형은 열거형 폴더에 열거형마다 파일 하나입니다. 파일 이름은 정의한 이름과 같아야 합니다(`Items.schema.xlsx` ↔ 테이블 `Items`). 스트링테이블 스키마(`UIString.string.xlsx`)도 스키마 폴더에 둡니다(8절).
 - 열거형 폴더는 테이블 스키마 폴더와 **나란히** 둡니다. `--enums`를 주지 않으면 스키마 폴더 옆의 `Enums`를 씁니다(`Table/Schema` → `Table/Enums`).
-- `--schema`를 주지 않으면 입력 폴더 전체에서 `*.schema.xlsx`를 찾고, 열거형 폴더는 입력 폴더 안의 `Enums`입니다. 데이터를 읽을 때 스키마 파일은 건너뜁니다.
+- `--schema`를 주지 않으면 입력 폴더 전체에서 `*.schema.xlsx`·`*.string.xlsx`를 찾고, 열거형 폴더와 스트링 폴더는 입력 폴더 안의 `Enums`·`Strings`입니다. 데이터를 읽을 때 스키마 파일은 건너뜁니다.
+- 스트링 폴더의 엑셀은 스트링테이블 데이터로만 읽습니다(8절).
 - 엑셀이 열어 둔 파일의 잠금 파일(`~$…`)과 `.`으로 시작하는 숨김 폴더는 건너뜁니다.
 
 ### 스키마 파일
@@ -278,6 +279,8 @@ Design/Tables/Strings/  스트링테이블 데이터 (--strings, 기본: 스키�
 - 기준 언어 칸이 비면 오류입니다. **다른 언어 칸이 비면 빌드할 때 기준 언어 글로 채우고** 언어마다 경고를 한 줄 냅니다. 그래서 게임은 설정 언어 하나만 올려도 빈 글이 없습니다.
 - 서식 인자(`{0}`, `{Name}`)가 기준 언어와 다른 번역은 칸마다 경고합니다.
 - 숫자만 적은 칸(`100`)도 글로 읽습니다.
+- 1행에는 스키마의 **모든 언어 열**이 있어야 합니다(아직 번역하지 않은 언어도 열은 둡니다). 열 순서는 자유이고, `#`으로 시작하는 메모 열을 더해도 됩니다.
+- 새 데이터 파일은 `drtable new --table UI --out Design/Tables/Strings/UI.xlsx --schema Design/Tables/Schema`로 만듭니다(`--table`에는 `UI`나 `UIString`).
 
 ### 산출물
 
@@ -306,7 +309,7 @@ FText Name = Sword->GetName();   // 현재 언어의 ItemString 글
 
 ### 언리얼에서 쓰기
 
-굽기(`DrTableBake`)가 언어마다 에셋을 만듭니다(`<AssetRoot>/Strings/<언어>/DA_<테이블>`). 언어 목록 에셋 `<AssetRoot>/Strings/DA_DrStrings`도 함께 만듭니다. 어떤 테이블에 그 언어가 없으면 그 테이블의 기준 언어 에셋을 씁니다.
+굽기(`DrTableBake`)가 언어마다 에셋을 만듭니다(`<AssetRoot>/Strings/<언어>/DA_<테이블>`, 예: `/Game/Data/Strings/en/DA_UIString`. 이름은 `--asset-name` 규칙을 따릅니다). 언어 목록 에셋 `<AssetRoot>/Strings/DA_DrStrings`도 함께 만듭니다. 어떤 테이블에 그 언어가 없으면 그 테이블의 기준 언어 에셋을 씁니다.
 
 `UDrStringSubsystem`(GameInstance 서브시스템)이 게임 시작 때 언어를 정해 **동기로** 불러옵니다. 그래서 첫 프레임부터 글이 나옵니다. 시작 언어는 다음 순서로 정합니다.
 1. 지난번에 고른 언어(`GameUserSettings.ini`)
@@ -321,7 +324,7 @@ FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
 ```
 
 - `SetLanguage`는 새 언어 에셋을 **비동기로** 불러옵니다. 다 불러올 때까지 화면은 이전 언어 그대로입니다.
-- 다 불러오면 한 번에 교체하고 이전 언어 에셋을 놓습니다. 가비지 컬렉션이 메모리에서 내립니다. 그다음 `OnLanguageChanged`(블루프린트용)를 부릅니다. C++에서는 `UDrStringTables::OnLanguageChanged`도 씁니다.
+- 다 불러오면 한 번에 교체하고 이전 언어 에셋을 놓습니다. 가비지 컬렉션이 메모리에서 내립니다. 그다음 `OnLanguageChanged`(블루프린트용)를 부릅니다. C++에서는 `Strings->GetTables()->OnLanguageChanged`(네이티브 델리게이트)도 씁니다.
 - 불러오는 중에 다른 언어를 요청하면 마지막 요청만 반영합니다. 없는 언어를 요청하면 경고만 남기고 지금 언어를 유지합니다.
 - 없는 키는 개발 빌드에서 `<테이블.키>`를 보여 주고 경고를 한 번 남깁니다. 배포 빌드에서는 빈 글입니다.
 - 글은 `FText::AsCultureInvariant`로 돌려줍니다. 엔진 현지화(.locres)와 섞이지 않고 `FText::Format`에 그대로 쓸 수 있습니다.
@@ -336,17 +339,18 @@ FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
 ### C++
 
 ```
-<out-cpp>/EDtElement.h          열거형마다 하나
-<out-cpp>/DtEffectsRow.h        테이블마다 행 구조체
-<out-cpp>/DtEffectsTable.h      테이블마다 DataAsset 클래스
-<out-cpp>/DtGeneratedTables.h   이름·키·스키마 해시 상수
+<out-cpp>/EDrElement.h          열거형마다 하나
+<out-cpp>/DrEffectsRow.h        테이블마다 행 구조체
+<out-cpp>/DrEffectsTable.h      테이블마다 DataAsset 클래스
+<out-cpp>/DrGeneratedTables.h   이름·키·스키마 해시 상수
+<out-cpp>/DrUIStringKeys.h      스트링테이블 키 상수(--string-keys일 때만)
 ```
 
 `--runtime-header`(또는 `--ue-plugin`)를 주면 다음도 만듭니다.
 
 ```
-<out-cpp>/DtEffectsRow.cpp        조회·참조 함수 정의
-<out-cpp>/DtTableRegistration.h   DtGeneratedTables::RegisterAll(Registry)
+<out-cpp>/DrEffectsRow.cpp        조회·참조 함수 정의
+<out-cpp>/DrTableRegistration.h   DrGeneratedTables::RegisterAll(Registry)
 ```
 
 - 행 구조체 `F<접두사><테이블>Row`, 에셋 클래스 `U<접두사><테이블>Table`, 열거형 `E<접두사><열거형>`. `--prefix` 기본값은 `Dr`이니 프로젝트 접두사로 바꿔 쓰세요.
@@ -363,17 +367,19 @@ FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
 | `static TConstArrayView<FRow> GetAll()` | 모든 테이블 | 전체 행 |
 | `const F대상Row* Get<필드>() const` | `Ref<대상>` 필드 | 참조한 행 또는 nullptr |
 | `TArray<const F대상Row*> Get<필드>() const` | `Ref<대상.서브키>` 필드 | 참조한 행들 |
+| `FText Get<필드>() const` | `Ref<스트링테이블>` 필드 | 현재 언어의 글(비어 있으면 빈 글) |
 | `Get<필드>(int32 Index) const` | 참조 배열 | 위와 같되 원소 하나 |
 
 참조가 비어 있으면 조회 없이 바로 nullptr나 빈 배열을 돌려줍니다. 생성할 함수 이름이 필드와 겹치면(예: 필드 이름이 `Find`) 생성 오류입니다.
 
-생성 함수는 런타임 헤더가 제공하는 템플릿 세 개만 부릅니다. 언리얼 플러그인의 `DrTableRuntime.h`가 구현하고, 다른 환경이면 직접 구현해도 됩니다.
+생성 함수는 런타임 헤더가 제공하는 함수 네 개만 부릅니다(`GetText`는 스트링테이블 참조가 있을 때만). 언리얼 플러그인의 `DrTableRuntime.h`가 구현하고, 다른 환경이면 직접 구현해도 됩니다.
 
 ```cpp
 namespace DrTableRuntime {
   template <typename TRow, typename TKey> const TRow* FindByKey(const TKey& Key);
   template <typename TRow, typename TKey> TArray<const TRow*> FindAllBySubKey(FName SubKeyName, const TKey& Key);
   template <typename TRow> TConstArrayView<TRow> GetAll();
+  FText GetText(FName Table, FName Key);
 }
 ```
 
@@ -400,6 +406,7 @@ namespace DrTableRuntime {
 
 - 테이블 목록: 행 수, 스키마·내용 해시, 스키마 파일(`schema`), 데이터 위치(`sources`: 파일·시트·행 수)
 - 열거형과 참조
+- 스트링테이블(`string_tables`): 기준 언어, 언어 목록, 언어별 내용 해시, 스키마 파일, 데이터 위치(8절)
 - 굽기 도구가 쓰는 이름 규칙(`cpp_prefix`, `asset_name`)
 
 산출물은 **결정적**입니다. 같은 입력이면 바이트까지 같습니다(LF 줄바꿈, 고정된 키 순서, `--stamp`를 주지 않는 한 시각 정보 없음). 출력 폴더는 쓰기 전에 비우므로 지운 테이블의 파일이 남지 않습니다.
@@ -411,9 +418,9 @@ drtable build --input <xlsx|폴더> --out-cpp <dir> --out-client <dir> --out-ser
                [--schema <폴더>] [--enums <폴더>] [--strings <폴더>] [--string-keys]
                [--prefix Dr] [--ue-plugin] [--asset-base <클래스> --asset-base-header <헤더.h>]
                [--runtime-header <헤더.h>] [--asset-name DA_{table}] [--stamp <ISO8601>]
-drtable graph --input <xlsx|폴더> --out references.md [--schema …] [--enums …]
+drtable graph --input <xlsx|폴더> --out references.md [--schema …] [--enums …] [--strings …]
 drtable check --client <클라 JSON 폴더> [--server <서버 JSON 폴더>]
-drtable check --input <xlsx|폴더> [--schema …] [--enums …]   # 검사만 하고 아무것도 쓰지 않음
+drtable check --input <xlsx|폴더> [--schema …] [--enums …] [--strings …]   # 검사만 하고 아무것도 쓰지 않음
 drtable new --table <테이블> --out <새 xlsx> --schema <폴더> [--enums …]  # 참고 수식이 든 새 데이터 파일
 drtable [--lang en|ko] …
 ```
@@ -537,6 +544,7 @@ drtable-gui --input Design/Tables --schema Design/Tables/Schema --out-cpp Source
 
 - 스키마를 바꾸고 다시 생성·빌드·굽기를 하지 않으면, 런타임이 옛 구조의 에셋을 거부합니다.
 - 값만 바꾸고 굽지 않은 경우는 굽기 검증(`-Verify`)이 잡습니다. 내용 해시는 생성 코드에 넣지 않습니다(넣으면 데이터 수정이 코드를 바꾸기 때문). 배포 전과 CI에서 `-Verify`를 돌리세요.
+- 스트링테이블은 언어마다 내용 해시가 따로 있어서, 한 언어만 고치면 그 언어 에셋만 다시 굽습니다. `-Verify`는 언어별 에셋과 언어 목록 에셋(`DA_DrStrings`)도 검사합니다.
 
 ## 13. 조회가 틀리지 않게 지키는 규칙
 
@@ -573,6 +581,7 @@ UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # 빠졌거나 오�
 
 | 메시지 | 원인과 조치 |
 |---|---|
+| `스키마도 데이터 파일도 없습니다` | `--input` 폴더가 비어 있습니다. 경로를 확인하세요(빈 폴더로 빌드하면 생성 코드가 모두 지워지므로 오류로 멈춥니다). |
 | `스키마가 없습니다. 'X.schema.xlsx'에…` | 데이터 시트 이름에 맞는 스키마가 없습니다. 스키마를 만들거나 `--schema` 경로를 확인하세요. |
 | `필드 'X'이 스키마 …에 없습니다` | 데이터 1행에 스키마에 없는 이름이 있습니다. 오타를 고치거나 스키마에 필드를 추가하세요(프로그래머). 메모 열이면 이름을 `#`으로 시작하세요. |
 | `필드 'X'의 열이 없습니다` | 스키마의 필드가 데이터 시트에 없습니다. 열을 추가하세요. |

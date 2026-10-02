@@ -199,11 +199,22 @@ File paths are relative to the input folder (data) or the schema folder.
 | `Start: datetime<+09:00>` | a date-formatted cell, `2026-10-01 10:00`, `2026-10-01` | `1790816400000` (Unix time in milliseconds, UTC) | `FDateTime` |
 | `Cooldown: duration` | a time-formatted cell (`1:30:00`), `90s`, `1h30m`, `2d`, `500ms`, `1:30` | `5400000` (milliseconds) | `FTimespan` |
 
-- **The time zone is part of the schema type**: `datetime<+09:00>` reads Excel values as Korea time and stores UTC; plain `datetime` is UTC. A cell that writes `Z` or `+09:00` itself wins. When many tables share it, use an alias (`KstTime | datetime<+09:00>`).
+- **The time zone is part of the schema type.** Excel values are read in that zone and stored as UTC; plain `datetime` is UTC. A cell that writes `Z` or `+09:00` itself wins.
+
+  | Written | Meaning |
+  |---|---|
+  | `datetime<Asia/Seoul>`, `datetime<America/New_York>` | **IANA time zone (recommended)**; daylight saving time follows the date |
+  | `datetime<UTC>`, `datetime<GMT>` | +00:00 (`GMT` is fixed +00:00, not UK time) |
+  | `datetime<KST>`, `datetime<JST>`, `datetime<HKT>`, `datetime<SGT>` | +09:00, +09:00, +08:00, +08:00 (no daylight saving time) |
+  | `datetime<+09:00>` | a fixed offset |
+
+  - Abbreviations that are ambiguous (`CST`: US or China; `IST`: India, Israel or Ireland) or seasonal (`EST`/`EDT`) are errors; the message names the IANA zone to use.
+  - In zones with daylight saving time, a skipped local time (New York 2026-03-08 02:30) is an error and a repeated one (2026-11-01 01:30) is read as the earlier instant.
+  - When many tables share a zone, use an alias (`ServerTime | datetime<Asia/Seoul>`).
 - A plain number in a `datetime` cell is an error (it could be an Excel serial date); use a date-formatted cell or date text.
 - A plain number in a `duration` cell is seconds (`30` → 30 s, `1.5` → 1.5 s). Negative durations are errors.
 - Empty cells are 0 (for `datetime`, 1970-01-01 00:00 UTC). Defaults work (`duration=30s`, `datetime<+09:00>=2026-01-01`). Time fields cannot be keys.
-- The server JSON carries the same millisecond integers, ready to compute in any language. The bake writes FDateTime / FTimespan into Unreal assets (1 ms = 10,000 ticks). Fields with a time zone get `meta = (DrTimeZone = "+09:00")`.
+- The server JSON carries the same millisecond integers, ready to compute in any language. The bake writes FDateTime / FTimespan into Unreal assets (1 ms = 10,000 ticks). Fields with a time zone get it as `meta = (DrTimeZone = "Asia/Seoul")`.
 
 ### Type aliases: `*.using.xlsx`
 

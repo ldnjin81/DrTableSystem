@@ -139,3 +139,71 @@ fn cpp_uses_unreal_time_types() {
     }
     assert_eq!(values(&tmp)[0]["Start"], unix_ms(2026, 1, 1, 0, 0, 0));
 }
+
+/// One datetime column in the given type, one row per value.
+fn zone_values(kind: &str, values: Vec<V>) -> (Tmp, Output) {
+    let tmp = Tmp::new();
+    let path = tmp.join("in.xlsx");
+    let mut rows = vec![row!["Id", "At"], row!["ID<int32>", kind], row!["all", "all"]];
+    for (index, value) in values.into_iter().enumerate() {
+        rows.push(vec![V::from(index as i32 + 1), value]);
+    }
+    Book::new().with("Events", rows).save(&path);
+    let result = build(&path, &tmp, &[]);
+    (tmp, result)
+}
+
+fn at(tmp: &Path) -> Vec<i64> {
+    values(tmp).as_array().unwrap().iter().map(|row| row["At"].as_i64().unwrap()).collect()
+}
+
+#[test]
+fn named_zones_and_abbreviations() {
+    for (kind, offset) in [("datetime<utc>", 0), ("datetime<GMT>", 0), ("datetime<kst>", 9), ("datetime<JST>", 9), ("datetime<Asia/Seoul>", 9), ("datetime<SGT>", 8)] {
+        let (tmp, result) = zone_values(kind, vec![V::from("2026-10-01 10:00")]);
+        assert_eq!(result.code, 0, "{kind}: {}", result.stderr);
+        assert_eq!(at(&tmp), [unix_ms(2026, 10, 1, 10, 0, offset)], "{kind}");
+    }
+    // KST is the same type as +09:00 (same schema hash).
+    let (a, _) = zone_values("datetime<KST>", vec![V::from("2026-10-01 10:00")]);
+    let (b, _) = zone_values("datetime<+09:00>", vec![V::from("2026-10-01 10:00")]);
+    assert_eq!(json(&a.join("client/Events.json"))["schema_hash"], json(&b.join("client/Events.json"))["schema_hash"]);
+}
+
+#[test]
+fn iana_zones_follow_daylight_saving_time() {
+    let (tmp, result) = zone_values("datetime<America/New_York>", vec![
+        V::from("2026-01-15 12:00"),
+        V::Date(2026, 7, 15, 12, 0, 0.0),
+        // 01:30 happens twice when clocks go back on 2026-11-01: the earlier (EDT) instant.
+        V::from("2026-11-01 01:30"),
+    ]);
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    assert_eq!(at(&tmp), [unix_ms(2026, 1, 15, 12, 0, -5), unix_ms(2026, 7, 15, 12, 0, -4), unix_ms(2026, 11, 1, 1, 30, -4)]);
+    let header = read(&tmp.join("cpp/DrEventsRow.h"));
+    assert!(header.contains("meta = (DrTimeZone = \"America/New_York\"))"), "{header}");
+}
+
+#[test]
+fn skipped_local_times_are_errors() {
+    // Clocks jump from 02:00 to 03:00 on 2026-03-08 in New York.
+    let (_, result) = zone_values("datetime<America/New_York>", vec![V::from("2026-03-08 02:30")]);
+    assert_eq!(result.code, 1);
+    assert!(result.stderr.contains("[in.xlsx]Events!B4: '2026-03-08 02:30' 시각은 America/New_York 서머타임 전환으로 건너뛰어 존재하지 않습니다"), "{}", result.stderr);
+}
+
+#[test]
+fn ambiguous_or_unknown_zones_are_errors() {
+    for (kind, message) in [
+        ("datetime<CST>", "America/Chicago, Asia/Shanghai"),
+        ("datetime<IST>", "Asia/Kolkata"),
+        ("datetime<EST>", "America/New_York"),
+        ("datetime<kr>", "모호하거나 계절에 따라 바뀝니다"),
+        ("datetime<Mars/Base>", "알 수 없는 시간대 이름 'Mars/Base'"),
+    ] {
+        let (_, result) = zone_values(kind, vec![V::from("2026-10-01 10:00")]);
+        assert_eq!(result.code, 1, "{kind}");
+        assert!(result.stderr.contains("[Events.schema.xlsx]Events!B3"), "{kind}: {}", result.stderr);
+        assert!(result.stderr.contains(message), "{kind}: {}", result.stderr);
+    }
+}

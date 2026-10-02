@@ -2,7 +2,7 @@
 
 use crate::errors::ErrorCollector;
 use crate::i18n::tr;
-use crate::schema::{datetime_offset, enum_of, fixed_of, Enums};
+use crate::schema::{datetime_zone, enum_of, fixed_of, Enums, TimeZone};
 use crate::value::{Cell, Value};
 
 const STRING_TYPES: [&str; 6] = ["name", "string", "text", "tag", "path", "lang"];
@@ -28,10 +28,17 @@ pub fn convert_value(
         ));
         Some(default_value(type_name, enums))
     };
-    if let Some(offset) = datetime_offset(type_name) {
-        return match parse_datetime_ms(value, offset) {
-            Some(ms) => Some(Value::Int(ms)),
-            None => {
+    if let Some(zone) = datetime_zone(type_name) {
+        return match parse_datetime_ms(value, zone) {
+            Ok(ms) => Some(Value::Int(ms)),
+            Err(DateFailure::Skipped) => {
+                errors.add(sheet, cell, tr(
+                    format!("'{}' 시각은 {} 서머타임 전환으로 건너뛰어 존재하지 않습니다", value.py_str(), zone.label()),
+                    format!("'{}' does not exist in {}: the clocks skip it for daylight saving time", value.py_str(), zone.label()),
+                ));
+                Some(Value::Int(0))
+            }
+            Err(DateFailure::Unreadable) => {
                 errors.add(sheet, cell, tr(
                     format!("'{}' 값을 날짜·시각으로 읽을 수 없습니다. 날짜 서식 칸이나 2026-10-01 10:00(+09:00) 형식으로 쓰세요", value.py_str()),
                     format!("cannot read '{}' as a date and time. Use a date-formatted cell or 2026-10-01 10:00 (+09:00)", value.py_str()),
@@ -181,7 +188,7 @@ fn parse_python_float(text: &str) -> Option<f64> {
 
 /// The value an empty cell takes: 0, false, "" or the first enumerator.
 pub fn default_value(type_name: &str, enums: &Enums) -> Value {
-    if fixed_of(type_name).is_some() || datetime_offset(type_name).is_some() || type_name == "duration" {
+    if fixed_of(type_name).is_some() || datetime_zone(type_name).is_some() || type_name == "duration" {
         return Value::Int(0);
     }
     match type_name {
@@ -218,31 +225,51 @@ static CLOCK_RE: std::sync::LazyLock<regex::Regex> =
 static UNIT_RE: std::sync::LazyLock<regex::Regex> =
     std::sync::LazyLock::new(|| regex::Regex::new(r"(\d+(?:\.\d+)?)\s*(ms|d|h|m|s)").unwrap());
 
+enum DateFailure {
+    Unreadable,
+    /// A local time that daylight saving time skips (02:30 on a spring-forward night).
+    Skipped,
+}
+
 /// Milliseconds since 1970-01-01 UTC. Excel date cells and text without an offset are read in
-/// `offset_minutes`; text may carry its own (`Z`, `+09:00`).
-fn parse_datetime_ms(value: &Cell, offset_minutes: i32) -> Option<i64> {
+/// `zone`; text may carry its own (`Z`, `+09:00`). In a repeated hour (daylight saving time
+/// ends) the earlier instant is taken.
+fn parse_datetime_ms(value: &Cell, zone: TimeZone) -> Result<i64, DateFailure> {
+    use chrono::TimeZone as _;
     let text = match value {
         Cell::Date(s) | Cell::Str(s) => s.trim().to_string(),
-        _ => return None,
+        _ => return Err(DateFailure::Unreadable),
     };
-    let c = DATETIME_TEXT_RE.captures(&text)?;
+    let unreadable = || DateFailure::Unreadable;
+    let c = DATETIME_TEXT_RE.captures(&text).ok_or_else(unreadable)?;
     let number = |i: usize| c.get(i).map(|m| m.as_str().parse::<u32>()).transpose().ok().flatten();
-    let date = chrono::NaiveDate::from_ymd_opt(c[1].parse().ok()?, number(2)?, number(3)?)?;
+    let date = chrono::NaiveDate::from_ymd_opt(c[1].parse().map_err(|_| unreadable())?, number(2).ok_or_else(unreadable)?, number(3).ok_or_else(unreadable)?)
+        .ok_or_else(unreadable)?;
     let millis = c.get(7).map(|m| {
         let digits = format!("{:0<3}", m.as_str());
         digits[..3].parse::<u32>().unwrap_or(0)
     });
-    let time = chrono::NaiveTime::from_hms_milli_opt(number(4).unwrap_or(0), number(5).unwrap_or(0), number(6).unwrap_or(0), millis.unwrap_or(0))?;
-    let offset = match c.get(8).map(|m| m.as_str()) {
-        None => offset_minutes,
-        Some("Z") => 0,
-        Some(zone) => {
-            let digits: String = zone[1..].chars().filter(|ch| ch.is_ascii_digit()).collect();
-            let minutes = digits[..2].parse::<i32>().ok()? * 60 + digits[2..].parse::<i32>().ok()?;
-            if zone.starts_with('-') { -minutes } else { minutes }
+    let time = chrono::NaiveTime::from_hms_milli_opt(number(4).unwrap_or(0), number(5).unwrap_or(0), number(6).unwrap_or(0), millis.unwrap_or(0))
+        .ok_or_else(unreadable)?;
+    let local = date.and_time(time);
+    let written = match c.get(8).map(|m| m.as_str()) {
+        None => None,
+        Some("Z") => Some(0),
+        Some(offset) => {
+            let digits: String = offset[1..].chars().filter(|ch| ch.is_ascii_digit()).collect();
+            let minutes = digits[..2].parse::<i32>().map_err(|_| unreadable())? * 60 + digits[2..].parse::<i32>().map_err(|_| unreadable())?;
+            Some(if offset.starts_with('-') { -minutes } else { minutes })
         }
     };
-    Some(date.and_time(time).and_utc().timestamp_millis() - offset as i64 * 60_000)
+    let fixed = |minutes: i32| local.and_utc().timestamp_millis() - minutes as i64 * 60_000;
+    match (written, zone) {
+        (Some(minutes), _) | (None, TimeZone::Fixed(minutes)) => Ok(fixed(minutes)),
+        (None, TimeZone::Named(tz)) => match tz.from_local_datetime(&local) {
+            chrono::LocalResult::Single(moment) => Ok(moment.timestamp_millis()),
+            chrono::LocalResult::Ambiguous(earlier, _) => Ok(earlier.timestamp_millis()),
+            chrono::LocalResult::None => Err(DateFailure::Skipped),
+        },
+    }
 }
 
 /// Milliseconds. An Excel time cell (1:30:00, also [h]:mm over a day), "h:mm[:ss[.fff]]",

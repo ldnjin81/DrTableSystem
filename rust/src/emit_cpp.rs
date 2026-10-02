@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::excel::DataModel;
 use crate::i18n::tr;
-use crate::schema::{datetime_offset, enum_of, fixed_of, in_scopes, ColumnSchema, EnumSchema, Enums, TableSchema, CLIENT_SCOPES};
+use crate::schema::{datetime_zone, enum_of, fixed_of, in_scopes, ColumnSchema, EnumSchema, Enums, TableSchema, CLIENT_SCOPES};
 use crate::value::{json_string, py_float_repr, Value};
 use crate::values::default_value;
 
@@ -17,7 +17,7 @@ pub const DEFAULT_ASSET_NAME: &str = "DA_{table}";
 const UNIX_EPOCH_TICKS: i64 = 621_355_968_000_000_000;
 
 fn cpp_type_of(type_name: &str, prefix: &str) -> String {
-    if datetime_offset(type_name).is_some() {
+    if datetime_zone(type_name).is_some() {
         return "FDateTime".into();
     }
     if type_name == "duration" {
@@ -45,7 +45,7 @@ fn cpp_type(column: &ColumnSchema, prefix: &str) -> String {
 }
 
 fn type_include(type_name: &str) -> Option<&'static str> {
-    if datetime_offset(type_name).is_some() {
+    if datetime_zone(type_name).is_some() {
         return Some("Misc/DateTime.h");
     }
     match type_name {
@@ -176,9 +176,8 @@ fn table_header(table: &TableSchema, prefix: &str, enums: &Enums, accessors: boo
         if let Some((scale, _)) = fixed_of(&column.type_name) {
             meta.push(format!("DrFixedScale = \"{scale}\""));
         }
-        if let Some(offset) = datetime_offset(&column.type_name).filter(|o| *o != 0) {
-            let sign = if offset < 0 { '-' } else { '+' };
-            meta.push(format!("DrTimeZone = \"{sign}{:02}:{:02}\"", offset.abs() / 60, offset.abs() % 60));
+        if let Some(zone) = datetime_zone(&column.type_name).map(|z| z.label()).filter(|l| !l.is_empty()) {
+            meta.push(format!("DrTimeZone = \"{zone}\""));
         }
         if let Some(alias) = &column.alias {
             meta.push(format!("DrType = \"{alias}\""));
@@ -482,7 +481,7 @@ fn cpp_initializer(column: &ColumnSchema, prefix: &str, enums: &Enums) -> String
     if fixed_of(&column.type_name).is_some() {
         return " = 0".into();
     }
-    if datetime_offset(&column.type_name).is_some() {
+    if datetime_zone(&column.type_name).is_some() {
         // An empty datetime is 0 in JSON: 1970-01-01 00:00 UTC.
         return format!(" = FDateTime({UNIX_EPOCH_TICKS})");
     }
@@ -520,7 +519,7 @@ fn cpp_value(type_name: &str, value: &Value, prefix: &str) -> String {
     }
     // Times are milliseconds in JSON; Unreal counts 100 ns ticks.
     if let Value::Int(ms) = value {
-        if datetime_offset(type_name).is_some() {
+        if datetime_zone(type_name).is_some() {
             return format!("FDateTime({})", UNIX_EPOCH_TICKS + ms * 10_000);
         }
         if type_name == "duration" {

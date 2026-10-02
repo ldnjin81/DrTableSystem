@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
 - String table data sheets are named after the table (`UIString`); the short form (`UI`) is no longer accepted. `drtable new --table` takes the full name.
 - Manual: string tables in the overview and the other chapters; link and example fixes.

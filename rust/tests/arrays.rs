@@ -251,3 +251,18 @@ fn the_maximum_is_structure_the_data_form_is_not() {
     assert_eq!(cells, columns);
     assert_ne!(cells, bounded);
 }
+
+#[test]
+fn an_old_style_schema_gives_one_error_per_field() {
+    // Before 0.7.0 a table declared Reward[0], Reward[1] in the schema and the data had the same
+    // columns: only the schema line is reported, with the new form.
+    let tmp = Tmp::new();
+    let folder = tmp.join("data");
+    schema(&folder, "Items", &[("Id", "ID<int32>", "all"), ("Reward[0]", "int32", "all"), ("Reward[1]", "int32", "all")]);
+    data(&folder.join("Items.xlsx"), vec![("Items", row!["Id", "Reward[0]", "Reward[1]"], vec![row![1, 10, 20]])]);
+    let result = build(&folder, &tmp.join("out"), &[]);
+    assert_eq!(result.code, 1);
+    let lines: Vec<&str> = result.stderr.lines().filter(|l| l.contains('!')).collect();
+    assert_eq!(lines.len(), 1, "{}", result.stderr);
+    assert!(lines[0].contains("[Items.schema.xlsx]Items!A3") && lines[0].contains("자료형 'int32[]'"), "{}", result.stderr);
+}

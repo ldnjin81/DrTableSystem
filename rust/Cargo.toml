@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 calamine = { version = "0.36.1", features = ["dates"] }
 chrono = "0.4.45"
+chrono-tz = "0.10.4"
 eframe = { version = "0.36.2", features = ["persistence"], optional = true }
 egui_kittest = { version = "0.36.2", features = ["wgpu", "eframe"], optional = true }
 png = { version = "0.18.1", optional = true }

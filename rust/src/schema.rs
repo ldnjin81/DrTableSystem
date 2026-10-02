@@ -43,18 +43,90 @@ pub static KEY_ROLE_PREFIX_RE: LazyLock<Regex> =
 static FIXED_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^fixed(64)?\s*<\s*(\d+)\s*>$").unwrap());
 
-/// `datetime<+09:00>`: a point in time written in that UTC offset (plain `datetime` is UTC).
-static DATETIME_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^datetime\s*<\s*([+-])(\d{1,2}):?(\d{2})\s*>$").unwrap());
+/// `datetime<zone>`: a point in time whose Excel values are read in that time zone.
+static DATETIME_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^datetime\s*<\s*([^<>]+?)\s*>$").unwrap());
+static OFFSET_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([+-])(\d{1,2}):?(\d{2})$").unwrap());
 
-/// The UTC offset in minutes of a `datetime` or `datetime<±HH:MM>` type name.
-pub fn datetime_offset(type_name: &str) -> Option<i32> {
+/// The time zone of a datetime type: a fixed UTC offset in minutes, or an IANA zone whose
+/// offset (daylight saving time included) depends on the date.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TimeZone {
+    Fixed(i32),
+    Named(chrono_tz::Tz),
+}
+
+impl TimeZone {
+    /// "+09:00", "Asia/Seoul"; empty for UTC.
+    pub fn label(&self) -> String {
+        match self {
+            TimeZone::Fixed(0) => String::new(),
+            TimeZone::Fixed(minutes) => {
+                let sign = if *minutes < 0 { '-' } else { '+' };
+                format!("{sign}{:02}:{:02}", minutes.abs() / 60, minutes.abs() % 60)
+            }
+            TimeZone::Named(zone) => zone.name().to_string(),
+        }
+    }
+
+    /// The canonical type name: datetime, datetime<+09:00>, datetime<Asia/Seoul>.
+    pub fn type_name(&self) -> String {
+        let label = self.label();
+        if label.is_empty() { "datetime".into() } else { format!("datetime<{label}>") }
+    }
+}
+
+/// Abbreviations that name one fixed offset everywhere (no daylight saving time).
+const FIXED_ABBREVIATIONS: [(&str, i32); 6] =
+    [("UTC", 0), ("GMT", 0), ("KST", 540), ("JST", 540), ("HKT", 480), ("SGT", 480)];
+
+/// Reads a zone written in a schema: UTC, GMT, KST, JST, HKT, SGT, ±HH:MM or an IANA name
+/// (Asia/Seoul). Other abbreviations are ambiguous (CST, IST) or seasonal (EST/EDT) and are
+/// rejected with a suggestion.
+pub fn parse_time_zone(text: &str) -> Result<TimeZone, (String, String)> {
+    let text = text.trim();
+    if let Some((_, minutes)) = FIXED_ABBREVIATIONS.iter().find(|(name, _)| name.eq_ignore_ascii_case(text)) {
+        return Ok(TimeZone::Fixed(*minutes));
+    }
+    if let Some(c) = OFFSET_RE.captures(text) {
+        let minutes = c[2].parse::<i32>().unwrap_or(99) * 60 + c[3].parse::<i32>().unwrap_or(99);
+        if minutes > 14 * 60 || c[3].parse::<i32>().unwrap_or(99) >= 60 {
+            return Err((
+                format!("시간대는 -14:00 ~ +14:00이어야 합니다: '{text}'"),
+                format!("the UTC offset must be between -14:00 and +14:00: '{text}'"),
+            ));
+        }
+        return Ok(TimeZone::Fixed(if &c[1] == "-" { -minutes } else { minutes }));
+    }
+    if text.contains('/') {
+        return text.parse::<chrono_tz::Tz>().map(TimeZone::Named).map_err(|_| (
+            format!("알 수 없는 시간대 이름 '{text}'. Asia/Seoul, America/New_York 같은 IANA 이름을 쓰세요"),
+            format!("unknown time zone '{text}'; use an IANA name such as Asia/Seoul or America/New_York"),
+        ));
+    }
+    let suggestion = match text.to_uppercase().as_str() {
+        "CST" | "CDT" => "America/Chicago, Asia/Shanghai",
+        "IST" => "Asia/Kolkata, Asia/Jerusalem, Europe/Dublin",
+        "EST" | "EDT" => "America/New_York",
+        "PST" | "PDT" => "America/Los_Angeles",
+        "MST" | "MDT" => "America/Denver",
+        "BST" => "Europe/London",
+        "CET" | "CEST" => "Europe/Paris, Europe/Berlin",
+        "AEST" | "AEDT" => "Australia/Sydney",
+        _ => "Asia/Seoul, America/New_York",
+    };
+    Err((
+        format!("시간대 '{text}'은 모호하거나 계절에 따라 바뀝니다. IANA 이름(예: {suggestion})이나 +09:00 같은 오프셋을 쓰세요(약어는 UTC, GMT, KST, JST, HKT, SGT만)"),
+        format!("time zone '{text}' is ambiguous or seasonal; use an IANA name (e.g. {suggestion}) or an offset such as +09:00 (abbreviations: UTC, GMT, KST, JST, HKT, SGT only)"),
+    ))
+}
+
+/// The time zone of a canonical `datetime` type name, or None for other types.
+pub fn datetime_zone(type_name: &str) -> Option<TimeZone> {
     if type_name == "datetime" {
-        return Some(0);
+        return Some(TimeZone::Fixed(0));
     }
     let captures = DATETIME_RE.captures(type_name)?;
-    let minutes = captures[2].parse::<i32>().ok()? * 60 + captures[3].parse::<i32>().ok()?;
-    Some(if &captures[1] == "-" { -minutes } else { minutes })
+    parse_time_zone(&captures[1]).ok()
 }
 
 /// (scale, 64-bit) of a fixed-point type name such as `fixed<10000>`.
@@ -320,20 +392,17 @@ pub fn parse_type(
     }
     if text.eq_ignore_ascii_case("datetime") || text.eq_ignore_ascii_case("duration") {
         text = text.to_lowercase();
-    } else if DATETIME_RE.is_match(&text) {
-        let offset = datetime_offset(&text).unwrap_or(i32::MAX);
-        if offset.abs() > 14 * 60 {
-            errors.add(sheet, cell, tr(
-                format!("시간대는 -14:00 ~ +14:00이어야 합니다: '{text}'"),
-                format!("the UTC offset must be between -14:00 and +14:00: '{text}'"),
-            ));
-            return None;
+    } else if let Some(captures) = DATETIME_RE.captures(&text) {
+        match parse_time_zone(&captures[1]) {
+            // Canonical form: datetime (UTC), datetime<+09:00>, datetime<Asia/Seoul>.
+            Ok(zone) => text = zone.type_name(),
+            Err((ko, en)) => {
+                errors.add(sheet, cell, tr(ko, en));
+                return None;
+            }
         }
-        // Canonical form: datetime for UTC, datetime<+09:00> otherwise.
-        let sign = if offset < 0 { '-' } else { '+' };
-        text = if offset == 0 { "datetime".into() } else { format!("datetime<{sign}{:02}:{:02}>", offset.abs() / 60, offset.abs() % 60) };
     }
-    if !PRIMITIVES.contains(&text.as_str()) && enum_of(&text).is_none() && ref_target.is_none() && fixed_of(&text).is_none() && datetime_offset(&text).is_none() {
+    if !PRIMITIVES.contains(&text.as_str()) && enum_of(&text).is_none() && ref_target.is_none() && fixed_of(&text).is_none() && datetime_zone(&text).is_none() {
         errors.add(sheet, cell, tr(format!("알 수 없는 자료형 '{text}'"), format!("unknown type '{text}'")));
         return None;
     }

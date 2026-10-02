@@ -96,6 +96,7 @@ pub fn build(model: &DataModel, options: &BuildOptions) -> Result<(), BuildError
             "--asset-name must contain {table}",
         )));
     }
+    check_scale_names(model).map_err(|e| BuildError::Invalid(e.0))?;
     if runtime_header.is_some() {
         check_member_names(model).map_err(|e| BuildError::Invalid(e.0))?;
     }
@@ -136,6 +137,28 @@ pub fn build(model: &DataModel, options: &BuildOptions) -> Result<(), BuildError
     })
     .and_then(|_| key_headers.iter().try_for_each(|(name, text)| std::fs::write(options.out_cpp.join(name), text)))
     .map_err(|e| BuildError::Io(e.to_string()))
+}
+
+/// Fixed-point fields get a `<Field>Scale` constant in the row struct; it must not clash with a field.
+pub fn check_scale_names(model: &DataModel) -> Result<(), ValidationErrors> {
+    let mut errors = ErrorCollector::default();
+    for table in model.data_tables() {
+        let fields: HashSet<&str> =
+            table.columns.iter().filter(|c| in_scopes(&c.scope, &CLIENT_SCOPES)).map(|c| c.name.as_str()).collect();
+        for column in table.columns.iter().filter(|c| in_scopes(&c.scope, &CLIENT_SCOPES)) {
+            if crate::schema::fixed_of(&column.type_name).is_none() {
+                continue;
+            }
+            let constant = format!("{}Scale", column.name);
+            if fields.contains(constant.as_str()) {
+                errors.add(&table.header_location(), &column.header_cells[0], tr(
+                    format!("고정소수점 필드 '{}'의 배율 상수 '{constant}'이 같은 이름의 필드와 겹칩니다", column.name),
+                    format!("the scale constant '{constant}' of fixed-point field '{}' clashes with a field of the same name", column.name),
+                ));
+            }
+        }
+    }
+    errors.raise_if_any()
 }
 
 /// Generated member functions must not clash with fields or with each other.

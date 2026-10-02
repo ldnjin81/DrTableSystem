@@ -38,6 +38,18 @@ static BASE_RE: LazyLock<Regex> =
 pub static KEY_ROLE_PREFIX_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^(id|subkey)\s*<").unwrap());
 
+/// `fixed<10000>` (int32) or `fixed64<10000>` (int64): a decimal stored as an integer
+/// count of 1/scale units, so clients and servers compute with exact integers.
+static FIXED_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^fixed(64)?\s*<\s*(\d+)\s*>$").unwrap());
+
+/// (scale, 64-bit) of a fixed-point type name such as `fixed<10000>`.
+pub fn fixed_of(type_name: &str) -> Option<(i64, bool)> {
+    let captures = FIXED_RE.captures(type_name)?;
+    let scale = captures[2].parse::<i64>().ok()?;
+    Some((scale, captures.get(1).is_some()))
+}
+
 /// Whether a schema type cell declares a language column (`lang` or `Base<lang>`).
 pub fn is_lang_type(text: &str) -> bool {
     let text = text.split('=').next().unwrap_or("").trim();
@@ -274,7 +286,23 @@ pub fn parse_type(
             text = format!("Ref<{spec}>");
         }
     }
-    if !PRIMITIVES.contains(&text.as_str()) && enum_of(&text).is_none() && ref_target.is_none() {
+    if FIXED_RE.is_match(&text) {
+        let (scale, wide) = fixed_of(&text)?;
+        let limit: i64 = if wide { 1_000_000_000_000_000_000 } else { 1_000_000_000 };
+        let mut power = 10i64;
+        while power < scale && power < limit {
+            power *= 10;
+        }
+        if scale < 10 || power != scale || scale > limit {
+            errors.add(sheet, cell, tr(
+                format!("고정소수점 배율은 10, 100, 1000 …처럼 10의 거듭제곱이어야 합니다(최대 {limit}): '{text}'"),
+                format!("a fixed-point scale must be a power of ten such as 10, 100, 1000 (at most {limit}): '{text}'"),
+            ));
+            return None;
+        }
+        text = format!("fixed{}<{scale}>", if wide { "64" } else { "" });
+    }
+    if !PRIMITIVES.contains(&text.as_str()) && enum_of(&text).is_none() && ref_target.is_none() && fixed_of(&text).is_none() {
         errors.add(sheet, cell, tr(format!("알 수 없는 자료형 '{text}'"), format!("unknown type '{text}'")));
         return None;
     }

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fixed-point types `fixed<N>` (int32) and `fixed64<N>` (int64), N a power of ten: decimals or percentages in Excel become exact integer counts of 1/N in JSON, assets and C++ (with a `<Field>Scale` constant and `DrFixedScale` metadata). Values finer than the scale or out of range are errors.
+- A declared default fills empty cells as converted once (a fixed-point default used to be scaled twice).
+
 ## 0.3.1
 
 - String table data sheets are named after the table (`UIString`); the short form (`UI`) is no longer accepted. `drtable new --table` takes the full name.

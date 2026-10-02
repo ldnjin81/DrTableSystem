@@ -5,21 +5,23 @@ DrTableSystem(DesignToRuntime Table System)은 기획자가 엑셀에 적은 데
 - **언리얼 C++**: `USTRUCT` 행 구조체, `UENUM` 열거형, 테이블마다 DataAsset 클래스 하나. 원하면 타입 안전 조회 함수와 등록 헤더까지. **스키마에서만 생성**하므로 기획이 데이터를 고쳐도 코드는 바뀌지 않습니다.
 - **클라이언트 JSON**: 게임 클라이언트가 쓸 행과, 미리 계산한 키 인덱스. DataAsset으로 굽기 위한 입력입니다.
 - **서버 JSON**: 서버가 쓸 행(서버 전용 필드 포함, 클라 전용 필드 제외).
+- **스트링테이블**: UI 문구·아이템 이름처럼 언어마다 다른 글. 언어마다 파일·에셋을 따로 만들고, 게임은 설정 언어 하나만 불러와 런타임에 교체합니다(8절).
 
-**DrTableSystem 언리얼 플러그인**은 클라 JSON을 DataAsset으로 굽고, 런타임에 복사나 인덱스 구축 없이 그대로 읽으며, 오래된 에셋을 잡아냅니다.
+**DrTableSystem 언리얼 플러그인**은 클라 JSON을 DataAsset으로 굽고, 런타임에 복사나 인덱스 구축 없이 그대로 읽으며, 오래된 에셋을 잡아냅니다. 스트링테이블은 언어별 에셋으로 구워 현재 언어만 메모리에 두고, 언어를 바꾸면 `OnLanguageChanged`로 UI에 알립니다.
 
 ```
-스키마(Schema/*.schema.xlsx, Enums/*.enum.xlsx) ─┐        ┌─▶ C++ 헤더 ─────────────▶ 컴파일
+스키마(Schema/*.schema.xlsx, *.string.xlsx, Enums/*.enum.xlsx) ─┐        ┌─▶ C++ 헤더 ─────────────▶ 컴파일
                                                     ├▶ drtable build ─┼─▶ 클라 JSON ─▶ DrTableBake ─▶ DA_*.uasset ─▶ 런타임 조회
-데이터 엑셀(*.xlsx, 1행 필드명 + 4행부터 데이터) ─────┘        └─▶ 서버 JSON ─▶ 서버
+데이터 엑셀(*.xlsx, Strings/*.xlsx: 1행 필드명 + 4행부터) ─┘        └─▶ 서버 JSON ─▶ 서버
                  drtable check  ◀─ 클라·서버 JSON   (참조 무결성 검사, CI)
                  drtable graph  ─▶ references.md   (Mermaid 다이어그램)
 ```
 
 | 누가 | 무엇을 | 결과 |
 |---|---|---|
-| 프로그래머 | 스키마(필드·자료형·범위, 열거형 값) | 코드가 바뀜 → 리뷰 대상 |
+| 프로그래머 | 스키마(필드·자료형·범위, 열거형 값, 스트링테이블 언어 목록) | 코드가 바뀜 → 리뷰 대상 |
 | 기획자 | 데이터 엑셀(값, 행, 파일·시트 나누기) | JSON·에셋만 바뀜, 코드는 그대로 |
+| 번역 담당 | `Strings/` 폴더의 스트링 데이터 | 언어별 JSON·에셋만 바뀜, 코드는 그대로 |
 
 목차
 
@@ -498,6 +500,8 @@ drtable-gui --input Design/Tables --schema Design/Tables/Schema --out-cpp Source
    ```
 
 기획이 데이터만 고쳤다면 3번의 `drtable build`와 5번 굽기만 다시 하면 됩니다. 코드가 바뀌지 않으므로 컴파일은 필요 없습니다.
+
+스트링테이블(8절)은 따로 등록하지 않습니다. 같은 굽기가 언어별 에셋과 언어 목록 에셋을 만들고, `UDrStringSubsystem`이 게임 시작 때 알아서 불러옵니다.
 
 ### 로드
 

@@ -22,9 +22,18 @@ use crate::sources::{find_files, is_identifier, table_name_of};
 use crate::value::{Cell, Value};
 use crate::values::convert_value;
 
+/// A type alias with its resolved type (`ItemID` -> `int32`, through `Ref<Items>`).
+#[derive(Clone, Debug)]
+pub struct AliasType {
+    pub name: String,
+    pub type_name: String,
+    pub comment: String,
+}
+
 pub struct DataModel {
     pub source_files: Vec<String>,
     pub enums: Vec<EnumSchema>,
+    pub aliases: Vec<AliasType>,
     pub tables: Vec<TableSchema>,
     pub warnings: Vec<String>,
 }
@@ -87,7 +96,9 @@ pub fn load_model(
     let mut errors = ErrorCollector::default();
     let mut warnings: Vec<String> = Vec::new();
     // Enums sit next to an explicit schema folder, or inside the data folder when that is the schema folder.
-    let schemas = load_schemas(&schema_root, &enum_folder(&schema_root, enum_path, schema_path.is_some()), &mut errors)?;
+    let mut schemas = load_schemas(&schema_root, &enum_folder(&schema_root, enum_path, schema_path.is_some()), &mut errors)?;
+    // Type aliases are replaced in the table schemas before anything reads a type.
+    let alias_names = expand_aliases(&mut schemas, &mut errors);
     let not_schema = |(path, _): &(PathBuf, String)| {
         let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
         !SCHEMA_SUFFIXES.iter().any(|s| name.ends_with(s))
@@ -236,8 +247,31 @@ pub fn load_model(
     let mut tables = Vec::new();
     for (name, schema) in &schemas.tables {
         let parts = table_parts.remove(name).unwrap_or_default();
-        if let Some(table) = parse_table(name, schema, &parts, &enums, &table_keys, &mut errors, &mut warnings) {
+        if let Some(mut table) = parse_table(name, schema, &parts, &enums, &table_keys, &mut errors, &mut warnings) {
+            for column in &mut table.columns {
+                // Schema rows are recorded per column at build time (source_columns are data columns after binding).
+                column.alias = column.header_cells.first().and_then(|cell| {
+                    let row: usize = cell.trim_start_matches(|c: char| c.is_ascii_alphabetic()).parse().ok()?;
+                    alias_names.get(&(name.clone(), row)).cloned()
+                });
+            }
             tables.push(table);
+        }
+    }
+
+    let mut aliases = Vec::new();
+    for alias in schemas.aliases.values() {
+        let Some(text) = resolve_alias_text(&alias.name, &schemas.aliases) else { continue };
+        let cell = format!("B{}", alias.row);
+        if let Some(parsed) = parse_type(&Cell::Str(text), &alias.location, &cell, &mut errors, Some(&table_keys), None) {
+            if parsed.role.is_some() {
+                errors.add(&alias.location, &cell, tr(
+                    "별칭에는 키 역할(ID<…>, SubKey<…>)을 넣지 않습니다. 필드에서 ID<별칭>으로 쓰세요",
+                    "an alias carries no key role (ID<…>, SubKey<…>); write ID<Alias> in the field",
+                ));
+                continue;
+            }
+            aliases.push(AliasType { name: alias.name.clone(), type_name: parsed.type_name, comment: alias.comment.clone() });
         }
     }
 
@@ -254,6 +288,7 @@ pub fn load_model(
     Ok(DataModel {
         source_files: workbooks.iter().map(|(relative, _)| relative.to_string()).collect(),
         enums: enum_list,
+        aliases,
         tables,
         warnings,
     })
@@ -673,4 +708,113 @@ fn header_names(grid: &Grid) -> Vec<(usize, Cell)> {
         names.push((column, name.clone()));
     }
     names
+}
+
+static KEY_ROLE_WRAP_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^(id|subkey)\s*<\s*([A-Za-z][A-Za-z0-9_]*)\s*>$").unwrap());
+
+/// The fully expanded type text of an alias (aliases of aliases followed; the nearest default
+/// wins), or None when it loops (reported by expand_aliases).
+fn resolve_alias_text(name: &str, aliases: &std::collections::BTreeMap<String, crate::schemafile::Alias>) -> Option<String> {
+    let mut seen: Vec<&str> = Vec::new();
+    let mut current = name;
+    let mut default: Option<String> = None;
+    loop {
+        if seen.contains(&current) {
+            return None;
+        }
+        seen.push(current);
+        let text = aliases.get(current)?.type_cell.text_or_empty();
+        let (head, tail) = match text.split_once('=') {
+            Some((h, d)) => (h.trim().to_string(), Some(d.trim().to_string())),
+            None => (text.trim().to_string(), None),
+        };
+        if default.is_none() {
+            default = tail;
+        }
+        match aliases.get(head.as_str()) {
+            Some(next) => current = &next.name,
+            None => {
+                return Some(match default {
+                    Some(d) => format!("{head}={d}"),
+                    None => head,
+                });
+            }
+        }
+    }
+}
+
+/// Replaces alias names in table schema types (`ItemID`, `ItemID=3`, `ID<ItemID>`) with their
+/// types and returns which alias each (table, schema row) used. Checks alias names and loops.
+fn expand_aliases(schemas: &mut crate::schemafile::Schemas, errors: &mut ErrorCollector) -> HashMap<(String, usize), String> {
+    let mut used = HashMap::new();
+    if schemas.aliases.is_empty() {
+        return used;
+    }
+    let mut valid: HashMap<String, String> = HashMap::new();
+    for alias in schemas.aliases.values() {
+        let cell = format!("A{}", alias.row);
+        let lower = alias.name.to_lowercase();
+        if crate::schema::PRIMITIVES.contains(&lower.as_str()) || crate::schema::fixed_of(&alias.name).is_some() || lower == "ref" || lower == "id" || lower == "subkey" {
+            errors.add(&alias.location, &cell, tr(
+                format!("'{}'은 자료형 이름이라 별칭으로 쓸 수 없습니다", alias.name),
+                format!("'{}' is a type name and cannot be an alias", alias.name),
+            ));
+            continue;
+        }
+        if schemas.tables.contains_key(&alias.name) {
+            errors.add(&alias.location, &cell, tr(
+                format!("별칭 '{}'이 같은 이름의 테이블과 겹칩니다", alias.name),
+                format!("alias '{}' has the same name as a table", alias.name),
+            ));
+            continue;
+        }
+        if alias.name.strip_prefix('E').is_some_and(|e| schemas.enums.contains_key(e)) {
+            errors.add(&alias.location, &cell, tr(
+                format!("별칭 '{}'이 열거형 자료형 이름과 겹칩니다", alias.name),
+                format!("alias '{}' has the same name as an enum type", alias.name),
+            ));
+            continue;
+        }
+        match resolve_alias_text(&alias.name, &schemas.aliases) {
+            Some(text) => {
+                valid.insert(alias.name.clone(), text);
+            }
+            None => errors.add(&alias.location, &format!("B{}", alias.row), tr(
+                format!("별칭 '{}'이 자기 자신을 거쳐 돌아옵니다", alias.name),
+                format!("alias '{}' refers back to itself", alias.name),
+            )),
+        }
+    }
+    for (table, schema) in schemas.tables.iter_mut() {
+        if schema.is_strings {
+            continue;
+        }
+        for (row, _, type_cell, _, _) in schema.rows.iter_mut() {
+            let text = type_cell.text_or_empty();
+            let (head, field_default) = match text.split_once('=') {
+                Some((h, d)) => (h.trim().to_string(), Some(d.trim().to_string())),
+                None => (text.trim().to_string(), None),
+            };
+            let (role, inner) = match KEY_ROLE_WRAP_RE.captures(&head) {
+                Some(c) => (Some(c[1].to_string()), c[2].to_string()),
+                None => (None, head.clone()),
+            };
+            let Some(expanded) = valid.get(&inner) else { continue };
+            let (base, alias_default) = match expanded.split_once('=') {
+                Some((h, d)) => (h.to_string(), Some(d.to_string())),
+                None => (expanded.clone(), None),
+            };
+            let mut result = match role {
+                Some(role) => format!("{role}<{base}>"),
+                None => base,
+            };
+            if let Some(default) = field_default.or(alias_default) {
+                result = format!("{result}={default}");
+            }
+            *type_cell = Cell::Str(result);
+            used.insert((table.clone(), *row), inner);
+        }
+    }
+    used
 }

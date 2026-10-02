@@ -97,6 +97,8 @@ pub struct ColumnSchema {
     pub ref_key: Option<String>,
     /// The reference points at a string table (its accessor returns the text in the current language).
     pub ref_strings: bool,
+    /// The type alias the schema used (`ItemID`), if any.
+    pub alias: Option<String>,
 }
 
 impl ColumnSchema {
@@ -464,6 +466,7 @@ pub fn build_columns(
                     ref_target: parsed.ref_target.clone(),
                     ref_key: parsed.ref_key.clone(),
                     ref_strings: false,
+                    alias: None,
                 },
             ));
         }
@@ -562,6 +565,7 @@ pub fn build_columns(
                     ref_target: first_type.ref_target.clone(),
                     ref_key: first_type.ref_key.clone(),
                     ref_strings: false,
+                    alias: None,
                 },
             ));
         }

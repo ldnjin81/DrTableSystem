@@ -609,7 +609,10 @@ impl App {
                     ui.end_row();
                     for column in &table.columns {
                         ui.monospace(&column.name);
-                        ui.monospace(&column.type_name);
+                        match &column.alias {
+                            Some(alias) => ui.monospace(format!("{alias} ({})", column.type_name)),
+                            None => ui.monospace(&column.type_name),
+                        };
                         ui.label(match column.role.as_deref() {
                             Some("id") => tr("기본키", "primary key"),
                             Some("subkey") => tr("서브키", "sub key"),

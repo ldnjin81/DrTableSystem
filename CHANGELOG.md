@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `drtable new` adds enum dropdowns and Excel number/text-length validation to new data workbooks. Long enum lists use a hidden sheet; reference keys and comma-separated arrays remain build-validated.
+
 - 일반 테이블 스키마에 선택 `Rule`/`규칙` E열을 추가했습니다. 숫자 범위, 필수 값, 문자열 길이와 정규식을 `;`로 함께 지정할 수 있습니다. `build`와 `check`가 배열 원소와 기본값을 포함해 검사하고 오류의 스키마 또는 데이터 셀 위치를 표시합니다. E열이 없으면 기존 출력 바이트를 유지합니다.
 
 ## 0.7.0

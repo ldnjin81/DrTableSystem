@@ -184,6 +184,7 @@ pub struct ColumnSchema {
     /// Some for an array field (`int32[]`, `int32[4]`).
     pub array: Option<ArrayShape>,
     pub default_values: Vec<Option<Value>>,
+    pub rules: Option<crate::validation::Rules>,
     pub ref_target: Option<String>,
     pub ref_key: Option<String>,
     /// The reference points at a string table (its accessor returns the text in the current language).
@@ -601,6 +602,7 @@ pub fn build_columns(
             header_cells: vec![header_cell.clone()],
             array: parsed.array.map(|max| ArrayShape { max, cells: false }),
             default_values: vec![default_value],
+            rules: None,
             ref_target: parsed.ref_target.clone(),
             ref_key: parsed.ref_key.clone(),
             ref_strings: false,
@@ -665,6 +667,9 @@ pub fn calculate_schema_hash(columns: &[ColumnSchema], enums: Option<&Enums>) ->
                 })
                 .collect();
             entry.push(("defaults".to_string(), Json::List(defaults)));
+        }
+        if let Some(rules) = &column.rules {
+            entry.push(("rules".to_string(), Json::Str(rules.text.clone())));
         }
         entries.push(Json::Object(entry));
     }

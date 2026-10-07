@@ -97,17 +97,18 @@ Design/Tables/                    ← --input (data)
 
 `Items.schema.xlsx`: one sheet named after the table. Row 1 holds labels; from row 2, one field per row.
 
-| | A Field | B Type | C Scope | D Comment |
-|---|---|---|---|---|
-| **1** | `Field` | `Type` | `Scope` | `Comment` |
-| **2** | `Id` | `ID<int32>` | `all` | |
-| **3** | `Name` | `SubKey<name>` | `all` | display name |
-| **4** | `Element` | `SubKey<EElement>` | `all` | |
-| **5** | `Damage` | `float=0` | `client` | damage per second |
+| | A Field | B Type | C Scope | D Comment | E Rule (optional) |
+|---|---|---|---|---|---|
+| **1** | `Field` | `Type` | `Scope` | `Comment` | `Rule` |
+| **2** | `Id` | `ID<int32>` | `all` | | |
+| **3** | `Name` | `SubKey<name>` | `all` | display name | `required;len<=32` |
+| **4** | `Element` | `SubKey<EElement>` | `all` | | |
+| **5** | `Damage` | `float=0` | `client` | damage per second | `0..100` |
 
 - **Type** may carry a key role or a default: `int32`, `ID<int32>`, `SubKey<name>`, `float=1.0` (sections 3 and 4).
 - **Scope**: `all` both, `client` client only, `server` server only, `#` comment (excluded everywhere). Case-insensitive.
 - Field order is the member order of the C++ struct.
+- **Rule** (also `규칙`) is an optional E column. Separate checks with `;`: `required`/`필수` rejects an empty data cell even if a default exists; numeric `0..100` includes both ends, `>=0` and `<1000` compare the value written in Excel; string `len<=32` counts Unicode characters and `regex:^[A-Z_]+$` matches a pattern. Array rules check each element; `required` rejects an empty array. Defaults must pass their rules. Invalid rules point to the schema E cell; value errors point to the data cell. Omitting the column preserves earlier output bytes. `drtable new` reads this schema to create a data workbook; it does not create schema files.
 
 ### Data workbooks
 

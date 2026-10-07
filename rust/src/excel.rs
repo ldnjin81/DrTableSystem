@@ -21,6 +21,7 @@ use crate::schemafile::{
 use crate::sources::{find_files, is_identifier, table_name_of};
 use crate::value::{Cell, Value};
 use crate::values::convert_value;
+use crate::validation;
 
 /// A type alias with its resolved type (`ItemID` -> `int32`, through `Ref<Items>`).
 #[derive(Clone, Debug)]
@@ -511,7 +512,19 @@ fn parse_table(
     errors: &mut ErrorCollector,
     warnings: &mut Vec<String>,
 ) -> Option<TableSchema> {
-    let columns = build_columns(&schema.raw_columns(), &schema.where_(), enums, errors, Some(table_keys), &Schema::cell);
+    let mut columns = build_columns(&schema.raw_columns(), &schema.where_(), enums, errors, Some(table_keys), &Schema::cell);
+    for column in &mut columns {
+        let row = column.source_columns[0];
+        if let Some(rule) = schema.rules.get(&row) {
+            let place = Schema::cell(row, 5);
+            column.rules = validation::parse(rule, &column.type_name, &schema.where_(), &place, errors);
+            if let Some(rules) = &column.rules {
+                if let Some(default) = schema.rows.iter().find(|entry| entry.0 == row).and_then(|entry| entry.2.text_or_empty().split_once('=').map(|(_, value)| value.to_string())) {
+                    validation::check_value(rules, &Cell::Str(default), &schema.where_(), &place, errors);
+                }
+            }
+        }
+    }
     if columns.is_empty() || !columns.iter().any(|c| c.is_role("id")) {
         return None;
     }
@@ -665,6 +678,11 @@ fn read_rows(
             } else {
                 let source = column.source_columns[0];
                 let raw_value = grid.value(row, source);
+                if let Some(rules) = &column.rules {
+                    let place = cell_name(source, row);
+                    validation::check_required(rules, raw_value.is_blank(), &where_, &place, errors);
+                    validation::check_value(rules, raw_value, &where_, &place, errors);
+                }
                 if references_enum && raw_value.is_blank() {
                     errors.add(&where_, &cell_name(source, row), empty_reference());
                 }
@@ -762,6 +780,10 @@ fn convert_cell(
 fn read_array(grid: &Grid, row: usize, column: &ColumnSchema, shape: &ArrayShape, enums: &Enums, where_: &str, errors: &mut ErrorCollector) -> Vec<Value> {
     let mut items = Vec::new();
     let first_cell = cell_name(column.source_columns[0], row);
+    if let Some(rules) = &column.rules {
+        let empty = column.source_columns.iter().all(|&source| grid.value(row, source).is_blank());
+        validation::check_required(rules, empty, where_, &first_cell, errors);
+    }
     if shape.cells {
         let source = column.source_columns[0];
         let value = grid.value(row, source);
@@ -778,12 +800,16 @@ fn read_array(grid: &Grid, row: usize, column: &ColumnSchema, shape: &ArrayShape
                         continue;
                     }
                     if let Some(v) = convert_value(&Cell::Str(piece.to_string()), &column.type_name, enums, where_, &first_cell, errors, false) {
+                        if let Some(rules) = &column.rules { validation::check_value(rules, &Cell::Str(piece.to_string()), where_, &first_cell, errors); }
                         items.push(v);
                     }
                 }
             }
             // A number or date typed into the cell is one element.
-            other => items.extend(convert_value(other, &column.type_name, enums, where_, &first_cell, errors, false)),
+            other => {
+                if let Some(rules) = &column.rules { validation::check_value(rules, other, where_, &first_cell, errors); }
+                items.extend(convert_value(other, &column.type_name, enums, where_, &first_cell, errors, false));
+            }
         }
     } else {
         let last = column.source_columns.iter().rposition(|&source| !grid.value(row, source).is_blank());
@@ -798,6 +824,7 @@ fn read_array(grid: &Grid, row: usize, column: &ColumnSchema, shape: &ArrayShape
                     continue;
                 }
                 items.extend(convert_value(value, &column.type_name, enums, where_, &cell_name(source, row), errors, false));
+                if let Some(rules) = &column.rules { validation::check_value(rules, value, where_, &cell_name(source, row), errors); }
             }
         }
     }

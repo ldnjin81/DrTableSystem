@@ -18,5 +18,6 @@ pub mod schemafile;
 pub mod sources;
 pub mod value;
 pub mod values;
+pub mod validation;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

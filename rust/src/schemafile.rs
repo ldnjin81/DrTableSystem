@@ -41,6 +41,7 @@ pub struct Schema {
     pub file: String,
     pub name: String,
     pub rows: Vec<Row>,
+    pub rules: BTreeMap<usize, Cell>,
     pub is_enum: bool,
     /// A string table schema (`.string.xlsx`); its name ends with `String`.
     pub is_strings: bool,
@@ -56,7 +57,7 @@ impl Schema {
     }
 
     pub fn cell(row: usize, column: usize) -> String {
-        format!("{}{row}", ["A", "B", "C", "D"][column - 1])
+        format!("{}{row}", ["A", "B", "C", "D", "E"][column - 1])
     }
 
     pub fn at(&self, row: usize) -> String {
@@ -261,7 +262,7 @@ fn read_schema(path: &Path, relative: &str, kind: Kind, errors: &mut ErrorCollec
     let sheet = definitions.into_iter().next()?;
     let name = sheet.title.split('#').next().unwrap_or("").trim().to_string();
     let is_strings = kind == Kind::Strings;
-    let mut schema = Schema { file: relative.to_string(), name, rows: Vec::new(), is_enum, is_strings, title: sheet.title.clone(), path: canonical(path) };
+    let mut schema = Schema { file: relative.to_string(), name, rows: Vec::new(), rules: BTreeMap::new(), is_enum, is_strings, title: sheet.title.clone(), path: canonical(path) };
     if !is_identifier(&schema.name) {
         errors.add(&schema.where_(), "A1", tr(
             format!("올바르지 않은 이름 '{}'", schema.name),
@@ -278,6 +279,10 @@ fn read_schema(path: &Path, relative: &str, kind: Kind, errors: &mut ErrorCollec
         return None;
     }
     let grid = sheet.grid?;
+    let has_rules = !is_enum && !is_strings && matches!(grid.value(1, 5).text_or_empty().as_str(), "Rule" | "규칙");
+    if !is_enum && !is_strings && !grid.value(1, 5).is_blank() && !has_rules {
+        errors.add(&schema.where_(), "E1", tr("규칙 열 제목은 Rule 또는 규칙이어야 합니다", "the rule column header must be Rule or 규칙"));
+    }
     let width = if is_enum { 3 } else { 4 };
     for row in 2..=grid.max_row() {
         let values: Vec<Cell> = (1..=width).map(|c| grid.value(row, c).clone()).collect();
@@ -303,6 +308,11 @@ fn read_schema(path: &Path, relative: &str, kind: Kind, errors: &mut ErrorCollec
             let scope = if third.is_blank() { Cell::Str("client".into()) } else { third };
             schema.rows.push((row, code, kind, scope, fourth));
         } else {
+            if has_rules && !grid.value(row, 5).is_blank() {
+                schema.rules.insert(row, grid.value(row, 5).clone());
+            } else if !has_rules && !grid.value(row, 5).is_blank() {
+                errors.add(&schema.where_(), &format!("E{row}"), tr("규칙 열 제목이 없습니다", "the rule column header is missing"));
+            }
             if crate::schema::is_lang_type(&second.text_or_empty()) {
                 errors.add(&schema.where_(), &format!("B{row}"), tr(
                     "언어 열은 스트링테이블 스키마(<이름>.string.xlsx)에 정의합니다",

@@ -14,12 +14,53 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
-use rust_xlsxwriter::Workbook;
+use rust_xlsxwriter::{DataValidation, DataValidationRule, Formula, Workbook};
 
 use crate::errors::ErrorCollector;
 use crate::i18n::tr;
-use crate::schema::{column_letter, NAME_ROW, SCOPE_ROW, TYPE_ROW};
-use crate::schemafile::{Schemas, SCHEMA_SUFFIXES};
+use crate::schema::{column_letter, enum_of, parse_type, DATA_ROW, NAME_ROW, SCOPE_ROW, TYPE_ROW};
+use crate::schemafile::{Schema, Schemas, SCHEMA_SUFFIXES};
+use crate::validation::{self, ExcelRule};
+
+const LAST_DATA_ROW: u32 = 1_048_575;
+
+fn number_rule(lower: Option<(f64, bool)>, upper: Option<(f64, bool)>) -> DataValidationRule<f64> {
+    match (lower, upper) {
+        (Some((low, true)), Some((high, true))) => DataValidationRule::Between(low, high),
+        (Some((low, inclusive)), _) => if inclusive { DataValidationRule::GreaterThanOrEqualTo(low) } else { DataValidationRule::GreaterThan(low) },
+        (_, Some((high, inclusive))) => if inclusive { DataValidationRule::LessThanOrEqualTo(high) } else { DataValidationRule::LessThan(high) },
+        _ => unreachable!(),
+    }
+}
+
+fn excel_validation(rule: ExcelRule, type_name: &str) -> Option<DataValidation> {
+    match rule {
+        ExcelRule::Length(max) => Some(DataValidation::new().allow_text_length(DataValidationRule::LessThanOrEqualTo(max))),
+        ExcelRule::Number { lower, upper } => {
+            // 엑셀 유효성은 하나의 조건만 허용한다. 배타적 양 끝 범위는 사용자 검사에 맡긴다.
+            if lower.is_some_and(|(_, inclusive)| !inclusive) && upper.is_some() { return None; }
+            if upper.is_some_and(|(_, inclusive)| !inclusive) && lower.is_some() { return None; }
+            if type_name == "int32" {
+                let convert = |n: f64| (n >= i32::MIN as f64 && n <= i32::MAX as f64 && n.fract() == 0.0).then_some(n as i32);
+                let (low, high) = (
+                    match lower { Some((n, b)) => Some((convert(n)?, b)), None => None },
+                    match upper { Some((n, b)) => Some((convert(n)?, b)), None => None },
+                );
+                let rule = match (low, high) {
+                    (Some((a, true)), Some((b, true))) => DataValidationRule::Between(a, b),
+                    (Some((a, true)), _) => DataValidationRule::GreaterThanOrEqualTo(a),
+                    (Some((a, false)), _) => DataValidationRule::GreaterThan(a),
+                    (_, Some((b, true))) => DataValidationRule::LessThanOrEqualTo(b),
+                    (_, Some((b, false))) => DataValidationRule::LessThan(b),
+                    _ => unreachable!(),
+                };
+                Some(DataValidation::new().allow_whole_number(rule))
+            } else {
+                Some(DataValidation::new().allow_decimal_number(number_rule(lower, upper)))
+            }
+        }
+    }
+}
 
 /// Creates a data workbook for `table`: field names in row 1, reference formulas in rows
 /// 2-3. Refuses to touch an existing file. Returns true when the workbook was written.
@@ -48,10 +89,11 @@ pub fn new_workbook(target: &Path, table: &str, schemas: &Schemas, errors: &mut 
     let missing = tr("(스키마에 없음)", "(not in schema)");
 
     let mut workbook = Workbook::new();
+    let mut long_lists: Vec<Vec<String>> = Vec::new();
     let sheet = workbook.add_worksheet();
     let written = (|| -> Result<(), rust_xlsxwriter::XlsxError> {
         sheet.set_name(table)?;
-        for (index, (schema_row, name, _, _)) in schema.raw_columns().iter().enumerate() {
+        for (index, (schema_row, name, raw_type, _)) in schema.raw_columns().iter().enumerate() {
             let column = index as u16;
             let letter = column_letter(index + 1);
             if schema.is_strings && *schema_row == 1 {
@@ -79,9 +121,48 @@ pub fn new_workbook(target: &Path, table: &str, schemas: &Schemas, errors: &mut 
                 };
                 sheet.write_formula((row - 1) as u32, column, formula.as_str())?;
             }
+            // 별칭과 참조는 스키마 전체 해석이 필요하므로 여기서는 입력 보조를 건너뛴다.
+            let mut projection_errors = ErrorCollector::default();
+            let Some(parsed) = parse_type(raw_type, &schema.where_(), &Schema::cell(*schema_row, 2), &mut projection_errors, None, None) else { continue };
+            // 쉼표 입력 배열에는 원소 하나의 유효성을 적용할 수 없다.
+            if parsed.array.is_some() { continue; }
+            if let Some(enum_name) = enum_of(&parsed.type_name)
+                && let Some(definition) = schemas.enums.get(enum_name) {
+                    let names: Vec<String> = definition.enumerators().into_iter().map(|(_, name, _, _)| name.py_str().trim().to_string()).collect();
+                    if !names.is_empty() {
+                        let joined = names.join(",");
+                        let validation = if joined.chars().count() <= 255 && !names.iter().any(|name| name.contains(',')) {
+                            DataValidation::new().allow_list_strings(&names)?
+                        } else {
+                            long_lists.push(names);
+                            let list_column = column_letter(long_lists.len());
+                            let formula = format!("='#Lists'!${list_column}$1:${list_column}${}", long_lists.last().unwrap().len());
+                            DataValidation::new().allow_list_formula(Formula::new(formula))
+                        };
+                        sheet.add_data_validation((DATA_ROW - 1) as u32, column, LAST_DATA_ROW, column, &validation)?;
+                    }
+            } else if let Some(raw_rule) = schema.rules.get(schema_row) {
+                let rule = validation::parse(raw_rule, &parsed.type_name, &schema.where_(), &Schema::cell(*schema_row, 5), errors);
+                if let Some(validation) = rule.and_then(|rule| rule.excel_rule()).and_then(|rule| excel_validation(rule, &parsed.type_name)) {
+                    sheet.add_data_validation((DATA_ROW - 1) as u32, column, LAST_DATA_ROW, column, &validation)?;
+                }
+            }
         }
         Ok(())
     })();
+    if !errors.messages.is_empty() { return false; }
+    if written.is_ok() && !long_lists.is_empty() {
+        let lists = workbook.add_worksheet();
+        let extra = (|| -> Result<(), rust_xlsxwriter::XlsxError> {
+            lists.set_name("#Lists")?;
+            lists.set_hidden(true);
+            for (column, names) in long_lists.iter().enumerate() {
+                for (row, name) in names.iter().enumerate() { lists.write_string(row as u32, column as u16, name)?; }
+            }
+            Ok(())
+        })();
+        if let Err(error) = extra { errors.add(&label, "A1", error.to_string()); return false; }
+    }
     let bytes = written.and_then(|_| workbook.save_to_buffer()).map_err(|e| e.to_string());
     match bytes.and_then(|bytes| add_external_link(&bytes, &link_target, &sheet_name)) {
         Ok(bytes) => {

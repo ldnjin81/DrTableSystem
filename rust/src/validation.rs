@@ -22,6 +22,38 @@ enum Check {
     Pattern(Regex),
 }
 
+/// 엑셀의 단일 데이터 유효성으로 표현할 수 있는 규칙.
+pub enum ExcelRule {
+    Number { lower: Option<(f64, bool)>, upper: Option<(f64, bool)> },
+    Length(u32),
+}
+
+impl Rules {
+    pub fn excel_rule(&self) -> Option<ExcelRule> {
+        let mut lower: Option<(f64, bool)> = None;
+        let mut upper: Option<(f64, bool)> = None;
+        let mut length = None;
+        for check in &self.checks {
+            match *check {
+                Check::Min(value, inclusive) => {
+                    if lower.is_none_or(|(old, old_inclusive)| value > old || (value == old && !inclusive && old_inclusive)) {
+                        lower = Some((value, inclusive));
+                    }
+                }
+                Check::Max(value, inclusive) => {
+                    if upper.is_none_or(|(old, old_inclusive)| value < old || (value == old && !inclusive && old_inclusive)) {
+                        upper = Some((value, inclusive));
+                    }
+                }
+                Check::Len(value) => length = u32::try_from(value).ok(),
+                Check::Pattern(_) => {}
+            }
+        }
+        if lower.is_some() || upper.is_some() { Some(ExcelRule::Number { lower, upper }) }
+        else { length.map(ExcelRule::Length) }
+    }
+}
+
 pub fn parse(cell: &Cell, type_name: &str, sheet: &str, place: &str, errors: &mut ErrorCollector) -> Option<Rules> {
     let text = cell.text_or_empty();
     if text.is_empty() { return None; }

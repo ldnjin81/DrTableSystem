@@ -128,6 +128,8 @@ Design/Tables/                    ← --input (data)
 
 Rows 2 and 3 of a data sheet hold formulas that look up each row-1 field name in the table's schema spreadsheet and show its type and scope, so schema changes show up when the workbook is opened. `drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schema` creates a **new** data workbook with these formulas.
 
+New workbooks give enum columns a dropdown of enumerator names. Long lists use a hidden worksheet. Numeric ranges (`0..100`, `>=0`, etc.) and `len<=N` also become Excel input validation. For `fixed<N>`, the range applies to the decimal entered in Excel. Comma-separated arrays, reference keys, `required`, and `regex` remain build-validated. Reference keys do not get a dropdown because target data can live in multiple locations and `new` cannot reliably collect every key. Pasting may bypass Excel validation, so always run `drtable build`.
+
 ```
 row 2: =IFERROR(INDEX('[1]Items'!$B:$B,MATCH(A$1,'[1]Items'!$A:$A,0)),"(not in schema)")
 ```

@@ -887,7 +887,7 @@ fn resolve_alias_text(name: &str, aliases: &std::collections::BTreeMap<String, c
 
 /// Replaces alias names in table schema types (`ItemID`, `ItemID=3`, `ID<ItemID>`) with their
 /// types and returns which alias each (table, schema row) used. Checks alias names and loops.
-fn expand_aliases(schemas: &mut crate::schemafile::Schemas, errors: &mut ErrorCollector) -> HashMap<(String, usize), String> {
+pub fn expand_aliases(schemas: &mut crate::schemafile::Schemas, errors: &mut ErrorCollector) -> HashMap<(String, usize), String> {
     let mut used = HashMap::new();
     if schemas.aliases.is_empty() {
         return used;

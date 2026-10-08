@@ -521,6 +521,7 @@ drtable graph --input <xlsx|폴더> --out references.md [--schema …] [--enums 
 drtable check --client <클라 JSON 폴더> [--server <서버 JSON 폴더>]
 drtable check --input <xlsx|폴더> [--schema …] [--enums …] [--strings …]   # 검사만 하고 아무것도 쓰지 않음
 drtable new --table <테이블> --out <새 xlsx> --schema <폴더> [--enums …]  # 참고 수식이 든 새 데이터 파일
+drtable diff <이전 JSON 폴더> <새 JSON 폴더> [--format text|markdown|json] [--table T] [--schema <폴더>] [--exit-code]
 drtable [--lang en|ko] …
 ```
 
@@ -539,6 +540,18 @@ drtable [--lang en|ko] …
 
 - `graph`는 GitHub에서 바로 그려지는 Mermaid `flowchart`를 씁니다. 테이블마다 노드(키 자료형 표시), 참조마다 화살표를 그립니다. 화살표 라벨에는 필드명과 배열이면 `[]`(최대 길이가 있으면 `[N]`)를 붙입니다. 참조 필드가 서브키면 `(SubKey)`, 서브키를 참조하면 `→ 키 1:N`도 붙습니다.
 - `check --client/--server`는 생성된 JSON만 읽으므로 CI에서 돌릴 수 있습니다. 끊긴 참조를 전부 출력합니다(예: `Quests.Next[2002](0) = 9999 → Quests 테이블에 없음`). 빈 참조는 건너뛰고, 대상에 "참조 없음" 값(0이나 빈 이름)과 같은 키가 있으면 경고합니다.
+- `diff`는 **클라 또는 서버 JSON 출력 폴더 두 개**를 비교합니다. `manifest.json`으로 테이블 추가·삭제와 스키마 해시 변경을 찾고, 기본키로 행을 맞춰 변경 필드와 배열 원소를 표시합니다. 스트링테이블은 언어와 키별 문구를 비교합니다. `--table T`는 한 테이블만, `--format markdown`은 패치 노트용 표를, `--format json`은 해당 항목에 `kind`, `table`, `key`, `field`, `index`, `before`, `after`가 들어 있는 `changes` 배열을 출력합니다. 표시 언어는 `--lang` 또는 `DRTABLE_LANG`를 따릅니다.
+- fixed 필드를 소수로 보려면 `diff --schema <스키마 폴더>`를 줍니다. 각 필드의 `fixed<N>` 또는 `fixed64<N>` 배율을 읽습니다. 생략하면 출력 첫머리에 안내를 표시하고 저장된 정수를 그대로 보여 줍니다(JSON은 `note` 항목에 안내 포함). 출력 폴더와 manifest는 바꾸지 않습니다.
+
+```sh
+drtable diff snapshots/v1/server snapshots/v2/server --format markdown --table Items --schema Design/Tables/Schema
+```
+
+| 변경 | 테이블 | 키 | 필드 | 이전 | 이후 |
+|---|---|---|---|---|---|
+| 필드 변경 | Items | 1001 | Damage | 10 | 12 |
+
+- 차이가 없으면 `변경 없음`을 출력합니다. 변경이 있어도 종료 코드는 0이며, `--exit-code`를 주면 1입니다. 입력·사용 오류는 2입니다.
 - 경고(`경고: …`)는 표준 오류로 나가고 종료 코드에 영향을 주지 않습니다.
 
 종료 코드: `build`·`graph`·`check --input`·`new`는 0 성공, 1 검증 오류, 2 사용 오류. `check --client`는 0 통과, 1 끊긴 참조, 2 입력 오류.

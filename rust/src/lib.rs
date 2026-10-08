@@ -3,6 +3,7 @@
 
 pub mod check;
 pub mod commands;
+pub mod diff;
 pub mod emit_cpp;
 pub mod emit_json;
 pub mod errors;

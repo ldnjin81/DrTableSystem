@@ -9,9 +9,9 @@ use drtable::commands::{self, BuildError, BuildOptions};
 use drtable::emit_cpp::{DEFAULT_ASSET_BASE, DEFAULT_ASSET_NAME};
 use drtable::errors::{ErrorCollector, ValidationErrors};
 use drtable::i18n::{self, tr};
-use drtable::{check, excel, graph, headers, schemafile, VERSION};
+use drtable::{check, diff, excel, graph, headers, schemafile, VERSION};
 
-const HELP: &str = "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,new} ...
+const HELP: &str = "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,new,diff} ...
 
 Generate C++, JSON and Unreal DataAssets from spreadsheet tables.
 
@@ -20,6 +20,7 @@ commands:
   graph     write the table reference graph as Mermaid Markdown
   check     check references in generated JSON (or validate a spreadsheet with --input)
   new       create a data workbook for a table, with reference formulas in rows 2-3
+  diff      compare two generated JSON output folders
 
 options:
   --version       show the version and exit
@@ -39,6 +40,7 @@ fn command_options(command: &str) -> Option<&'static [(&'static str, bool)]> {
             ("client", true), ("server", true), ("input", true), ("schema", true), ("enums", true), ("strings", true),
         ],
         "new" => &[("table", true), ("out", true), ("schema", true), ("enums", true)],
+        "diff" => &[("format", true), ("table", true), ("schema", true), ("exit-code", false)],
         _ => return None,
     })
 }
@@ -58,6 +60,7 @@ struct Args {
     command: String,
     values: HashMap<String, String>,
     flags: HashSet<String>,
+    positional: Vec<String>,
 }
 
 impl Args {
@@ -80,9 +83,10 @@ fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
     let mut command: Option<String> = None;
     let mut values = HashMap::new();
     let mut flags = HashSet::new();
+    let mut positional = Vec::new();
     let usage = |command: &Option<String>| match command {
         Some(c) => format!("usage: drtable {c} [options]"),
-        None => "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,new} ...".to_string(),
+        None => "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,new,diff} ...".to_string(),
     };
     while index < argv.len() {
         let arg = &argv[index];
@@ -115,7 +119,7 @@ fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
                 continue;
             }
             if command_options(arg).is_none() {
-                return Err(UsageError(usage(&command), format!("argument command: invalid choice: '{arg}' (choose from 'build', 'graph', 'check', 'new')")));
+                return Err(UsageError(usage(&command), format!("argument command: invalid choice: '{arg}' (choose from 'build', 'graph', 'check', 'new', 'diff')")));
             }
             command = Some(arg.clone());
             continue;
@@ -126,6 +130,10 @@ fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
             return Ok(Parsed::Exit(ExitCode::SUCCESS));
         }
         let Some(option) = arg.strip_prefix("--") else {
+            if name == "diff" {
+                positional.push(arg.clone());
+                continue;
+            }
             return Err(UsageError(usage(&command), format!("unrecognized arguments: {arg}")));
         };
         let (key, inline) = match option.split_once('=') {
@@ -156,11 +164,18 @@ fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
     if !missing.is_empty() {
         return Err(UsageError(usage(&Some(command)), format!("the following arguments are required: {}", missing.join(", "))));
     }
+    if command == "diff" && positional.len() != 2 {
+        return Err(UsageError("usage: drtable diff <old output folder> <new output folder> [--format text|markdown|json] [--table T] [--schema folder] [--exit-code]".into(),
+            tr("diff에는 출력 폴더 두 개가 필요합니다", "diff requires two output folders")));
+    }
+    if command == "diff" && values.get("format").is_some_and(|v| !["text", "markdown", "json"].contains(&v.as_str())) {
+        return Err(UsageError(usage(&Some(command)), tr("--format은 text, markdown, json 중 하나여야 합니다", "--format must be text, markdown, or json")));
+    }
     if let Some(stamp) = values.get("stamp")
         && !is_iso8601(stamp) {
             return Err(UsageError(usage(&Some(command)), format!("argument --stamp: {}", tr("--stamp는 ISO 8601 형식이어야 합니다", "--stamp must be ISO 8601"))));
         }
-    Ok(Parsed::Run(Args { command, values, flags }))
+    Ok(Parsed::Run(Args { command, values, flags, positional }))
 }
 
 fn is_iso8601(value: &str) -> bool {
@@ -200,6 +215,20 @@ fn print_errors(messages: &[String]) {
 
 fn run(args: Args) -> ExitCode {
     let usage = |message: String| usage_exit(UsageError(format!("usage: drtable {} [options]", args.command), message));
+    if args.command == "diff" {
+        let format = match args.get("format").unwrap_or("text") {
+            "markdown" => diff::Format::Markdown,
+            "json" => diff::Format::Json,
+            _ => diff::Format::Text,
+        };
+        return match diff::compare(Path::new(&args.positional[0]), Path::new(&args.positional[1]), format, args.get("table"), args.path("schema").as_deref()) {
+            Ok((output, changed)) => {
+                print!("{output}");
+                if changed && args.flags.contains("exit-code") { ExitCode::from(1) } else { ExitCode::SUCCESS }
+            }
+            Err(error) => { eprintln!("{error}"); ExitCode::from(2) }
+        };
+    }
     if args.command == "check" && args.get("client").is_some() {
         let mut failures = Vec::new();
         for directory in [args.get("client"), args.get("server")].into_iter().flatten() {

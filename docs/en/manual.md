@@ -524,6 +524,7 @@ drtable graph --input <xlsx|folder> --out references.md [--schema …] [--enums 
 drtable check --client <client JSON folder> [--server <server JSON folder>]
 drtable check --input <xlsx|folder> [--schema …] [--enums …] [--strings …]   # validate only, write nothing
 drtable new --table <Table> --out <new xlsx> --schema <folder> [--enums …]  # new data workbook with reference formulas
+drtable diff <old JSON folder> <new JSON folder> [--format text|markdown|json] [--table T] [--schema <folder>] [--exit-code]
 drtable [--lang en|ko] …
 ```
 
@@ -542,6 +543,18 @@ drtable [--lang en|ko] …
 
 - `graph` writes a Mermaid `flowchart` that GitHub renders directly: one node per table (with its key type), one edge per reference, labelled with the field name, `[]` for arrays (`[N]` with a maximum), `(SubKey)` when the referencing field is a sub key and `→ Key 1:N` for sub key references.
 - `check --client/--server` reads only the generated JSON, so it runs in CI. It lists every broken reference (e.g. `Quests.Next[2002](0) = 9999 → not in Quests`), skips empty references, and warns when a target table has a key equal to the "no reference" value (0 or an empty name).
+- `diff` compares two **client or server JSON output folders**. It uses `manifest.json` to find added or removed tables and schema hash changes, compares rows by primary key, reports each changed field and array element, and compares string table text by language and key. `--table T` limits the report to one table. `--format markdown` prints a table suitable for patch notes; `--format json` prints a `changes` array with `kind`, `table`, `key`, `field`, `index`, `before`, and `after` where applicable. Reports use `--lang` or `DRTABLE_LANG`.
+- For fixed-point fields, give `diff --schema <schema folder>` to display decimal values using each field's `fixed<N>` or `fixed64<N>` scale. Without it, the report starts with a localized note and shows the stored integers; JSON includes the note in `note`. The output folders and their manifest remain unchanged.
+
+```sh
+drtable diff snapshots/v1/server snapshots/v2/server --format markdown --table Items --schema Design/Tables/Schema
+```
+
+| Change | Table | Key | Field | Before | After |
+|---|---|---|---|---|---|
+| Field changed | Items | 1001 | Damage | 10 | 12 |
+
+- `diff` prints `No changes` when both outputs match. Changes return 0 unless `--exit-code` is set, when they return 1. Input and usage errors return 2.
 - Warnings (`warning: …`) go to standard error and do not change the exit code.
 
 Exit codes: `build`, `graph`, `check --input` and `new` return 0 on success, 1 on validation errors, 2 on usage errors. `check --client` returns 0 when clean, 1 on broken references, 2 on input errors.

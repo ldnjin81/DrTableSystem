@@ -13,6 +13,7 @@ pub mod graph;
 pub mod gui;
 pub mod headers;
 pub mod i18n;
+pub mod l10n;
 pub mod reader;
 pub mod schema;
 pub mod schemafile;

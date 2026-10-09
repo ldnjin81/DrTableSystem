@@ -428,6 +428,25 @@ FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
   - `bStringsFollowCulture`(기본 끔): 엔진 컬처가 바뀌면 따라 바꿉니다.
 - 콘솔 명령: `DrStrings.Status`, `DrStrings.Language en`.
 
+### 번역 작업 명령
+
+입력 폴더에 `Schema/`와 `Strings/`가 있는 구조에서 사용합니다. 네 명령 모두 원본 엑셀을 수정하지 않습니다.
+
+```sh
+drtable l10n status Design/Tables --format markdown
+drtable l10n export Design/Tables --lang en --out work/en.xlsx
+drtable l10n import work/en.xlsx --input Design/Tables --out translated
+drtable l10n unused Design/Tables
+```
+
+`status`는 테이블·언어별 전체 키, 채운 칸, 빈 칸, 기준 언어와 같은 문구의 수를 출력합니다. `--format text|markdown|json`을 고를 수 있습니다. 기준과 같은 문구는 채운 수에도 포함됩니다. 빈 번역은 빌드 시 기준 문구로 채워지지만, 진행률은 원본의 빈 칸을 셉니다.
+
+`export`는 대상 언어가 비었거나 기준 문구와 같은 키만 새 xlsx에 넣습니다. `Translations` 시트의 `Translation` 칸을 채워 돌려받습니다. `Key`, `Base`, `Memo`, `Source`, `Sheet`, `Table`, `Language` 열은 키와 출처를 확인하는 데 씁니다. 출력 파일이 이미 있으면 거부합니다.
+
+`import`는 `--input`의 현재 원본을 다시 읽어 번역이 채워진 칸을 적용하고, `--out` 아래에 같은 상대 경로의 **새 스트링 파일**을 만듭니다. 빈 번역은 건너뜁니다. 원본에 없는 키는 경고하고 건너뜁니다. 내보낸 뒤 기준 문구가 달라졌다면 경고하고 번역을 적용하므로 해당 문구를 검토하세요. 원본과 출력 폴더가 겹치거나 출력 파일이 이미 있으면 거부합니다. 새 파일은 시트와 셀 값을 재작성하며 기존 서식·수식은 복제하지 않습니다.
+
+`unused`는 일반 테이블의 `Ref<스트링테이블>` 필드와 `text` 필드 어느 곳에서도 찾지 못한 키를 나열합니다. 배열 원소도 검사합니다. 코드·블루프린트·런타임에서 직접 쓰는 키는 알 수 없으므로 삭제 전 확인하세요.
+
 ## 9. 산출물
 
 ### C++

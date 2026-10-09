@@ -9,9 +9,9 @@ use drtable::commands::{self, BuildError, BuildOptions};
 use drtable::emit_cpp::{DEFAULT_ASSET_BASE, DEFAULT_ASSET_NAME};
 use drtable::errors::{ErrorCollector, ValidationErrors};
 use drtable::i18n::{self, tr};
-use drtable::{check, diff, excel, graph, headers, schemafile, VERSION};
+use drtable::{check, diff, excel, graph, headers, l10n, schemafile, VERSION};
 
-const HELP: &str = "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,new,diff} ...
+const HELP: &str = "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,new,diff,l10n} ...
 
 Generate C++, JSON and Unreal DataAssets from spreadsheet tables.
 
@@ -21,6 +21,7 @@ commands:
   check     check references in generated JSON (or validate a spreadsheet with --input)
   new       create a data workbook for a table, with reference formulas in rows 2-3
   diff      compare two generated JSON output folders
+  l10n      report progress, export/import translations, and list unused string keys
 
 options:
   --version       show the version and exit
@@ -41,6 +42,7 @@ fn command_options(command: &str) -> Option<&'static [(&'static str, bool)]> {
         ],
         "new" => &[("table", true), ("out", true), ("schema", true), ("enums", true)],
         "diff" => &[("format", true), ("table", true), ("schema", true), ("exit-code", false)],
+        "l10n" => &[("format", true), ("lang", true), ("out", true), ("input", true)],
         _ => return None,
     })
 }
@@ -86,7 +88,7 @@ fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
     let mut positional = Vec::new();
     let usage = |command: &Option<String>| match command {
         Some(c) => format!("usage: drtable {c} [options]"),
-        None => "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,new,diff} ...".to_string(),
+        None => "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,new,diff,l10n} ...".to_string(),
     };
     while index < argv.len() {
         let arg = &argv[index];
@@ -119,7 +121,7 @@ fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
                 continue;
             }
             if command_options(arg).is_none() {
-                return Err(UsageError(usage(&command), format!("argument command: invalid choice: '{arg}' (choose from 'build', 'graph', 'check', 'new', 'diff')")));
+                return Err(UsageError(usage(&command), format!("argument command: invalid choice: '{arg}' (choose from 'build', 'graph', 'check', 'new', 'diff', 'l10n')")));
             }
             command = Some(arg.clone());
             continue;
@@ -130,7 +132,7 @@ fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
             return Ok(Parsed::Exit(ExitCode::SUCCESS));
         }
         let Some(option) = arg.strip_prefix("--") else {
-            if name == "diff" {
+            if name == "diff" || name == "l10n" {
                 positional.push(arg.clone());
                 continue;
             }
@@ -170,6 +172,21 @@ fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
     }
     if command == "diff" && values.get("format").is_some_and(|v| !["text", "markdown", "json"].contains(&v.as_str())) {
         return Err(UsageError(usage(&Some(command)), tr("--format은 text, markdown, json 중 하나여야 합니다", "--format must be text, markdown, or json")));
+    }
+    if command == "l10n" {
+        let valid = match positional.first().map(String::as_str) {
+            Some("status" | "unused") => positional.len() == 2,
+            Some("export") => positional.len() == 2 && values.contains_key("lang") && values.contains_key("out"),
+            Some("import") => positional.len() == 2 && values.contains_key("out") && values.contains_key("input"),
+            _ => false,
+        };
+        if !valid {
+            return Err(UsageError("usage: drtable l10n {status|export|unused} <input folder> | import <received.xlsx> --input <source folder> --out <folder> [--format text|markdown|json] [--lang language] [--out path]".into(),
+                tr("l10n 명령과 필수 인자를 확인하세요", "check the l10n command and required arguments")));
+        }
+        if values.get("format").is_some_and(|v| !["text", "markdown", "json"].contains(&v.as_str())) {
+            return Err(UsageError(usage(&Some(command)), tr("--format은 text, markdown, json 중 하나여야 합니다", "--format must be text, markdown, or json")));
+        }
     }
     if let Some(stamp) = values.get("stamp")
         && !is_iso8601(stamp) {
@@ -215,6 +232,34 @@ fn print_errors(messages: &[String]) {
 
 fn run(args: Args) -> ExitCode {
     let usage = |message: String| usage_exit(UsageError(format!("usage: drtable {} [options]", args.command), message));
+    if args.command == "l10n" {
+        let operation = args.positional[0].as_str();
+        if operation == "import" {
+            return match l10n::import(Path::new(&args.positional[1]), Path::new(args.get("input").unwrap()), Path::new(args.get("out").unwrap())) {
+                Ok((count, warnings)) => {
+                    for warning in warnings { eprintln!("{}: {warning}", tr("경고", "warning")); }
+                    println!("{}", tr(format!("번역 {count}개 가져옴"), format!("imported {count} translations")));
+                    ExitCode::SUCCESS
+                }
+                Err(error) => { eprintln!("{error}"); ExitCode::from(1) }
+            };
+        }
+        let (model, entries) = match l10n::load(Path::new(&args.positional[1])) {
+            Ok(result) => result,
+            Err(error) => { eprintln!("{error}"); return ExitCode::from(1); }
+        };
+        if operation == "export" {
+            return match l10n::export(&entries, args.get("lang").unwrap(), Path::new(args.get("out").unwrap())) {
+                Ok(count) => { println!("{}", tr(format!("번역 {count}개 내보냄"), format!("exported {count} translations"))); ExitCode::SUCCESS }
+                Err(error) => { eprintln!("{error}"); ExitCode::from(1) }
+            };
+        } else if operation == "status" {
+            print!("{}", l10n::status(&entries, args.get("format").unwrap_or("text")));
+        } else {
+            for (table, key) in l10n::unused(&model) { println!("{table}.{key}"); }
+        }
+        return ExitCode::SUCCESS;
+    }
     if args.command == "diff" {
         let format = match args.get("format").unwrap_or("text") {
             "markdown" => diff::Format::Markdown,

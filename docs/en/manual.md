@@ -431,6 +431,25 @@ FText Title = Strings->GetText(TEXT("UIString"), TEXT("Title_Main"));
   - `bStringsFollowCulture` (off): switches when the engine culture changes.
 - Console commands: `DrStrings.Status`, `DrStrings.Language en`.
 
+### Translation workflow commands
+
+Use these commands with an input folder containing `Schema/` and `Strings/`. All four commands leave the source workbooks unchanged.
+
+```sh
+drtable l10n status Design/Tables --format markdown
+drtable l10n export Design/Tables --lang en --out work/en.xlsx
+drtable l10n import work/en.xlsx --input Design/Tables --out translated
+drtable l10n unused Design/Tables
+```
+
+`status` reports total keys, filled cells, empty cells, and cells matching the base text per table and language. Choose `--format text|markdown|json`. Matching cells are also counted as filled. Build fills empty translations with base text, but status counts the empty source cells.
+
+`export` creates a new xlsx with only empty or base matching cells for the target language. Fill the `Translation` column in its `Translations` sheet. The `Key`, `Base`, `Memo`, `Source`, `Sheet`, `Table`, and `Language` columns identify each item. An existing output file is rejected.
+
+`import` rereads the current source under `--input`, applies filled translations, and creates **new string workbooks** at the same relative paths under `--out`. Empty translations are skipped. A key missing from the source is warned and skipped. If base text changed since export, import warns and still applies the translation; review that translation. Overlapping input/output folders and existing output files are rejected. New workbooks reconstruct the sheets and cell values; source formatting and formulas are not copied.
+
+`unused` lists string keys not found in any regular table's `Ref<string table>` or `text` field, including array elements. It cannot see keys used directly by code, Blueprints, or runtime key construction, so check before deleting them.
+
 ## 9. Outputs
 
 ### C++

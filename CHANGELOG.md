@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `drtable l10n` adds translation progress reports, focused export/import workbooks, and unused string-key reports. Import reads the current source folder and writes only new string workbooks under a separate output folder.
 - `drtable diff` compares two generated client or server JSON folders by table, schema hash, primary key, field, array element, and string language. Text, Markdown, and JSON reports support a table filter and optional change exit code. Optional `--schema` shows fixed-point values as decimals without changing build output.
 - `drtable new` adds enum dropdowns and Excel number/text-length validation to new data workbooks. Long enum lists use a hidden sheet; reference keys and comma-separated arrays remain build-validated.
 

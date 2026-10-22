@@ -6,12 +6,12 @@
 #include "Engine/DataAsset.h"
 #include "Subsystems/EngineSubsystem.h"
 #include "DrTableRowTable.h"
-#include "DrTableRegistry.generated.h"
+#include "DrTableSubsystem.generated.h"
 
-class UDrTableRegistry;
+class UDrTableSubsystem;
 
-/** Signature of a generated registration function, e.g. MyGeneratedTables::RegisterAll<UDrTableRegistry>. */
-using FDrTableRegisterFunction = void (*)(UDrTableRegistry&);
+/** Signature of a generated registration function, e.g. MyGeneratedTables::RegisterAll<UDrTableSubsystem>. */
+using FDrTableRegisterFunction = void (*)(UDrTableSubsystem&);
 
 /**
  * Collects generated registration functions from game modules. Use through
@@ -24,37 +24,40 @@ struct DRTABLERUNTIME_API FDrTableAutoRegister
 };
 
 /**
- * Registers the generated tables of a module with the global registry:
+ * Registers the generated tables of a module with the table subsystem:
  *     #include "MyTableRegistration.h"
- *     DRTABLE_AUTO_REGISTER(MyGeneratedTables::RegisterAll<UDrTableRegistry>);
+ *     DRTABLE_AUTO_REGISTER(MyGeneratedTables::RegisterAll<UDrTableSubsystem>);
  */
 #define DRTABLE_AUTO_REGISTER(Function) \
 	static const FDrTableAutoRegister UE_JOIN(GDrTableAutoRegister_, __LINE__)(&Function)
 
 /**
- * Owns the registered tables and loads their baked assets.
+ * Registers the generated tables, loads their baked assets and answers lookups.
  *
- * The engine-wide instance lives in UDrTableSubsystem and is what the generated
- * lookups (FMyRow::Find, ...) use through UDrTableRegistry::Get(). Standalone
- * instances can be created with NewObject for tests or custom hosting.
+ * The engine creates one instance; the generated lookups (FMyRow::Find, ...) use it
+ * through UDrTableSubsystem::Get(). Standalone instances can be created with NewObject
+ * for tests or custom hosting and made active with SetOverride.
  */
 UCLASS()
-class DRTABLERUNTIME_API UDrTableRegistry : public UObject
+class DRTABLERUNTIME_API UDrTableSubsystem : public UEngineSubsystem
 {
 	GENERATED_BODY()
 
 public:
-	/** The active registry: the override if one is set, otherwise the engine subsystem's. Loads tables on first use if enabled. */
-	static UDrTableRegistry* Get();
+	/** The active instance: the override if one is set, otherwise the engine's. Loads tables on first use if enabled. */
+	static UDrTableSubsystem* Get();
 
-	/** Makes Get() return Registry (which may be nullptr) until ClearOverride(). Intended for tests and custom hosting. */
-	static void SetOverride(UDrTableRegistry* Registry);
+	/** Makes Get() return Tables (which may be nullptr) until ClearOverride(). Intended for tests and custom hosting. */
+	static void SetOverride(UDrTableSubsystem* Tables);
 
-	/** Makes Get() return the engine subsystem's registry again. */
+	/** Makes Get() return the engine's instance again. */
 	static void ClearOverride();
 
-	/** New registries start with AssetRoot and ExtraAssets copied from UDrTableSettings. */
+	/** New instances start with AssetRoot and ExtraAssets copied from UDrTableSettings. */
 	virtual void PostInitProperties() override;
+
+	/** Registers the tables collected by DRTABLE_AUTO_REGISTER. */
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 
 	/** Runs every function collected by DRTABLE_AUTO_REGISTER. */
 	void RegisterAutoTables();
@@ -64,7 +67,7 @@ public:
 	void ReloadAllTables() { LoadAllTables(); }
 	bool HasLoaded() const { return bHasLoaded; }
 
-	/** Assets to load in addition to the automatic paths. Filled from UDrTableSettings::ExtraAssets on the global registry. */
+	/** Assets to load in addition to the automatic paths. Filled from UDrTableSettings::ExtraAssets. */
 	UPROPERTY(Transient)
 	TArray<TSoftObjectPtr<UPrimaryDataAsset>> ExtraAssets;
 
@@ -176,21 +179,4 @@ private:
 	TMap<const UScriptStruct*, FDrTableRowTableBase*> TablesByStruct;
 
 	bool bHasLoaded = false;
-};
-
-/** Hosts the engine-wide registry. */
-UCLASS()
-class DRTABLERUNTIME_API UDrTableSubsystem : public UEngineSubsystem
-{
-	GENERATED_BODY()
-
-public:
-	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
-	virtual void Deinitialize() override;
-
-	UDrTableRegistry* GetRegistry() const { return Registry; }
-
-private:
-	UPROPERTY(Transient)
-	TObjectPtr<UDrTableRegistry> Registry;
 };

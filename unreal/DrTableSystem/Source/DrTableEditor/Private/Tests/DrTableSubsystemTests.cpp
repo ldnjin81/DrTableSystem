@@ -3,7 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
-#include "DrTableRegistry.h"
+#include "DrTableSubsystem.h"
 #include "DrTableRuntime.h"
 #include "Tests/DrTableTestTypes.h"
 #include "UObject/Package.h"
@@ -41,17 +41,17 @@ namespace DrTableTests
 	}
 
 	/** A registry that only loads what a test adds to ExtraAssets. */
-	UDrTableRegistry* NewIsolatedRegistry()
+	UDrTableSubsystem* NewIsolatedTables()
 	{
-		UDrTableRegistry* Registry = NewObject<UDrTableRegistry>();
-		Registry->AssetRoot.Reset();
-		Registry->ExtraAssets.Reset();
-		return Registry;
+		UDrTableSubsystem* Tables = NewObject<UDrTableSubsystem>();
+		Tables->AssetRoot.Reset();
+		Tables->ExtraAssets.Reset();
+		return Tables;
 	}
 
-	TDrTableRowTable<FDrTableTestRow>& RegisterAsset(UDrTableRegistry& Registry, FName TableId)
+	TDrTableRowTable<FDrTableTestRow>& RegisterAsset(UDrTableSubsystem& Tables, FName TableId)
 	{
-		return Registry.Register<FDrTableTestRow, UDrTableTestAsset>(TableId, &UDrTableTestAsset::Rows, &UDrTableTestAsset::PrimaryKeys)
+		return Tables.Register<FDrTableTestRow, UDrTableTestAsset>(TableId, &UDrTableTestAsset::Rows, &UDrTableTestAsset::PrimaryKeys)
 			.WithSubKey(TEXT("Group"), &UDrTableTestAsset::Group_Keys, &UDrTableTestAsset::Group_Offsets, &UDrTableTestAsset::Group_Indices)
 			.WithUniqueSubKey(TEXT("Code"), &UDrTableTestAsset::Code_Keys, &UDrTableTestAsset::Code_Offsets, &UDrTableTestAsset::Code_Indices)
 			.WithArray(TEXT("Reward"), &UDrTableTestAsset::Reward_Pool);
@@ -65,85 +65,85 @@ namespace DrTableTests
 			const FName TableId(*FString::Printf(TEXT("DrTableTest_%d"), Serial++));
 			Asset = NewObject<UDrTableTestAsset>(GetTransientPackage(), TableId);
 			FillAsset(*Asset);
-			Registry = NewIsolatedRegistry();
-			RegisterAsset(*Registry, TableId);
-			Registry->ExtraAssets.Add(TSoftObjectPtr<UPrimaryDataAsset>(Asset));
-			Registry->LoadAllTables();
+			Tables = NewIsolatedTables();
+			RegisterAsset(*Tables, TableId);
+			Tables->ExtraAssets.Add(TSoftObjectPtr<UPrimaryDataAsset>(Asset));
+			Tables->LoadAllTables();
 		}
 
 		FName Id() const { return Asset->GetFName(); }
 
 		TObjectPtr<UDrTableTestAsset> Asset;
-		TObjectPtr<UDrTableRegistry> Registry;
+		TObjectPtr<UDrTableSubsystem> Tables;
 	};
 
 	/** Restores the global registry even if a test returns early. */
 	struct FScopedOverride
 	{
-		explicit FScopedOverride(UDrTableRegistry* Registry) { UDrTableRegistry::SetOverride(Registry); }
-		~FScopedOverride() { UDrTableRegistry::ClearOverride(); }
+		explicit FScopedOverride(UDrTableSubsystem* Tables) { UDrTableSubsystem::SetOverride(Tables); }
+		~FScopedOverride() { UDrTableSubsystem::ClearOverride(); }
 	};
 } // namespace DrTableTests
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTablePrimaryKeyTest, "DrTable.Registry.PrimaryKey", DrTableTests::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTablePrimaryKeyTest, "DrTable.Subsystem.PrimaryKey", DrTableTests::Flags)
 bool FDrTablePrimaryKeyTest::RunTest(const FString&)
 {
 	DrTableTests::FFixture Fixture;
-	const FDrTableTestRow* Row = Fixture.Registry->FindRowByKey<FDrTableTestRow>(20);
+	const FDrTableTestRow* Row = Fixture.Tables->FindRowByKey<FDrTableTestRow>(20);
 	TestNotNull(TEXT("binary search on baked primary keys"), Row);
 	if (Row)
 	{
 		TestEqual(TEXT("row value"), Row->Id, 20);
 	}
-	TestNotNull(TEXT("lookup by table id"), Fixture.Registry->FindRowByKey<FDrTableTestRow>(Fixture.Id(), 10));
-	TestNotNull(TEXT("lookup by key text"), Fixture.Registry->FindRow<FDrTableTestRow>(Fixture.Id(), TEXT("10")));
-	TestNull(TEXT("missing key"), Fixture.Registry->FindRowByKey<FDrTableTestRow>(15));
-	TestNull(TEXT("key type must match exactly"), Fixture.Registry->FindRowByKey<FDrTableTestRow>(int64{20}));
+	TestNotNull(TEXT("lookup by table id"), Fixture.Tables->FindRowByKey<FDrTableTestRow>(Fixture.Id(), 10));
+	TestNotNull(TEXT("lookup by key text"), Fixture.Tables->FindRow<FDrTableTestRow>(Fixture.Id(), TEXT("10")));
+	TestNull(TEXT("missing key"), Fixture.Tables->FindRowByKey<FDrTableTestRow>(15));
+	TestNull(TEXT("key type must match exactly"), Fixture.Tables->FindRowByKey<FDrTableTestRow>(int64{20}));
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableArrayPoolTest, "DrTable.Registry.ArrayPool", DrTableTests::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableArrayPoolTest, "DrTable.Subsystem.ArrayPool", DrTableTests::Flags)
 bool FDrTableArrayPoolTest::RunTest(const FString&)
 {
 	DrTableTests::FFixture Fixture;
-	const FDrTableTestRow* Row = Fixture.Registry->FindRowByKey<FDrTableTestRow>(10);
+	const FDrTableTestRow* Row = Fixture.Tables->FindRowByKey<FDrTableTestRow>(10);
 	if (!TestNotNull(TEXT("row"), Row))
 	{
 		return false;
 	}
-	const TConstArrayView<int32> Items = Fixture.Registry->GetArray<FDrTableTestRow, int32>(TEXT("Reward"), Row->Reward_Start, Row->Reward_Num);
+	const TConstArrayView<int32> Items = Fixture.Tables->GetArray<FDrTableTestRow, int32>(TEXT("Reward"), Row->Reward_Start, Row->Reward_Num);
 	TestEqual(TEXT("the row's run"), Items.Num(), 3);
 	if (Items.Num() == 3)
 	{
 		TestEqual(TEXT("elements in order"), Items[0] * 100 + Items[1] * 10 + Items[2], 789);
 	}
-	TestEqual(TEXT("an empty run"), Fixture.Registry->GetArray<FDrTableTestRow, int32>(TEXT("Reward"), 3, 0).Num(), 0);
-	TestEqual(TEXT("a run past the pool is empty"), Fixture.Registry->GetArray<FDrTableTestRow, int32>(TEXT("Reward"), 2, 5).Num(), 0);
-	TestEqual(TEXT("a negative start is empty"), Fixture.Registry->GetArray<FDrTableTestRow, int32>(TEXT("Reward"), -1, 1).Num(), 0);
-	TestEqual(TEXT("an unknown field is empty"), Fixture.Registry->GetArray<FDrTableTestRow, int32>(TEXT("Missing"), 0, 1).Num(), 0);
-	TestEqual(TEXT("a different element type is empty"), Fixture.Registry->GetArray<FDrTableTestRow, int64>(TEXT("Reward"), 0, 1).Num(), 0);
+	TestEqual(TEXT("an empty run"), Fixture.Tables->GetArray<FDrTableTestRow, int32>(TEXT("Reward"), 3, 0).Num(), 0);
+	TestEqual(TEXT("a run past the pool is empty"), Fixture.Tables->GetArray<FDrTableTestRow, int32>(TEXT("Reward"), 2, 5).Num(), 0);
+	TestEqual(TEXT("a negative start is empty"), Fixture.Tables->GetArray<FDrTableTestRow, int32>(TEXT("Reward"), -1, 1).Num(), 0);
+	TestEqual(TEXT("an unknown field is empty"), Fixture.Tables->GetArray<FDrTableTestRow, int32>(TEXT("Missing"), 0, 1).Num(), 0);
+	TestEqual(TEXT("a different element type is empty"), Fixture.Tables->GetArray<FDrTableTestRow, int64>(TEXT("Reward"), 0, 1).Num(), 0);
 	{
-		DrTableTests::FScopedOverride Override(Fixture.Registry);
+		DrTableTests::FScopedOverride Override(Fixture.Tables);
 		TestEqual(TEXT("through the runtime contract"), DrTableRuntime::GetArray<FDrTableTestRow, int32>(TEXT("Reward"), 1, 2).Num(), 2);
 	}
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableSubKeyOneToManyTest, "DrTable.Registry.SubKey.OneToMany", DrTableTests::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableSubKeyOneToManyTest, "DrTable.Subsystem.SubKey.OneToMany", DrTableTests::Flags)
 bool FDrTableSubKeyOneToManyTest::RunTest(const FString&)
 {
 	DrTableTests::FFixture Fixture;
-	const TArray<const FDrTableTestRow*> Rows = Fixture.Registry->FindRowsBySubKey<FDrTableTestRow>(TEXT("Group"), EDrTableTestGroup::ZShared);
+	const TArray<const FDrTableTestRow*> Rows = Fixture.Tables->FindRowsBySubKey<FDrTableTestRow>(TEXT("Group"), EDrTableTestGroup::ZShared);
 	TestEqual(TEXT("enum sub key sorted by value"), Rows.Num(), 2);
-	TestEqual(TEXT("empty bucket"), Fixture.Registry->FindRowsBySubKey<FDrTableTestRow>(TEXT("Group"), EDrTableTestGroup::AOther).Num(), 0);
+	TestEqual(TEXT("empty bucket"), Fixture.Tables->FindRowsBySubKey<FDrTableTestRow>(TEXT("Group"), EDrTableTestGroup::AOther).Num(), 0);
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableSubKeyOneToOneTest, "DrTable.Registry.SubKey.OneToOne", DrTableTests::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableSubKeyOneToOneTest, "DrTable.Subsystem.SubKey.OneToOne", DrTableTests::Flags)
 bool FDrTableSubKeyOneToOneTest::RunTest(const FString&)
 {
 	DrTableTests::FFixture Fixture;
-	const TArray<const FDrTableTestRow*> Rows = Fixture.Registry->FindRowsBySubKey<FDrTableTestRow>(TEXT("Code"), FName(TEXT("SecondCode")));
+	const TArray<const FDrTableTestRow*> Rows = Fixture.Tables->FindRowsBySubKey<FDrTableTestRow>(TEXT("Code"), FName(TEXT("SecondCode")));
 	TestEqual(TEXT("one row"), Rows.Num(), 1);
 	if (Rows.Num() == 1)
 	{
@@ -152,7 +152,7 @@ bool FDrTableSubKeyOneToOneTest::RunTest(const FString&)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableNameOrderingTest, "DrTable.Registry.NameKey.CodePointOrdering", DrTableTests::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableNameOrderingTest, "DrTable.Subsystem.NameKey.CodePointOrdering", DrTableTests::Flags)
 bool FDrTableNameOrderingTest::RunTest(const FString&)
 {
 	// The generator's order (Unicode code point order); FName::LexicalLess would disagree.
@@ -169,27 +169,27 @@ bool FDrTableNameOrderingTest::RunTest(const FString&)
 	}
 	Asset->Code_Offsets.Add(Keys.Num());
 
-	UDrTableRegistry* Registry = DrTableTests::NewIsolatedRegistry();
-	Registry->Register<FDrTableTestRow, UDrTableTestAsset>(Asset->GetFName(), &UDrTableTestAsset::Rows, &UDrTableTestAsset::Code_Keys)
+	UDrTableSubsystem* Tables = DrTableTests::NewIsolatedTables();
+	Tables->Register<FDrTableTestRow, UDrTableTestAsset>(Asset->GetFName(), &UDrTableTestAsset::Rows, &UDrTableTestAsset::Code_Keys)
 		.WithUniqueSubKey(TEXT("Code"), &UDrTableTestAsset::Code_Keys, &UDrTableTestAsset::Code_Offsets, &UDrTableTestAsset::Code_Indices);
-	Registry->ExtraAssets.Add(TSoftObjectPtr<UPrimaryDataAsset>(Asset));
-	Registry->LoadAllTables();
+	Tables->ExtraAssets.Add(TSoftObjectPtr<UPrimaryDataAsset>(Asset));
+	Tables->LoadAllTables();
 
 	for (int32 Index = 0; Index < Keys.Num(); ++Index)
 	{
 		const FString Name = Keys[Index].ToString();
-		const FDrTableTestRow* Row = Registry->FindRowByKey<FDrTableTestRow>(Keys[Index]);
+		const FDrTableTestRow* Row = Tables->FindRowByKey<FDrTableTestRow>(Keys[Index]);
 		TestNotNull(*FString::Printf(TEXT("name primary key %s"), *Name), Row);
 		if (Row)
 		{
 			TestEqual(*FString::Printf(TEXT("name primary key row %s"), *Name), Row->Id, Index);
 		}
-		TestEqual(*FString::Printf(TEXT("name sub key %s"), *Name), Registry->FindRowsBySubKey<FDrTableTestRow>(TEXT("Code"), Keys[Index]).Num(), 1);
+		TestEqual(*FString::Printf(TEXT("name sub key %s"), *Name), Tables->FindRowsBySubKey<FDrTableTestRow>(TEXT("Code"), Keys[Index]).Num(), 1);
 	}
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableSubKeyNotDeclaredTest, "DrTable.Registry.SubKey.NotDeclared", DrTableTests::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableSubKeyNotDeclaredTest, "DrTable.Subsystem.SubKey.NotDeclared", DrTableTests::Flags)
 bool FDrTableSubKeyNotDeclaredTest::RunTest(const FString&)
 {
 	UDrTableNoSubKeyTestAsset* Asset = NewObject<UDrTableNoSubKeyTestAsset>(GetTransientPackage(), TEXT("DrTableNoSubKey"));
@@ -197,16 +197,16 @@ bool FDrTableSubKeyNotDeclaredTest::RunTest(const FString&)
 	Row.Id = 10;
 	Asset->Rows.Add(Row);
 	Asset->PrimaryKeys.Add(10);
-	UDrTableRegistry* Registry = DrTableTests::NewIsolatedRegistry();
-	Registry->Register<FDrTableTestRow, UDrTableNoSubKeyTestAsset>(Asset->GetFName(), &UDrTableNoSubKeyTestAsset::Rows, &UDrTableNoSubKeyTestAsset::PrimaryKeys);
-	Registry->ExtraAssets.Add(TSoftObjectPtr<UPrimaryDataAsset>(Asset));
-	Registry->LoadAllTables();
-	TestEqual(TEXT("undeclared sub key is empty"), Registry->FindRowsBySubKey<FDrTableTestRow>(TEXT("Missing"), 123).Num(), 0);
-	TestNotNull(TEXT("primary key still works"), Registry->FindRowByKey<FDrTableTestRow>(10));
+	UDrTableSubsystem* Tables = DrTableTests::NewIsolatedTables();
+	Tables->Register<FDrTableTestRow, UDrTableNoSubKeyTestAsset>(Asset->GetFName(), &UDrTableNoSubKeyTestAsset::Rows, &UDrTableNoSubKeyTestAsset::PrimaryKeys);
+	Tables->ExtraAssets.Add(TSoftObjectPtr<UPrimaryDataAsset>(Asset));
+	Tables->LoadAllTables();
+	TestEqual(TEXT("undeclared sub key is empty"), Tables->FindRowsBySubKey<FDrTableTestRow>(TEXT("Missing"), 123).Num(), 0);
+	TestNotNull(TEXT("primary key still works"), Tables->FindRowByKey<FDrTableTestRow>(10));
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableReloadTest, "DrTable.Registry.ReloadUsesBakedIndices", DrTableTests::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableReloadTest, "DrTable.Subsystem.ReloadUsesBakedIndices", DrTableTests::Flags)
 bool FDrTableReloadTest::RunTest(const FString&)
 {
 	DrTableTests::FFixture Fixture;
@@ -217,72 +217,72 @@ bool FDrTableReloadTest::RunTest(const FString&)
 	Fixture.Asset->Code_Keys = {TEXT("SecondCode")};
 	Fixture.Asset->Code_Offsets = {0, 1};
 	Fixture.Asset->Code_Indices = {0};
-	Fixture.Registry->ReloadAllTables();
-	TestNull(TEXT("removed key after reload"), Fixture.Registry->FindRowByKey<FDrTableTestRow>(10));
-	TestEqual(TEXT("baked CSR after reload"), Fixture.Registry->FindRowsBySubKey<FDrTableTestRow>(TEXT("Group"), EDrTableTestGroup::ZShared).Num(), 1);
+	Fixture.Tables->ReloadAllTables();
+	TestNull(TEXT("removed key after reload"), Fixture.Tables->FindRowByKey<FDrTableTestRow>(10));
+	TestEqual(TEXT("baked CSR after reload"), Fixture.Tables->FindRowsBySubKey<FDrTableTestRow>(TEXT("Group"), EDrTableTestGroup::ZShared).Num(), 1);
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableInvalidIndexTest, "DrTable.Registry.InvalidIndexIsDisabled", DrTableTests::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableInvalidIndexTest, "DrTable.Subsystem.InvalidIndexIsDisabled", DrTableTests::Flags)
 bool FDrTableInvalidIndexTest::RunTest(const FString&)
 {
 	DrTableTests::FFixture Fixture;
 	Fixture.Asset->Group_Offsets.Reset();
 	Fixture.Asset->Group_Indices.Reset();
 	AddExpectedMessage(TEXT("Invalid CSR index lengths"), ELogVerbosity::Warning, EAutomationExpectedErrorFlags::Contains, 1);
-	Fixture.Registry->ReloadAllTables();
+	Fixture.Tables->ReloadAllTables();
 	TestEqual(TEXT("broken index is not rebuilt at runtime"),
-		Fixture.Registry->FindRowsBySubKey<FDrTableTestRow>(TEXT("Group"), EDrTableTestGroup::ZShared).Num(), 0);
+		Fixture.Tables->FindRowsBySubKey<FDrTableTestRow>(TEXT("Group"), EDrTableTestGroup::ZShared).Num(), 0);
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableAmbiguousTest, "DrTable.Registry.AmbiguousRowType", DrTableTests::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableAmbiguousTest, "DrTable.Subsystem.AmbiguousRowType", DrTableTests::Flags)
 bool FDrTableAmbiguousTest::RunTest(const FString&)
 {
 	DrTableTests::FFixture Fixture;
 	UDrTableTestAsset* Second = NewObject<UDrTableTestAsset>(GetTransientPackage(), TEXT("DrTableSecond"));
 	DrTableTests::FillAsset(*Second);
-	DrTableTests::RegisterAsset(*Fixture.Registry, Second->GetFName());
-	Fixture.Registry->ExtraAssets.Add(TSoftObjectPtr<UPrimaryDataAsset>(Second));
-	Fixture.Registry->ReloadAllTables();
+	DrTableTests::RegisterAsset(*Fixture.Tables, Second->GetFName());
+	Fixture.Tables->ExtraAssets.Add(TSoftObjectPtr<UPrimaryDataAsset>(Second));
+	Fixture.Tables->ReloadAllTables();
 	AddExpectedMessage(TEXT("registered for more than one table"), ELogVerbosity::Warning, EAutomationExpectedErrorFlags::Contains, 1);
-	TestEqual(TEXT("type-only lookup refuses to guess"), Fixture.Registry->GetRows<FDrTableTestRow>().Num(), 0);
-	TestNotNull(TEXT("lookup by table id still works"), Fixture.Registry->FindRowByKey<FDrTableTestRow>(Second->GetFName(), 20));
+	TestEqual(TEXT("type-only lookup refuses to guess"), Fixture.Tables->GetRows<FDrTableTestRow>().Num(), 0);
+	TestNotNull(TEXT("lookup by table id still works"), Fixture.Tables->FindRowByKey<FDrTableTestRow>(Second->GetFName(), 20));
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableSchemaHashTest, "DrTable.Registry.SchemaHash", DrTableTests::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableSchemaHashTest, "DrTable.Subsystem.SchemaHash", DrTableTests::Flags)
 bool FDrTableSchemaHashTest::RunTest(const FString&)
 {
 	DrTableTests::FFixture Fixture;
-	DrTableTests::RegisterAsset(*Fixture.Registry, Fixture.Id()).WithSchemaHash(TEXT("sha256:schema"));
+	DrTableTests::RegisterAsset(*Fixture.Tables, Fixture.Id()).WithSchemaHash(TEXT("sha256:schema"));
 	Fixture.Asset->SchemaHash = TEXT("sha256:schema");
-	Fixture.Registry->ReloadAllTables();
-	TestNotNull(TEXT("matching schema loads"), Fixture.Registry->FindRowByKey<FDrTableTestRow>(20));
+	Fixture.Tables->ReloadAllTables();
+	TestNotNull(TEXT("matching schema loads"), Fixture.Tables->FindRowByKey<FDrTableTestRow>(20));
 
 	AddExpectedError(TEXT("Schema mismatch, re-bake required"), EAutomationExpectedErrorFlags::Contains, 2);
 	Fixture.Asset->SchemaHash = TEXT("sha256:old");
-	Fixture.Registry->ReloadAllTables();
-	TestNull(TEXT("different schema is not loaded"), Fixture.Registry->FindRowByKey<FDrTableTestRow>(20));
+	Fixture.Tables->ReloadAllTables();
+	TestNull(TEXT("different schema is not loaded"), Fixture.Tables->FindRowByKey<FDrTableTestRow>(20));
 	Fixture.Asset->SchemaHash.Reset();
-	Fixture.Registry->ReloadAllTables();
-	TestNull(TEXT("empty schema is not loaded"), Fixture.Registry->FindRowByKey<FDrTableTestRow>(20));
+	Fixture.Tables->ReloadAllTables();
+	TestNull(TEXT("empty schema is not loaded"), Fixture.Tables->FindRowByKey<FDrTableTestRow>(20));
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableContentHashTest, "DrTable.Registry.ContentHash", DrTableTests::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDrTableContentHashTest, "DrTable.Subsystem.ContentHash", DrTableTests::Flags)
 bool FDrTableContentHashTest::RunTest(const FString&)
 {
 	DrTableTests::FFixture Fixture;
-	DrTableTests::RegisterAsset(*Fixture.Registry, Fixture.Id()).WithContentHash(TEXT("sha256:new-data"));
+	DrTableTests::RegisterAsset(*Fixture.Tables, Fixture.Id()).WithContentHash(TEXT("sha256:new-data"));
 	Fixture.Asset->ContentHash = TEXT("sha256:new-data");
-	Fixture.Registry->ReloadAllTables();
-	TestNotNull(TEXT("matching content loads"), Fixture.Registry->FindRowByKey<FDrTableTestRow>(20));
+	Fixture.Tables->ReloadAllTables();
+	TestNotNull(TEXT("matching content loads"), Fixture.Tables->FindRowByKey<FDrTableTestRow>(20));
 
 	AddExpectedMessage(TEXT("Data changed since the asset was baked"), ELogVerbosity::Warning, EAutomationExpectedErrorFlags::Contains, 1);
 	Fixture.Asset->ContentHash = TEXT("sha256:old-data");
-	Fixture.Registry->ReloadAllTables();
-	TestNotNull(TEXT("stale content still loads (warning only)"), Fixture.Registry->FindRowByKey<FDrTableTestRow>(20));
+	Fixture.Tables->ReloadAllTables();
+	TestNotNull(TEXT("stale content still loads (warning only)"), Fixture.Tables->FindRowByKey<FDrTableTestRow>(20));
 	return true;
 }
 
@@ -291,7 +291,7 @@ bool FDrTableRuntimeContractTest::RunTest(const FString&)
 {
 	DrTableTests::FFixture Fixture;
 	{
-		DrTableTests::FScopedOverride Scope(Fixture.Registry);
+		DrTableTests::FScopedOverride Scope(Fixture.Tables);
 		const FDrTableTestRow* Row = DrTableRuntime::FindByKey<FDrTableTestRow>(20);
 		TestNotNull(TEXT("FindByKey"), Row);
 		TestEqual(TEXT("FindAllBySubKey"), DrTableRuntime::FindAllBySubKey<FDrTableTestRow>(TEXT("Group"), EDrTableTestGroup::ZShared).Num(), 2);

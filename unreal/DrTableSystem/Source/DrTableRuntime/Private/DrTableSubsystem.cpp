@@ -1,6 +1,6 @@
 // Copyright ldnjin81. All Rights Reserved.
 
-#include "DrTableRegistry.h"
+#include "DrTableSubsystem.h"
 
 #include "Engine/Engine.h"
 #include "DrTableAssetBase.h"
@@ -17,7 +17,7 @@ namespace DrTable::Private
 	}
 
 	bool bOverrideActive = false;
-	TWeakObjectPtr<UDrTableRegistry> OverrideRegistry;
+	TWeakObjectPtr<UDrTableSubsystem> OverrideTables;
 } // namespace DrTable::Private
 
 FDrTableAutoRegister::FDrTableAutoRegister(FDrTableRegisterFunction Function)
@@ -30,36 +30,35 @@ const TArray<FDrTableRegisterFunction>& FDrTableAutoRegister::GetFunctions()
 	return DrTable::Private::AutoRegisterFunctions();
 }
 
-UDrTableRegistry* UDrTableRegistry::Get()
+UDrTableSubsystem* UDrTableSubsystem::Get()
 {
 	if (DrTable::Private::bOverrideActive)
 	{
-		return DrTable::Private::OverrideRegistry.Get();
+		return DrTable::Private::OverrideTables.Get();
 	}
-	UDrTableSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<UDrTableSubsystem>() : nullptr;
-	UDrTableRegistry* Registry = Subsystem ? Subsystem->GetRegistry() : nullptr;
-	if (Registry && !Registry->bHasLoaded && GetDefault<UDrTableSettings>()->bLoadOnFirstUse)
+	UDrTableSubsystem* Tables = GEngine ? GEngine->GetEngineSubsystem<UDrTableSubsystem>() : nullptr;
+	if (Tables && !Tables->bHasLoaded && GetDefault<UDrTableSettings>()->bLoadOnFirstUse)
 	{
 		// Modules loaded after the subsystem started may have added registrations since.
-		Registry->RegisterAutoTables();
-		Registry->LoadAllTables();
+		Tables->RegisterAutoTables();
+		Tables->LoadAllTables();
 	}
-	return Registry;
+	return Tables;
 }
 
-void UDrTableRegistry::SetOverride(UDrTableRegistry* Registry)
+void UDrTableSubsystem::SetOverride(UDrTableSubsystem* Tables)
 {
 	DrTable::Private::bOverrideActive = true;
-	DrTable::Private::OverrideRegistry = Registry;
+	DrTable::Private::OverrideTables = Tables;
 }
 
-void UDrTableRegistry::ClearOverride()
+void UDrTableSubsystem::ClearOverride()
 {
 	DrTable::Private::bOverrideActive = false;
-	DrTable::Private::OverrideRegistry.Reset();
+	DrTable::Private::OverrideTables.Reset();
 }
 
-void UDrTableRegistry::PostInitProperties()
+void UDrTableSubsystem::PostInitProperties()
 {
 	Super::PostInitProperties();
 	if (!HasAnyFlags(RF_ClassDefaultObject))
@@ -70,7 +69,7 @@ void UDrTableRegistry::PostInitProperties()
 	}
 }
 
-void UDrTableRegistry::RegisterAutoTables()
+void UDrTableSubsystem::RegisterAutoTables()
 {
 	for (const FDrTableRegisterFunction Function : FDrTableAutoRegister::GetFunctions())
 	{
@@ -78,7 +77,7 @@ void UDrTableRegistry::RegisterAutoTables()
 	}
 }
 
-void UDrTableRegistry::LoadAllTables()
+void UDrTableSubsystem::LoadAllTables()
 {
 	bHasLoaded = true;
 	for (TPair<FName, TUniquePtr<FDrTableRowTableBase>>& Pair : Tables)
@@ -150,7 +149,7 @@ void UDrTableRegistry::LoadAllTables()
 	}
 }
 
-void UDrTableRegistry::DumpStatus(FOutputDevice& Out) const
+void UDrTableSubsystem::DumpStatus(FOutputDevice& Out) const
 {
 	TArray<FName> Ids;
 	Tables.GetKeys(Ids);
@@ -164,7 +163,7 @@ void UDrTableRegistry::DumpStatus(FOutputDevice& Out) const
 	}
 }
 
-const FDrTableRowTableBase* UDrTableRegistry::FindTableByStruct(const UScriptStruct* RowStruct) const
+const FDrTableRowTableBase* UDrTableSubsystem::FindTableByStruct(const UScriptStruct* RowStruct) const
 {
 	FDrTableRowTableBase* const* Found = TablesByStruct.Find(RowStruct);
 	if (!Found)
@@ -178,7 +177,7 @@ const FDrTableRowTableBase* UDrTableRegistry::FindTableByStruct(const UScriptStr
 	return *Found;
 }
 
-void UDrTableRegistry::RebuildTypeIndex()
+void UDrTableSubsystem::RebuildTypeIndex()
 {
 	TablesByStruct.Reset();
 	for (TPair<FName, TUniquePtr<FDrTableRowTableBase>>& Pair : Tables)
@@ -195,7 +194,7 @@ void UDrTableRegistry::RebuildTypeIndex()
 	}
 }
 
-FDrTableRowTableBase* UDrTableRegistry::ResolveTable(const UPrimaryDataAsset& Source) const
+FDrTableRowTableBase* UDrTableSubsystem::ResolveTable(const UPrimaryDataAsset& Source) const
 {
 	if (const TUniquePtr<FDrTableRowTableBase>* ByName = Tables.Find(Source.GetFName()))
 	{
@@ -220,12 +219,5 @@ FDrTableRowTableBase* UDrTableRegistry::ResolveTable(const UPrimaryDataAsset& So
 void UDrTableSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
-	Registry = NewObject<UDrTableRegistry>(this);
-	Registry->RegisterAutoTables();
-}
-
-void UDrTableSubsystem::Deinitialize()
-{
-	Registry = nullptr;
-	Super::Deinitialize();
+	RegisterAutoTables();
 }

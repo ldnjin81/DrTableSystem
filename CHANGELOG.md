@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0
+
+Breaking: the table registry is merged into the table subsystem.
+
+- `UDrTableRegistry` is gone. `UDrTableSubsystem` (engine subsystem) now registers, loads and looks up tables itself: `UDrTableSubsystem::Get()`, `SetOverride` / `ClearOverride`, `RegisterAutoTables`, `LoadAllTables`, `Register`, `FindRowByKey`, … keep their signatures. Include `DrTableSubsystem.h` instead of `DrTableRegistry.h`, and register with `DRTABLE_AUTO_REGISTER(MyGeneratedTables::RegisterAll<UDrTableSubsystem>)`.
+- Generated `RegisterAll` takes `TTables& Tables` (was `TRegistry& Registry`); the generated lookups are unchanged.
+- Tests can still create standalone instances with `NewObject<UDrTableSubsystem>()` and make them active with `SetOverride`.
+
 ## 0.8.0
 
 Value rules, Excel validation, build comparison and a translation workflow. Nothing changes in the output of schemas and data that do not use the new Rule column.

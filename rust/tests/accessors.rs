@@ -133,8 +133,8 @@ fn registration_header() {
         "#include \"DrGeneratedTables.h\"",
         "#include \"DrQuestsTable.h\"",
         "namespace DrGeneratedTables",
-        "    template <typename TRegistry>\n    void RegisterAll(TRegistry& Registry)",
-        "Registry.template Register<FDrQuestsRow, UDrQuestsTable>(TEXT(\"BT_Quests\"), &UDrQuestsTable::Rows, &UDrQuestsTable::PrimaryKeys)",
+        "    template <typename TTables>\n    void RegisterAll(TTables& Tables)",
+        "Tables.template Register<FDrQuestsRow, UDrQuestsTable>(TEXT(\"BT_Quests\"), &UDrQuestsTable::Rows, &UDrQuestsTable::PrimaryKeys)",
         "            .WithSchemaHash(QuestsSchemaHash)\n            .WithSubKey(TEXT(\"Reward\"), &UDrQuestsTable::Reward_Keys, &UDrQuestsTable::Reward_Offsets, &UDrQuestsTable::Reward_Indices)\n            .WithArray(TEXT(\"Next\"), &UDrQuestsTable::Next_Pool);",
         "            .WithSchemaHash(MonstersSchemaHash);",
     ] {

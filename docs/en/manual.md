@@ -467,7 +467,7 @@ With `--runtime-header` (or `--ue-plugin`) also:
 
 ```
 <out-cpp>/DtEffectsRow.cpp        lookup and reference function definitions
-<out-cpp>/DtTableRegistration.h   DtGeneratedTables::RegisterAll(Registry)
+<out-cpp>/DtTableRegistration.h   DtGeneratedTables::RegisterAll(Tables)
 ```
 
 - Row struct `F<Prefix><Table>Row`, asset class `U<Prefix><Table>Table`, enum `E<Prefix><Enum>`. The default `--prefix` is `Dr`; set your project's prefix.
@@ -503,7 +503,7 @@ namespace DrTableRuntime {
 }
 ```
 
-The registry passed to `RegisterAll(Registry)` needs `Register<Row, Asset>(FName Name, TArray<Row> Asset::*Rows, TArray<Key> Asset::*Keys)`, whose result must accept chained `WithSchemaHash(const TCHAR*)`, `WithSubKey(FName, Keys, Offsets, Indices)` and `WithArray(FName, Pool)` calls.
+The object passed to `RegisterAll(Tables)` (normally `UDrTableSubsystem`) needs `Register<Row, Asset>(FName Name, TArray<Row> Asset::*Rows, TArray<Key> Asset::*Keys)`, whose result must accept chained `WithSchemaHash(const TCHAR*)`, `WithSubKey(FName, Keys, Offsets, Indices)` and `WithArray(FName, Pool)` calls.
 
 ### JSON
 
@@ -606,7 +606,7 @@ drtable-gui --input Design/Tables --schema Design/Tables/Schema --out-cpp Source
 
 `unreal/DrTableSystem` has two modules:
 
-- **DrTableRuntime**: `UDrTableAssetBase`, `TDrTableRowTable`, `UDrTableRegistry` (owned by the engine subsystem `UDrTableSubsystem`), `UDrTableSettings`, the `DrTableRuntime` lookup contract, `DRTABLE_AUTO_REGISTER`, and string tables (`UDrStringSubsystem`, `UDrStringTables`, `UDrLocalizedTextBlock`, section 8).
+- **DrTableRuntime**: `UDrTableAssetBase`, `TDrTableRowTable`, `UDrTableSubsystem` (engine subsystem that registers, loads and looks up every table), `UDrTableSettings`, the `DrTableRuntime` lookup contract, `DRTABLE_AUTO_REGISTER`, and string tables (`UDrStringSubsystem`, `UDrStringTables`, `UDrLocalizedTextBlock`, section 8).
 - **DrTableEditor**: the `DrTableBake` commandlet and the plugin's automation tests (`DrTable.*`).
 
 ### Setup
@@ -622,10 +622,10 @@ drtable-gui --input Design/Tables --schema Design/Tables/Schema --out-cpp Source
    ```
 4. Register the generated tables once, in any `.cpp` of that module:
    ```cpp
-   #include "DrTableRegistry.h"
+   #include "DrTableSubsystem.h"
    #include "TableData/Generated/GmTableRegistration.h"
 
-   DRTABLE_AUTO_REGISTER(GmGeneratedTables::RegisterAll<UDrTableRegistry>);
+   DRTABLE_AUTO_REGISTER(GmGeneratedTables::RegisterAll<UDrTableSubsystem>);
    ```
 5. Build the editor, then bake:
    ```sh
@@ -646,7 +646,7 @@ String tables (section 8) need no registration. The same bake writes the per-lan
 
 ### Loading
 
-On first lookup the registry loads every registered table from `<AssetRoot>/<AssetName>.<AssetName>`. `AssetRoot` is set in Project Settings → Plugins → DrTable (default `/Game/Data`). `ExtraAssets` adds assets or overrides the path of a table with the same asset name. With `bLoadOnFirstUse` off, call `UDrTableRegistry::Get()->LoadAllTables()` yourself.
+On first lookup the table subsystem loads every registered table from `<AssetRoot>/<AssetName>.<AssetName>`. `AssetRoot` is set in Project Settings → Plugins → DrTable (default `/Game/Data`). `ExtraAssets` adds assets or overrides the path of a table with the same asset name. With `bLoadOnFirstUse` off, call `UDrTableSubsystem::Get()->LoadAllTables()` yourself.
 
 Rows are read straight from the assets: no copies, no runtime index building. **Pointers and views returned by lookups stay valid only until the tables are reloaded** (`DrTable.Reload`, or re-baking in the editor). Do not keep them across a reload; look up again.
 

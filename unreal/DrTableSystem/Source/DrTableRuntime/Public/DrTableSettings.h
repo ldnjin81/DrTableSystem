@@ -32,7 +32,7 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "Loading")
 	TArray<TSoftObjectPtr<UPrimaryDataAsset>> ExtraAssets;
 
-	/** Load all tables the first time any table is queried (otherwise call UDrTableRegistry::LoadAllTables yourself). */
+	/** Load all tables the first time any table is queried (otherwise call UDrTableSubsystem::LoadAllTables yourself). */
 	UPROPERTY(EditAnywhere, config, Category = "Loading")
 	bool bLoadOnFirstUse = true;
 

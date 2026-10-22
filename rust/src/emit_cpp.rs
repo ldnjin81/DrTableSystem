@@ -419,8 +419,8 @@ fn registration_header(model: &DataModel, prefix: &str, asset_name: &str) -> Str
         "    // The registry provides Register<Row, Asset>(Name, RowsMember, PrimaryKeysMember). Its result".into(),
         "    // must chain WithSchemaHash(Hash), WithSubKey(Name, KeysMember, OffsetsMember, IndicesMember)".into(),
         "    // and WithArray(Name, PoolMember). Generated code depends on the schema only, never on data values.".into(),
-        "    template <typename TRegistry>".into(),
-        "    void RegisterAll(TRegistry& Registry)".into(),
+        "    template <typename TTables>".into(),
+        "    void RegisterAll(TTables& Tables)".into(),
         "    {".into(),
     ]);
     for table in model.data_tables() {
@@ -428,7 +428,7 @@ fn registration_header(model: &DataModel, prefix: &str, asset_name: &str) -> Str
         let asset = format!("U{prefix}{}Table", table.name);
         let name = asset_name.replace("{table}", &table.name);
         lines.push(format!(
-            "        Registry.template Register<{row}, {asset}>(TEXT(\"{name}\"), &{asset}::Rows, &{asset}::PrimaryKeys)"
+            "        Tables.template Register<{row}, {asset}>(TEXT(\"{name}\"), &{asset}::Rows, &{asset}::PrimaryKeys)"
         ));
         lines.push(format!("            .WithSchemaHash({}SchemaHash)", table.name));
         for column in client_sub_keys(table) {

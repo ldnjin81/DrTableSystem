@@ -464,7 +464,7 @@ drtable l10n unused Design/Tables
 
 ```
 <out-cpp>/DrEffectsRow.cpp        조회·참조 함수 정의
-<out-cpp>/DrTableRegistration.h   DrGeneratedTables::RegisterAll(Registry)
+<out-cpp>/DrTableRegistration.h   DrGeneratedTables::RegisterAll(Tables)
 ```
 
 - 행 구조체 `F<접두사><테이블>Row`, 에셋 클래스 `U<접두사><테이블>Table`, 열거형 `E<접두사><열거형>`. `--prefix` 기본값은 `Dr`이니 프로젝트 접두사로 바꿔 쓰세요.
@@ -500,7 +500,7 @@ namespace DrTableRuntime {
 }
 ```
 
-`RegisterAll(Registry)`에 넘기는 레지스트리에는 `Register<행, 에셋>(FName 이름, TArray<행> 에셋::*행배열, TArray<키> 에셋::*키배열)`이 있어야 합니다. 그 반환값은 `WithSchemaHash(const TCHAR*)`, `WithSubKey(FName, 키, 오프셋, 인덱스)`, `WithArray(FName, 풀)`을 이어 부를 수 있어야 합니다.
+`RegisterAll(Tables)`에 넘기는 객체(보통 `UDrTableSubsystem`)에는 `Register<행, 에셋>(FName 이름, TArray<행> 에셋::*행배열, TArray<키> 에셋::*키배열)`이 있어야 합니다. 그 반환값은 `WithSchemaHash(const TCHAR*)`, `WithSubKey(FName, 키, 오프셋, 인덱스)`, `WithArray(FName, 풀)`을 이어 부를 수 있어야 합니다.
 
 ### JSON
 
@@ -603,7 +603,7 @@ drtable-gui --input Design/Tables --schema Design/Tables/Schema --out-cpp Source
 
 `unreal/DrTableSystem`에는 모듈이 두 개 있습니다.
 
-- **DrTableRuntime**: `UDrTableAssetBase`, `TDrTableRowTable`, `UDrTableRegistry`(엔진 서브시스템 `UDrTableSubsystem`이 소유), `UDrTableSettings`, `DrTableRuntime` 조회 계약, `DRTABLE_AUTO_REGISTER`, 스트링테이블(`UDrStringSubsystem`, `UDrStringTables`, `UDrLocalizedTextBlock`, 8절).
+- **DrTableRuntime**: `UDrTableAssetBase`, `TDrTableRowTable`, `UDrTableSubsystem`(테이블 등록·로드·조회를 모두 맡는 엔진 서브시스템), `UDrTableSettings`, `DrTableRuntime` 조회 계약, `DRTABLE_AUTO_REGISTER`, 스트링테이블(`UDrStringSubsystem`, `UDrStringTables`, `UDrLocalizedTextBlock`, 8절).
 - **DrTableEditor**: `DrTableBake` 커맨드릿과 플러그인 자동화 테스트(`DrTable.*`).
 
 ### 설정
@@ -619,10 +619,10 @@ drtable-gui --input Design/Tables --schema Design/Tables/Schema --out-cpp Source
    ```
 4. 그 모듈의 아무 `.cpp`에서 생성된 테이블을 한 번 등록합니다.
    ```cpp
-   #include "DrTableRegistry.h"
+   #include "DrTableSubsystem.h"
    #include "TableData/Generated/GmTableRegistration.h"
 
-   DRTABLE_AUTO_REGISTER(GmGeneratedTables::RegisterAll<UDrTableRegistry>);
+   DRTABLE_AUTO_REGISTER(GmGeneratedTables::RegisterAll<UDrTableSubsystem>);
    ```
 5. 에디터를 빌드한 뒤 굽습니다.
    ```sh
@@ -643,7 +643,7 @@ drtable-gui --input Design/Tables --schema Design/Tables/Schema --out-cpp Source
 
 ### 로드
 
-처음 조회할 때 레지스트리가 등록된 테이블을 모두 `<AssetRoot>/<에셋이름>.<에셋이름>`에서 로드합니다. `AssetRoot`는 프로젝트 설정 → 플러그인 → DrTable에서 정하며 기본값은 `/Game/Data`입니다. `ExtraAssets`로 에셋을 추가하거나, 같은 에셋 이름의 테이블 경로를 바꿀 수 있습니다. `bLoadOnFirstUse`를 끄면 `UDrTableRegistry::Get()->LoadAllTables()`를 직접 부릅니다.
+처음 조회할 때 테이블 서브시스템이 등록된 테이블을 모두 `<AssetRoot>/<에셋이름>.<에셋이름>`에서 로드합니다. `AssetRoot`는 프로젝트 설정 → 플러그인 → DrTable에서 정하며 기본값은 `/Game/Data`입니다. `ExtraAssets`로 에셋을 추가하거나, 같은 에셋 이름의 테이블 경로를 바꿀 수 있습니다. `bLoadOnFirstUse`를 끄면 `UDrTableSubsystem::Get()->LoadAllTables()`를 직접 부릅니다.
 
 행은 에셋에서 그대로 읽습니다. 복사도, 런타임 인덱스 구축도 없습니다. **조회로 받은 포인터와 뷰는 테이블을 다시 로드하기 전까지만 유효합니다**(`DrTable.Reload`나 에디터에서 다시 구울 때). 다시 로드한 뒤에는 보관하지 말고 새로 조회하세요.
 

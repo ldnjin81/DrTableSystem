@@ -3,7 +3,7 @@
 #include "HAL/IConsoleManager.h"
 #include "Modules/ModuleManager.h"
 #include "DrStringTables.h"
-#include "DrTableRegistry.h"
+#include "DrTableSubsystem.h"
 #include "DrTableSettings.h"
 
 UDrTableSettings::UDrTableSettings()
@@ -18,9 +18,9 @@ namespace DrTable::Private
 		TEXT("Lists the registered tables and how many rows each has loaded."),
 		FConsoleCommandWithOutputDeviceDelegate::CreateLambda([](FOutputDevice& Out)
 		{
-			if (const UDrTableRegistry* Registry = UDrTableRegistry::Get())
+			if (const UDrTableSubsystem* Tables = UDrTableSubsystem::Get())
 			{
-				Registry->DumpStatus(Out);
+				Tables->DumpStatus(Out);
 			}
 			else
 			{
@@ -33,10 +33,10 @@ namespace DrTable::Private
 		TEXT("Reloads every registered table from its baked asset. Row pointers obtained before the reload become invalid."),
 		FConsoleCommandDelegate::CreateLambda([]()
 		{
-			if (UDrTableRegistry* Registry = UDrTableRegistry::Get())
+			if (UDrTableSubsystem* Tables = UDrTableSubsystem::Get())
 			{
-				Registry->RegisterAutoTables();
-				Registry->ReloadAllTables();
+				Tables->RegisterAutoTables();
+				Tables->ReloadAllTables();
 			}
 		}));
 

@@ -648,6 +648,8 @@ String tables (section 8) need no registration. The same bake writes the per-lan
 
 On first lookup the table subsystem loads every registered table from `<AssetRoot>/<AssetName>.<AssetName>`. `AssetRoot` is set in Project Settings → Plugins → DrTable (default `/Game/Data`). `ExtraAssets` adds assets or overrides the path of a table with the same asset name. With `bLoadOnFirstUse` off, call `UDrTableSubsystem::Get()->LoadAllTables()` yourself.
 
+Packaging needs no setup: the plugin adds every table and string asset under `AssetRoot`, and `ExtraAssets`, to the cook. Assets that a `path` column points to are soft references of the baked table and are cooked with it. `UDrTableSubsystem::Get()->AreAllTablesLoaded()` tells a startup check or smoke test whether every registered table loaded.
+
 Rows are read straight from the assets: no copies, no runtime index building. **Pointers and views returned by lookups stay valid only until the tables are reloaded** (`DrTable.Reload`, or re-baking in the editor). Do not keep them across a reload; look up again.
 
 Console commands: `DrTable.Status` (tables and loaded row counts), `DrTable.Reload`.
@@ -723,7 +725,8 @@ A `v*` tag builds the executables for each platform and attaches them to a Relea
 | `enum schemas belong in the enum folder (…)` | Move the `*.enum.xlsx` file into the enum folder. |
 | `Schema mismatch, re-bake required` | The asset was baked with an older structure. Generate → build → bake. |
 | `Class U…Table is not compiled into the editor` | Build the editor after `drtable build`, then bake. |
-| `Table asset not found` | Registered but never baked, or `AssetRoot`/`--asset-name` differ between bake and load. |
+| `Table asset not found` | Registered but never baked, or `AssetRoot`/`--asset-name` differ between bake and load. In a packaged build with plugin 0.9.0 or older, the asset was not cooked; update the plugin. |
+| `Asset path does not exist: …` (bake) | A `path` cell names an asset that is not in the project. Fix the cell shown in brackets or leave it empty. |
 | `Row type is registered for more than one table` | The same row struct was registered twice. Look it up by table id (`FindRowByKey<TRow>(TableId, Key)`). |
 | `string table 'X' data belongs in the strings folder (…)` | Move the string table workbook into the strings folder (and other tables' workbooks out of it). |
 | `mark one base language` | In `<Name>String.string.xlsx`, put a mark (✓) in column B (Base) of one language. |

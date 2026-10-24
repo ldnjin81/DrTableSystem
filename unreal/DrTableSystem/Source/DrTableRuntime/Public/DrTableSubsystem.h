@@ -164,6 +164,9 @@ public:
 	/** One line per table: id, row struct, loaded row count. */
 	void DumpStatus(FOutputDevice& Out) const;
 
+	/** True when at least one table is registered and every registered table loaded. */
+	bool AreAllTablesLoaded() const;
+
 private:
 	const FDrTableRowTableBase* FindTableByStruct(const UScriptStruct* RowStruct) const;
 	void RebuildTypeIndex();

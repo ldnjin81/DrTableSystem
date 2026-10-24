@@ -8,6 +8,7 @@
 #include "Internationalization/Culture.h"
 #include "Internationalization/Internationalization.h"
 #include "Misc/ConfigCacheIni.h"
+#include "Misc/PackageName.h"
 
 namespace DrStrings::Private
 {
@@ -24,7 +25,10 @@ void UDrStringSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	Tables->MakeActive();
 
 	const FString ManifestPath = FString::Printf(TEXT("%s/Strings/DA_DrStrings.DA_DrStrings"), *Settings->AssetRoot);
-	UDrStringManifest* Manifest = TSoftObjectPtr<UDrStringManifest>(FSoftObjectPath(ManifestPath)).LoadSynchronous();
+	// Projects without string tables have no manifest. Check first so loading does not log a missing package.
+	UDrStringManifest* Manifest = FPackageName::DoesPackageExist(FSoftObjectPath(ManifestPath).GetLongPackageName())
+		? TSoftObjectPtr<UDrStringManifest>(FSoftObjectPath(ManifestPath)).LoadSynchronous()
+		: nullptr;
 	if (!Manifest)
 	{
 		UE_LOG(LogDrStrings, Verbose, TEXT("[DrStrings] No string manifest at %s; no string tables."), *ManifestPath);

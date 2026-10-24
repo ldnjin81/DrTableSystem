@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0
+
+Packaged builds now contain the table assets, and the bake rejects paths to assets that do not exist. Generated code and baked data are unchanged.
+
+- The editor module adds every table asset and string asset under `AssetRoot`, plus `ExtraAssets`, to the cook (`UE::Cook::FDelegates::ModifyCook`). The table subsystem loads them by path, so nothing referenced them and a packaged game logged `Table asset not found`. Remove any `DirectoriesToAlwaysCook` entry you added for the table folder as a workaround.
+- `DrTableBake` checks every `path` value, array elements included, against the asset registry and fails when one points nowhere, naming the cell (`[GameAssets.Rows[0].Path] Asset path does not exist: …`). It checks on every run, including `-Verify` and unchanged tables, and leaves the existing asset untouched on failure. Empty paths are allowed; a Blueprint class path (`…_C`) is accepted when its Blueprint exists.
+- A project without string tables no longer logs a missing `DA_DrStrings` package at startup: the string subsystem checks that the manifest exists before loading it.
+- `UDrTableSubsystem::AreAllTablesLoaded()` reports whether at least one table is registered and every registered table loaded, for startup checks and smoke tests.
+
 ## 0.9.0
 
 Breaking: the table registry is merged into the table subsystem.

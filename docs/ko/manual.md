@@ -645,6 +645,8 @@ drtable-gui --input Design/Tables --schema Design/Tables/Schema --out-cpp Source
 
 처음 조회할 때 테이블 서브시스템이 등록된 테이블을 모두 `<AssetRoot>/<에셋이름>.<에셋이름>`에서 로드합니다. `AssetRoot`는 프로젝트 설정 → 플러그인 → DrTable에서 정하며 기본값은 `/Game/Data`입니다. `ExtraAssets`로 에셋을 추가하거나, 같은 에셋 이름의 테이블 경로를 바꿀 수 있습니다. `bLoadOnFirstUse`를 끄면 `UDrTableSubsystem::Get()->LoadAllTables()`를 직접 부릅니다.
 
+패키지에는 따로 설정할 것이 없습니다. 플러그인이 `AssetRoot` 아래의 테이블·문자열 에셋과 `ExtraAssets`를 모두 쿡에 넣습니다. `path` 열이 가리키는 에셋은 구운 테이블의 소프트 참조라서 함께 쿡됩니다. 시작 점검이나 스모크 테스트에서는 `UDrTableSubsystem::Get()->AreAllTablesLoaded()`로 등록된 테이블이 모두 로드됐는지 확인할 수 있습니다.
+
 행은 에셋에서 그대로 읽습니다. 복사도, 런타임 인덱스 구축도 없습니다. **조회로 받은 포인터와 뷰는 테이블을 다시 로드하기 전까지만 유효합니다**(`DrTable.Reload`나 에디터에서 다시 구울 때). 다시 로드한 뒤에는 보관하지 말고 새로 조회하세요.
 
 콘솔 명령: `DrTable.Status`(테이블과 로드된 행 수), `DrTable.Reload`.
@@ -720,7 +722,8 @@ UnrealEditor-Cmd … -run=DrTableBake -Input=… -Verify    # 빠졌거나 오�
 | `열거형 스키마는 열거형 폴더(…)에 두어야 합니다` | `*.enum.xlsx` 파일을 열거형 폴더로 옮기세요. |
 | `Schema mismatch, re-bake required` | 옛 구조로 구운 에셋입니다. 생성 → 빌드 → 굽기. |
 | `Class U…Table is not compiled into the editor` | `drtable build` 뒤에 에디터를 빌드하고 굽습니다. |
-| `Table asset not found` | 등록은 됐지만 굽지 않았거나, 굽기와 로드의 `AssetRoot`·`--asset-name`이 다릅니다. |
+| `Table asset not found` | 등록은 됐지만 굽지 않았거나, 굽기와 로드의 `AssetRoot`·`--asset-name`이 다릅니다. 플러그인 0.9.0 이하로 만든 패키지라면 에셋이 쿡되지 않은 것이니 플러그인을 올립니다. |
+| `Asset path does not exist: …` (굽기) | `path` 칸이 프로젝트에 없는 에셋을 가리킵니다. 대괄호 안에 나온 칸을 고치거나 비웁니다. |
 | `Row type is registered for more than one table` | 같은 행 구조체로 두 번 등록했습니다. 테이블 ID로 조회하세요(`FindRowByKey<TRow>(TableId, Key)`). |
 | `스트링테이블 'X'의 데이터는 스트링 폴더(…)에 두어야 합니다` | 스트링테이블 데이터 엑셀을 스트링 폴더로 옮기세요(반대로 일반 테이블은 그 폴더 밖으로). |
 | `기준 언어를 하나 표시하세요` | `<이름>String.string.xlsx`에서 기준 언어 하나의 B칸(Base)에 ✓ 등을 적으세요. |

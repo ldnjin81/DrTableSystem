@@ -1,6 +1,7 @@
 // Copyright ldnjin81. All Rights Reserved.
 
 #include "DrTableBakeCommandlet.h"
+#include "DrTableCook.h"
 
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -272,6 +273,12 @@ namespace DrTableBake
 		const TSharedPtr<FJsonObject>& Payload, bool bForce, bool bVerify)
 	{
 		const FString PackageName = OutputDirectory / AssetName;
+		// Check asset paths every time, even when the hash matches or only verifying. On failure the existing asset is left untouched.
+		UDrTableAssetBase* Probe = NewObject<UDrTableAssetBase>(GetTransientPackage(), Class);
+		if (!FillAsset(Probe, Payload, Table) || !DrTableCook::ValidatePaths(*Probe, Table))
+		{
+			return EResult::Failed;
+		}
 		FString SchemaHash;
 		FString ContentHash;
 		Payload->TryGetStringField(TEXT("schema_hash"), SchemaHash);

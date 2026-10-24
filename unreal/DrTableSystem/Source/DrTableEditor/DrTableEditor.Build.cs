@@ -16,6 +16,7 @@ public class DrTableEditor : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"Json",
+			"AssetRegistry",
 			"JsonUtilities",
 			"DrTableRuntime",
 			"UnrealEd"

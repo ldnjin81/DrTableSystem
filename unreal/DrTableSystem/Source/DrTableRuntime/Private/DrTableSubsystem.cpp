@@ -163,6 +163,16 @@ void UDrTableSubsystem::DumpStatus(FOutputDevice& Out) const
 	}
 }
 
+bool UDrTableSubsystem::AreAllTablesLoaded() const
+{
+	if (Tables.IsEmpty()) return false;
+	for (const auto& Pair : Tables)
+	{
+		if (!Pair.Value->IsLoaded()) return false;
+	}
+	return true;
+}
+
 const FDrTableRowTableBase* UDrTableSubsystem::FindTableByStruct(const UScriptStruct* RowStruct) const
 {
 	FDrTableRowTableBase* const* Found = TablesByStruct.Find(RowStruct);

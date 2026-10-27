@@ -106,7 +106,7 @@ Design/Tables/                    ← --input (data)
 | **5** | `Damage` | `float=0` | `client` | damage per second | `0..100` |
 
 - **Type** may carry a key role or a default: `int32`, `ID<int32>`, `SubKey<name>`, `float=1.0` (sections 3 and 4).
-- **Scope**: `all` both, `client` client only, `server` server only, `#` comment (excluded everywhere). Case-insensitive.
+- **Scope**: `all` both, `client` client only, `server` server only, `#` comment (excluded everywhere). Case-insensitive. The primary key's scope is the **table scope** (section 4).
 - Field order is the member order of the C++ struct.
 - **Rule** (also `규칙`) is an optional E column. Separate checks with `;`: `required`/`필수` rejects an empty data cell even if a default exists; numeric `0..100` includes both ends, `>=0` and `<1000` compare the value written in Excel; string `len<=32` counts Unicode characters and `regex:^[A-Z_]+$` matches a pattern. Array rules check each element; `required` rejects an empty array. Defaults must pass their rules. Invalid rules point to the schema E cell; value errors point to the data cell. Omitting the column preserves earlier output bytes. `drtable new` reads this schema to create a data workbook; it does not create schema files.
 
@@ -251,7 +251,12 @@ Quests:  Id: ID<int32>      Reward: ItemRef      MinLevel: Level=5
 
 ## 4. Keys and defaults
 
-- **Primary key** `ID<type>`: exactly one per table, scope must be `all`, values must be unique and non-empty.
+- **Primary key** `ID<type>`: exactly one per table, values must be unique and non-empty. Its scope is the **table scope**:
+  - `all`: emitted to client and server (the default).
+  - `client`: client JSON and C++ only; the server JSON and manifest leave the table out.
+  - `server`: server JSON only; no C++ row, asset or registration is generated, so Unreal never sees it.
+  - `#`: a design-only table, not built at all like a `#` field (not checked, emitted or referenceable).
+  - Field scopes narrow to the table scope: an `all` field in a `client` table goes to the client only. A field for the other side (a `client` field in a `server` table, or the reverse) can never be emitted, so it is **warned** about and left out; check the table definition.
 - **Sub keys** `SubKey<type>`: any number. Each gets a prebuilt index, so "all rows whose `Element` is `Fire`" is a binary search instead of a scan. Values may repeat.
 - Key types are limited to `int32`, `int64`, `name` and enums. Floating point comparisons are unstable, `bool` is meaningless as a key, and `string`/`text`/`tag`/`path` have no comparison that matches the generator's ordering.
 - **Defaults**: `float=1.0`, `bool=true`, `string=none`. Empty cells take the declared default, otherwise the type default (0, false, empty, first enumerator). Keys cannot have defaults.
@@ -327,7 +332,7 @@ DropTable:  Id: ID<int32>       GroupId: SubKey<int32>      Item: Ref<Items>
 ```
 
 - The field after the dot must be declared `SubKey<>` (it needs an index). Use `Ref<Table>` for the primary key.
-- A reference field cannot have a wider scope than the sub key it targets; an `all` field pointing at a `client`-only sub key could not be checked in the server output.
+- A reference field cannot have a wider scope than the sub key it targets, or than the target table's scope (its primary key's scope); an `all` field pointing at a `client`-only sub key or a `server`-only table could not be checked in the output that lacks the target.
 - When the target sub key is itself a reference, types are resolved along the chain. Cycles that can never resolve are reported with the full path.
 
 **Validation.** `build` checks the schema only (the target exists, types resolve). Whether each value exists is checked on the generated JSON by `drtable check` (section 10). Generated C++ carries `meta = (TableRef = "Items")` (plus `TableRefKey = "GroupId"` for sub key references) so editor tools can follow references.

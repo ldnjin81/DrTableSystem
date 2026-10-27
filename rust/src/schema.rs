@@ -156,6 +156,29 @@ pub fn in_scopes(scope: &str, scopes: &[&str]) -> bool {
     scopes.contains(&scope)
 }
 
+/// A field's scope inside a table of `table_scope`: `all` takes the table's scope, a scope the
+/// table does not output to is `None` (an error). `#` fields never reach here.
+pub fn narrow_scope(scope: &str, table_scope: &str) -> Option<String> {
+    match (table_scope, scope) {
+        ("all", s) => Some(s.to_string()),
+        (t, "all") => Some(t.to_string()),
+        (t, s) if t == s => Some(s.to_string()),
+        _ => None,
+    }
+}
+
+/// The scope written on a table's primary key definition, lowercased (`all` when there is none).
+pub fn raw_table_scope(raw_columns: &[RawColumn]) -> String {
+    raw_columns
+        .iter()
+        .find(|(_, _, raw_type, _)| {
+            let text = raw_type.text_or_empty();
+            KEY_ROLE_PREFIX_RE.is_match(text.trim()) && text.trim().to_lowercase().starts_with("id")
+        })
+        .map(|(_, _, _, raw_scope)| raw_scope.text_or_empty().trim().to_lowercase())
+        .unwrap_or_else(|| "all".to_string())
+}
+
 #[derive(Clone, Debug)]
 pub struct EnumValue {
     pub name: String,
@@ -245,6 +268,17 @@ pub struct TableSchema {
 }
 
 impl TableSchema {
+    /// The table's output scope: the scope of its primary key (`all`, `client` or `server`).
+    /// Every field is narrowed to it, and the table is emitted only to the sides it names.
+    pub fn scope(&self) -> &str {
+        self.columns.iter().find(|c| c.is_role("id")).map(|c| c.scope.as_str()).unwrap_or("all")
+    }
+
+    /// Whether the table is emitted to a side given by its scopes (`CLIENT_SCOPES` / `SERVER_SCOPES`).
+    pub fn outputs_to(&self, scopes: &[&str]) -> bool {
+        in_scopes(self.scope(), scopes)
+    }
+
     pub fn header_location(&self) -> String {
         if self.schema_location.is_empty() { self.location() } else { self.schema_location.clone() }
     }
@@ -530,6 +564,8 @@ pub fn build_columns(
     let mut headers: HashMap<String, String> = HashMap::new();
     let mut resolved: HashMap<String, String> = HashMap::new();
     let mut old_arrays: BTreeSet<String> = BTreeSet::new();
+    let table_scope = raw_table_scope(raw_columns);
+    let table_scope = if SCOPES.contains(&table_scope.as_str()) && table_scope != "#" { table_scope } else { "all".to_string() };
 
     for (column_index, raw_name, raw_type, raw_scope) in raw_columns {
         let column_index = *column_index;
@@ -546,10 +582,15 @@ pub fn build_columns(
             ));
             continue;
         }
-        let scope = lowered;
-        if scope == "#" {
+        if lowered == "#" {
             continue;
         }
+        // A field outputs only where its table does: `all` narrows to the primary key's scope.
+        // A field for the other side (client field in a server table, or the reverse) can never be
+        // emitted: it is left out here and reported as a warning by the table reader.
+        let Some(scope) = narrow_scope(&lowered, &table_scope) else {
+            continue;
+        };
         if let Some(captures) = ARRAY_RE.captures(&name) {
             let base = captures[1].to_string();
             if old_arrays.insert(base.clone()) {
@@ -575,7 +616,7 @@ pub fn build_columns(
         headers.insert(name.clone(), header_cell.clone());
         let Some(parsed) = parse_type(raw_type, sheet, &type_cell, errors, table_keys, Some(&mut resolved)) else { continue };
         validate_enum_type(&parsed.type_name, enums, sheet, &type_cell, errors);
-        if let (Some(_), Some(ref_scope)) = (&parsed.ref_key, &parsed.ref_scope) {
+        if let Some(ref_scope) = &parsed.ref_scope {
             let outputs = |s: &str| -> Vec<&'static str> {
                 match s {
                     "all" => vec!["client", "server"],
@@ -586,10 +627,17 @@ pub fn build_columns(
             };
             let target = outputs(ref_scope);
             if !outputs(&scope).iter().all(|s| target.contains(s)) {
-                errors.add(sheet, &type_cell, tr(
-                    format!("참조 범위 {scope}가 대상 서브키 범위 {ref_scope}보다 넓습니다"),
-                    format!("reference scope {scope} is wider than the target sub key scope {ref_scope}"),
-                ));
+                errors.add(sheet, &type_cell, if parsed.ref_key.is_some() {
+                    tr(
+                        format!("참조 범위 {scope}가 대상 서브키 범위 {ref_scope}보다 넓습니다"),
+                        format!("reference scope {scope} is wider than the target sub key scope {ref_scope}"),
+                    )
+                } else {
+                    tr(
+                        format!("참조 범위 {scope}가 대상 테이블 범위 {ref_scope}보다 넓습니다"),
+                        format!("reference scope {scope} is wider than the target table scope {ref_scope}"),
+                    )
+                });
             }
         }
         let default_value = convert_default(&parsed, enums, sheet, &type_cell, errors);
@@ -616,11 +664,6 @@ pub fn build_columns(
         errors.add(sheet, &cell_of(first, TYPE_ROW), tr(
             format!("기본키는 정확히 1개여야 합니다(현재 {}개)", ids.len()),
             format!("exactly one primary key is required (found {})", ids.len()),
-        ));
-    } else if ids[0].scope != "all" {
-        errors.add(sheet, &cell_of(ids[0].source_columns[0], SCOPE_ROW), tr(
-            "기본키 범위는 all이어야 합니다",
-            "the primary key scope must be all",
         ));
     }
     columns

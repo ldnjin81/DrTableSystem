@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0
+
+Tables can be scoped to one side. Schemas whose primary keys are `all` (the only scope allowed so far) build byte-identically.
+
+- The primary key's scope is the table scope: `all` (both sides), `client` (client JSON and C++ only), `server` (server JSON only, no C++ row, asset or registration) or `#` (a design-only table that is not built, like a `#` field). The other side's JSON folder and manifest leave a one-sided table out.
+- Field scopes narrow to the table scope (`all` in a `client` table goes to the client). A field for the other side (a `client` field in a `server` table, or the reverse) is warned about at its schema cell and left out, since it could never be emitted; its data column is allowed and ignored.
+- A reference may not reach a table missing on its side: the existing sub-key rule now also covers `Ref<Table>` (`reference scope all is wider than the target table scope server`).
+
 ## 0.10.0
 
 Packaged builds now contain the table assets, and the bake rejects paths to assets that do not exist. Generated code and baked data are unchanged.

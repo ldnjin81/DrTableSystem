@@ -46,3 +46,7 @@ drtable --lang ko new --table Items --out Design/Tables/Items.xlsx --schema Desi
 - 언리얼 플러그인: `unreal/DrTableSystem` (Unreal Engine 5.8)
 
 `drtable`은 설치가 필요 없는 실행 파일 하나입니다(Releases에서 받습니다). 직접 빌드: `cd rust && cargo build --release`.
+
+## 라이선스
+
+[MIT](LICENSE)

@@ -2,6 +2,7 @@
 name = "drtable"
 version = "0.10.0"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 calamine = { version = "0.36.1", features = ["dates"] }

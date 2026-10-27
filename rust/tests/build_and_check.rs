@@ -405,20 +405,6 @@ fn sub_keys_can_be_empty() {
 }
 
 #[test]
-fn primary_key_scope_must_be_all() {
-    let tmp = Tmp::new();
-    let mut book = Book::new();
-    add_enum(&mut book);
-    add_table(&mut book).set("A3", "client");
-    let source = tmp.join("bad-primary-scope.xlsx");
-    book.save(&source);
-    let result = check(&source);
-    assert_eq!(result.code, 1);
-    assert!(result.stderr.contains("[Effects.schema.xlsx]Effects!C2"));
-    assert!(result.stderr.contains("기본키 범위는 all"));
-}
-
-#[test]
 fn check_does_not_write_files() {
     let tmp = Tmp::new();
     let source = tmp.join("Tables.xlsx");

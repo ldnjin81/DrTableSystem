@@ -143,7 +143,7 @@ pub fn build(model: &DataModel, options: &BuildOptions) -> Result<(), BuildError
 /// `<Field>_Start` and `<Field>_Num` members; they must not clash with a field.
 pub fn check_scale_names(model: &DataModel) -> Result<(), ValidationErrors> {
     let mut errors = ErrorCollector::default();
-    for table in model.data_tables() {
+    for table in model.client_tables() {
         let fields: HashSet<&str> =
             table.columns.iter().filter(|c| in_scopes(&c.scope, &CLIENT_SCOPES)).map(|c| c.name.as_str()).collect();
         for column in table.columns.iter().filter(|c| c.is_array() && in_scopes(&c.scope, &CLIENT_SCOPES)) {
@@ -175,7 +175,7 @@ pub fn check_scale_names(model: &DataModel) -> Result<(), ValidationErrors> {
 /// Generated member functions must not clash with fields or with each other.
 pub fn check_member_names(model: &DataModel) -> Result<(), ValidationErrors> {
     let mut errors = ErrorCollector::default();
-    for table in model.data_tables() {
+    for table in model.client_tables() {
         let fields: HashSet<&str> =
             table.columns.iter().filter(|c| in_scopes(&c.scope, &CLIENT_SCOPES)).map(|c| c.name.as_str()).collect();
         let mut seen: HashMap<String, String> = HashMap::new();

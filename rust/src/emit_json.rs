@@ -24,6 +24,11 @@ pub fn emit_json(
         let rows = sorted_rows(table, &enums);
         let mut hashes = [String::new(), String::new()];
         for (position, (_, scopes, output, with_index)) in sides.iter().enumerate() {
+            // A table scoped to one side (its primary key's scope) is not written to the other.
+            if !table.outputs_to(scopes) {
+                let _ = std::fs::remove_file(output.join(format!("{}.json", table.name)));
+                continue;
+            }
             let (payload, hash) = table_payload(table, &rows, scopes, &enums, *with_index);
             hashes[position] = hash;
             write_json(&output.join(format!("{}.json", table.name)), &payload)?;
@@ -55,6 +60,7 @@ pub fn emit_json(
         let tables = model
             .data_tables()
             .zip(&content_hashes)
+            .filter(|(table, _)| table.outputs_to(scopes))
             .map(|(table, hashes)| {
                 object([
                     ("name", Json::from(table.name.as_str())),

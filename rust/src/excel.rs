@@ -49,6 +49,11 @@ impl DataModel {
         self.tables.iter().filter(|t| !t.is_strings())
     }
 
+    /// Data tables emitted to the client (scope `all` or `client`): the ones with generated C++.
+    pub fn client_tables(&self) -> impl Iterator<Item = &TableSchema> {
+        self.data_tables().filter(|t| t.outputs_to(&crate::schema::CLIENT_SCOPES))
+    }
+
     pub fn string_tables(&self) -> impl Iterator<Item = &TableSchema> {
         self.tables.iter().filter(|t| t.is_strings())
     }
@@ -218,11 +223,17 @@ pub fn load_model(
     // Resolve every table's key types before reading rows (Ref<T> needs them).
     let mut table_keys: TableKeys = HashMap::new();
     for (name, schema) in &schemas.tables {
-        for (row, raw_name, raw_type, raw_scope) in schema.raw_columns() {
+        let raw_columns = schema.raw_columns();
+        let table_scope = crate::schema::raw_table_scope(&raw_columns);
+        if table_scope == "#" {
+            continue; // a design-only table: not built, so nothing can reference it
+        }
+        for (row, raw_name, raw_type, raw_scope) in raw_columns {
             let scope = raw_scope.py_str().trim().to_lowercase();
             if scope == "#" {
                 continue;
             }
+            let scope = crate::schema::narrow_scope(&scope, &table_scope).unwrap_or(scope);
             let type_text = raw_type.py_str();
             if !KEY_ROLE_PREFIX_RE.is_match(type_text.trim()) {
                 if is_identifier(&raw_name.py_str()) {
@@ -398,9 +409,12 @@ fn bind(schema: &Schema, columns: &[ColumnSchema], part: &SheetRef, errors: &mut
             ok = false;
         }
     }
+    let table_scope = crate::schema::raw_table_scope(&schema.raw_columns());
     for (name, (row, scope)) in &defined {
         let present = header.iter().any(|(n, _)| n == name) || elements.iter().any(|(n, _)| n == name);
-        if scope != "#" && !present {
+        // Fields left out (`#`, or for the side the table does not output to) need no data column.
+        let emitted = scope != "#" && (!crate::schema::SCOPES.contains(&table_scope.as_str()) || crate::schema::narrow_scope(scope, &table_scope).is_some());
+        if emitted && !present {
             errors.add(&where_, "A1", tr(
                 format!("필드 '{name}'의 열이 없습니다 (스키마 {})", schema.at(*row)),
                 format!("no column for field '{name}' (schema {})", schema.at(*row)),
@@ -512,6 +526,26 @@ fn parse_table(
     errors: &mut ErrorCollector,
     warnings: &mut Vec<String>,
 ) -> Option<TableSchema> {
+    // A primary key scoped `#` marks a design-only table: like a `#` field, it is not built.
+    let table_scope = crate::schema::raw_table_scope(&schema.raw_columns());
+    if table_scope == "#" {
+        return None;
+    }
+    // Fields for the side the table does not output to make the table definition inconsistent.
+    for (row, raw_name, _, raw_scope) in schema.raw_columns() {
+        let scope = raw_scope.text_or_empty().trim().to_lowercase();
+        if scope == "#" || !crate::schema::SCOPES.contains(&scope.as_str()) || !crate::schema::SCOPES.contains(&table_scope.as_str()) {
+            continue;
+        }
+        if crate::schema::narrow_scope(&scope, &table_scope).is_none() {
+            let field = raw_name.py_str().trim().to_string();
+            let cell = Schema::cell(row, crate::schema::SCOPE_ROW);
+            warnings.push(tr(
+                format!("{}!{cell}: 필드 '{field}'의 범위 {scope}가 테이블 범위 {table_scope}(기본키 범위)와 맞지 않아 어느 쪽에도 출력되지 않습니다. 테이블 구성을 확인하세요", schema.where_()),
+                format!("{}!{cell}: field '{field}' has scope {scope}, outside the table scope {table_scope} (the primary key scope), so it is emitted nowhere; check the table definition", schema.where_()),
+            ));
+        }
+    }
     let mut columns = build_columns(&schema.raw_columns(), &schema.where_(), enums, errors, Some(table_keys), &Schema::cell);
     for column in &mut columns {
         let row = column.source_columns[0];

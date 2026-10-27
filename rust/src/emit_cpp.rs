@@ -73,7 +73,7 @@ pub fn emit_cpp(
         write(&output.join(format!("E{prefix}{}.h", e.name)), &enum_header(e, prefix))?;
     }
     let enums = model.enum_map();
-    for table in model.data_tables() {
+    for table in model.client_tables() {
         write(&output.join(format!("{prefix}{}Row.h", table.name)), &table_header(table, prefix, &enums, runtime_header.is_some()))?;
         write(&output.join(format!("{prefix}{}Table.h", table.name)), &asset_header(table, prefix, asset_base, header))?;
         if let Some(runtime) = runtime_header {
@@ -423,7 +423,7 @@ fn registration_header(model: &DataModel, prefix: &str, asset_name: &str) -> Str
         "    void RegisterAll(TTables& Tables)".into(),
         "    {".into(),
     ]);
-    for table in model.data_tables() {
+    for table in model.client_tables() {
         let row = format!("F{prefix}{}Row", table.name);
         let asset = format!("U{prefix}{}Table", table.name);
         let name = asset_name.replace("{table}", &table.name);
@@ -518,7 +518,7 @@ fn tables_header(model: &DataModel, prefix: &str) -> String {
         format!("namespace {prefix}GeneratedTables"),
         "{".into(),
     ];
-    for table in model.data_tables() {
+    for table in model.client_tables() {
         let sub_keys: Vec<&str> = table.sub_keys().iter().map(|c| c.name.as_str()).collect();
         lines.extend([
             format!("    inline constexpr TCHAR {0}Name[] = TEXT(\"{0}\");", table.name),

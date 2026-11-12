@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.0
+
+Generated code can be linked from other modules, and new data workbooks can list reference keys. Output without the new options is byte-identical.
+
+- `build --api <MACRO>` puts a module export macro on the generated row structs and table asset classes (`struct MYGAME_API FGmItemsRow`). Without it, another module calling `FGmItemsRow::Find` failed to link; projects that patched the headers after generation can drop that step. The GUI has a Module API field.
+- `new --input <data folder>` reads every data file (as `build` does) and gives single reference fields a dropdown of the target table's keys, stored on the hidden `#Lists` sheet. The list is a snapshot, so a value outside it shows a warning instead of being rejected. Targets with more than 10,000 keys get no dropdown and a warning; data errors stop `new`. The GUI uses the data folder from the Build tab when it is set.
+
 ## 0.11.0
 
 Tables can be scoped to one side. Schemas whose primary keys are `all` (the only scope allowed so far) build byte-identically.

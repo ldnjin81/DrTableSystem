@@ -58,6 +58,7 @@ fn type_include(type_name: &str) -> Option<&'static str> {
 
 /// Writes the C++ headers. With `runtime_header`, also the runtime integration: row lookups
 /// and reference accessors, one .cpp per table and the registration header.
+#[allow(clippy::too_many_arguments)]
 pub fn emit_cpp(
     model: &DataModel,
     output: &Path,

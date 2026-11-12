@@ -14,15 +14,40 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
-use rust_xlsxwriter::{DataValidation, DataValidationRule, Formula, Workbook};
+use rust_xlsxwriter::{DataValidation, DataValidationErrorStyle, DataValidationRule, Formula, Workbook};
 
 use crate::errors::ErrorCollector;
+use crate::excel::DataModel;
 use crate::i18n::tr;
 use crate::schema::{column_letter, enum_of, parse_type, DATA_ROW, NAME_ROW, SCOPE_ROW, TYPE_ROW};
 use crate::schemafile::{Schema, Schemas, SCHEMA_SUFFIXES};
 use crate::validation::{self, ExcelRule};
+use crate::value::Value;
 
 const LAST_DATA_ROW: u32 = 1_048_575;
+
+/// Most keys a reference dropdown lists; a larger target gets no dropdown.
+pub const MAX_REF_KEYS: usize = 10_000;
+
+/// The keys a single reference field may hold, read from the loaded data: the target table's
+/// primary key, or the distinct values of the referenced sub key. None for other fields.
+fn ref_keys(model: &DataModel, table: &str, field: &str) -> Option<(String, Vec<Value>)> {
+    let column = model.tables.iter().find(|t| t.name == table)?.columns.iter().find(|c| c.name == field)?;
+    if column.array.is_some() || column.ref_strings {
+        return None;
+    }
+    let target_name = column.ref_target.as_ref()?;
+    let target = model.tables.iter().find(|t| &t.name == target_name)?;
+    let index = match &column.ref_key {
+        Some(key) => target.columns.iter().position(|c| &c.name == key)?,
+        None => target.columns.iter().position(|c| c.is_role("id"))?,
+    };
+    let mut seen = HashSet::new();
+    let keys = target.rows.iter().filter_map(|row| row.get(index))
+        .filter(|value| !matches!(value, Value::Null) && seen.insert(value.py_str()))
+        .cloned().collect();
+    Some((target_name.clone(), keys))
+}
 
 fn number_rule(lower: Option<(f64, bool)>, upper: Option<(f64, bool)>) -> DataValidationRule<f64> {
     match (lower, upper) {
@@ -64,7 +89,16 @@ fn excel_validation(rule: ExcelRule, type_name: &str) -> Option<DataValidation> 
 
 /// Creates a data workbook for `table`: field names in row 1, reference formulas in rows
 /// 2-3. Refuses to touch an existing file. Returns true when the workbook was written.
-pub fn new_workbook(target: &Path, table: &str, schemas: &Schemas, errors: &mut ErrorCollector) -> bool {
+/// With `refs` (the loaded data), reference fields get a dropdown of the keys at this moment;
+/// fields whose target is too large are named in `warnings`.
+pub fn new_workbook(
+    target: &Path,
+    table: &str,
+    schemas: &Schemas,
+    refs: Option<&DataModel>,
+    errors: &mut ErrorCollector,
+    warnings: &mut Vec<String>,
+) -> bool {
     let label = format!("[{}]", target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
     let Some(schema) = schemas.tables.get(table) else {
         errors.add(&label, "A1", tr(format!("테이블 '{table}'의 스키마가 없습니다"), format!("table '{table}' has no schema")));
@@ -89,7 +123,7 @@ pub fn new_workbook(target: &Path, table: &str, schemas: &Schemas, errors: &mut 
     let missing = tr("(스키마에 없음)", "(not in schema)");
 
     let mut workbook = Workbook::new();
-    let mut long_lists: Vec<Vec<String>> = Vec::new();
+    let mut long_lists: Vec<Vec<Value>> = Vec::new();
     let sheet = workbook.add_worksheet();
     let written = (|| -> Result<(), rust_xlsxwriter::XlsxError> {
         sheet.set_name(table)?;
@@ -121,6 +155,29 @@ pub fn new_workbook(target: &Path, table: &str, schemas: &Schemas, errors: &mut 
                 };
                 sheet.write_formula((row - 1) as u32, column, formula.as_str())?;
             }
+            // 참조 목록은 불러온 데이터(--input)가 있을 때만 만든다. 생성 시점의 키라 새 키는 경고만 한다.
+            if let Some(model) = refs
+                && let Some((target_table, keys)) = ref_keys(model, table, &name.py_str()) {
+                    if keys.len() > MAX_REF_KEYS {
+                        warnings.push(format!("{label}{table}!{letter}{NAME_ROW}: {}", tr(
+                            format!("{target_table} 키가 {}개라 드롭다운을 만들지 않습니다(최대 {MAX_REF_KEYS})", keys.len()),
+                            format!("{target_table} has {} keys; no dropdown (at most {MAX_REF_KEYS})", keys.len()),
+                        )));
+                    } else if !keys.is_empty() {
+                        long_lists.push(keys);
+                        let list_column = column_letter(long_lists.len());
+                        let formula = format!("='#Lists'!${list_column}$1:${list_column}${}", long_lists.last().unwrap().len());
+                        let validation = DataValidation::new()
+                            .allow_list_formula(Formula::new(formula))
+                            .set_error_style(DataValidationErrorStyle::Warning)
+                            .set_error_message(tr(
+                                format!("{target_table}에 없는 키입니다. 목록은 파일을 만든 때의 키이므로, 새로 추가한 키라면 계속하세요. build가 참조를 검사합니다."),
+                                format!("Not a key of {target_table}. The list holds the keys from when this file was created; continue if the key is new. The build checks references."),
+                            ))?;
+                        sheet.add_data_validation((DATA_ROW - 1) as u32, column, LAST_DATA_ROW, column, &validation)?;
+                    }
+                    continue;
+            }
             // 별칭과 참조는 스키마 전체 해석이 필요하므로 여기서는 입력 보조를 건너뛴다.
             let mut projection_errors = ErrorCollector::default();
             let Some(parsed) = parse_type(raw_type, &schema.where_(), &Schema::cell(*schema_row, 2), &mut projection_errors, None, None) else { continue };
@@ -134,7 +191,7 @@ pub fn new_workbook(target: &Path, table: &str, schemas: &Schemas, errors: &mut 
                         let validation = if joined.chars().count() <= 255 && !names.iter().any(|name| name.contains(',')) {
                             DataValidation::new().allow_list_strings(&names)?
                         } else {
-                            long_lists.push(names);
+                            long_lists.push(names.into_iter().map(Value::Str).collect());
                             let list_column = column_letter(long_lists.len());
                             let formula = format!("='#Lists'!${list_column}$1:${list_column}${}", long_lists.last().unwrap().len());
                             DataValidation::new().allow_list_formula(Formula::new(formula))
@@ -157,7 +214,13 @@ pub fn new_workbook(target: &Path, table: &str, schemas: &Schemas, errors: &mut 
             lists.set_name("#Lists")?;
             lists.set_hidden(true);
             for (column, names) in long_lists.iter().enumerate() {
-                for (row, name) in names.iter().enumerate() { lists.write_string(row as u32, column as u16, name)?; }
+                for (row, value) in names.iter().enumerate() {
+                    // Numbers stay numbers so that a typed key matches its list entry.
+                    match value {
+                        Value::Int(number) => { lists.write_number(row as u32, column as u16, *number as f64)?; }
+                        other => { lists.write_string(row as u32, column as u16, other.py_str())?; }
+                    }
+                }
             }
             Ok(())
         })();

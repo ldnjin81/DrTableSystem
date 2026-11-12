@@ -839,14 +839,26 @@ impl App {
                 let root = settings.schema_root();
                 let out = PathBuf::from(settings.new_out.trim());
                 let mut errors = ErrorCollector::default();
+                let mut warnings = Vec::new();
+                // 입력 폴더가 있으면 데이터를 읽어 참조 필드에 키 드롭다운을 넣는다(읽기 실패는 드롭다운만 생략).
+                let model = Some(settings.input.trim()).filter(|input| !input.is_empty()).and_then(|input| {
+                    match load_model(Path::new(input), Some(&root), settings.enum_root().as_deref(), settings.strings_root().as_deref()) {
+                        Ok(model) => Some(model),
+                        Err(_) => {
+                            warnings.push(tr("데이터를 읽지 못해 참조 드롭다운을 넣지 않았습니다(빌드 탭의 검사로 확인)", "Could not read the data, so no reference dropdowns (run Check on the Build tab)"));
+                            None
+                        }
+                    }
+                });
                 let created = match load_schemas(&root, &settings.enum_folder(), &mut errors) {
-                    Ok(schemas) => errors.messages.is_empty() && headers::new_workbook(&out, &settings.new_table, &schemas, &mut errors),
+                    Ok(schemas) => errors.messages.is_empty() && headers::new_workbook(&out, &settings.new_table, &schemas, model.as_ref(), &mut errors, &mut warnings),
                     Err(ValidationErrors(messages)) => {
                         errors.messages.extend(messages);
                         false
                     }
                 };
                 let mut messages: Vec<Message> = errors.messages.iter().map(|m| Message::parse(Level::Error, m)).collect();
+                messages.extend(warnings.iter().map(|m| Message::parse(Level::Warning, m)));
                 if created {
                     messages.push(Message { level: Level::Info, location: String::new(), text: out.display().to_string() });
                     open_path(&out);

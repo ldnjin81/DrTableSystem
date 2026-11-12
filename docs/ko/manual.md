@@ -128,7 +128,7 @@ Design/Tables/                    ← --input (데이터)
 
 데이터 시트 2·3행에는 1행 필드명으로 스키마 엑셀 파일에서 자료형과 범위를 찾아 보여 주는 수식을 둡니다. 스키마가 바뀌면 파일을 열 때 반영됩니다. `drtable new --table Items --out Design/Tables/Items.xlsx --schema Design/Tables/Schema`는 이 수식이 든 **새** 데이터 파일을 만듭니다.
 
-새 파일의 열거형 열에는 열거자 드롭다운이 들어갑니다. 목록이 길면 숨긴 목록 시트를 참조합니다. 숫자 범위(`0..100`, `>=0` 등)와 `len<=N` 규칙도 입력 유효성으로 표시합니다. `fixed<N>` 범위는 엑셀에 적는 소수에 적용됩니다. 쉼표 셀 배열, 참조 키, `required`, `regex`는 빌드에서 검사합니다. 참조 키 목록은 대상 데이터 파일이 여러 위치에 있을 수 있어 생성 시 빠짐없이 수집할 수 없으므로 드롭다운을 만들지 않습니다. 엑셀 유효성은 붙여넣기 등으로 우회할 수 있으므로 `drtable build` 검사는 항상 실행하세요.
+새 파일의 열거형 열에는 열거자 드롭다운이 들어갑니다. 목록이 길면 숨긴 목록 시트를 참조합니다. 숫자 범위(`0..100`, `>=0` 등)와 `len<=N` 규칙도 입력 유효성으로 표시합니다. `fixed<N>` 범위는 엑셀에 적는 소수에 적용됩니다. 쉼표 셀 배열, `required`, `regex`는 빌드에서 검사합니다. `--input <데이터 폴더>`를 함께 주면 데이터 파일을 모두 읽어 참조 필드(`Ref<T>`, 배열 제외)에 대상 테이블 키 드롭다운을 넣습니다. 목록은 **파일을 만든 때의 키**이므로, 목록에 없는 값은 막지 않고 경고만 합니다(새로 추가한 키일 수 있음). 대상 키가 10,000개를 넘으면 그 필드는 드롭다운 없이 경고만 남깁니다. 데이터에 오류가 있으면 `new`도 멈추니 먼저 `drtable check --input`으로 고치세요. 엑셀 유효성은 붙여넣기 등으로 우회할 수 있으므로 `drtable build` 검사는 항상 실행하세요.
 
 ```
 2행: =IFERROR(INDEX('[1]Items'!$B:$B,MATCH(A$1,'[1]Items'!$A:$A,0)),"(스키마에 없음)")
@@ -544,7 +544,7 @@ drtable build --input <xlsx|폴더> --out-cpp <dir> --out-client <dir> --out-ser
 drtable graph --input <xlsx|폴더> --out references.md [--schema …] [--enums …] [--strings …]
 drtable check --client <클라 JSON 폴더> [--server <서버 JSON 폴더>]
 drtable check --input <xlsx|폴더> [--schema …] [--enums …] [--strings …]   # 검사만 하고 아무것도 쓰지 않음
-drtable new --table <테이블> --out <새 xlsx> --schema <폴더> [--enums …]  # 참고 수식이 든 새 데이터 파일
+drtable new --table <테이블> --out <새 xlsx> --schema <폴더> [--enums …] [--input <데이터> [--strings …]]  # 참고 수식이 든 새 데이터 파일
 drtable diff <이전 JSON 폴더> <새 JSON 폴더> [--format text|markdown|json] [--table T] [--schema <폴더>] [--exit-code]
 drtable [--lang en|ko] …
 ```

@@ -40,7 +40,7 @@ fn command_options(command: &str) -> Option<&'static [(&'static str, bool)]> {
         "check" => &[
             ("client", true), ("server", true), ("input", true), ("schema", true), ("enums", true), ("strings", true),
         ],
-        "new" => &[("table", true), ("out", true), ("schema", true), ("enums", true)],
+        "new" => &[("table", true), ("out", true), ("schema", true), ("enums", true), ("input", true), ("strings", true)],
         "diff" => &[("format", true), ("table", true), ("schema", true), ("exit-code", false)],
         "l10n" => &[("format", true), ("lang", true), ("out", true), ("input", true)],
         _ => return None,
@@ -304,8 +304,23 @@ fn run(args: Args) -> ExitCode {
                 return ExitCode::from(1);
             }
         };
-        if errors.messages.is_empty() && headers::new_workbook(&out, args.get("table").unwrap(), &schemas, &mut errors) {
+        // With --input every data file is read, so the reference dropdowns list every key.
+        let model = match args.path("input") {
+            Some(input) => match excel::load_model(&input, Some(&schema_dir), args.path("enums").as_deref(), args.path("strings").as_deref()) {
+                Ok(model) => Some(model),
+                Err(ValidationErrors(messages)) => {
+                    print_errors(&messages);
+                    return ExitCode::from(1);
+                }
+            },
+            None => None,
+        };
+        let mut warnings = Vec::new();
+        if errors.messages.is_empty() && headers::new_workbook(&out, args.get("table").unwrap(), &schemas, model.as_ref(), &mut errors, &mut warnings) {
             println!("{}", out.display());
+        }
+        for warning in &warnings {
+            eprintln!("{}: {warning}", tr("경고", "warning"));
         }
         print_errors(&errors.messages);
         return if errors.messages.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) };

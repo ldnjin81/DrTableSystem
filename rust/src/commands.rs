@@ -6,11 +6,25 @@ use std::path::{Path, PathBuf};
 use crate::emit_cpp::{self, DEFAULT_ASSET_BASE, DEFAULT_ASSET_NAME};
 use crate::emit_json;
 use crate::errors::{ErrorCollector, ValidationErrors};
-use crate::excel::DataModel;
+use crate::excel::{self, DataModel};
+use crate::headers;
 use crate::i18n::tr;
 use crate::schema::{in_scopes, CLIENT_SCOPES};
 use crate::schemafile;
 use crate::sources::is_identifier;
+
+/// C++ keywords (and the context-sensitive `final`/`override`) that cannot be a macro name in a
+/// declaration such as `struct <api> FRow`.
+const CPP_KEYWORDS: &[&str] = &[
+    "alignas", "alignof", "asm", "auto", "bool", "break", "case", "catch", "char", "class", "const", "consteval",
+    "constexpr", "constinit", "const_cast", "continue", "decltype", "default", "delete", "do", "double",
+    "dynamic_cast", "else", "enum", "explicit", "export", "extern", "false", "final", "float", "for", "friend",
+    "goto", "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "nullptr", "operator",
+    "override", "private", "protected", "public", "register", "reinterpret_cast", "return", "short", "signed",
+    "sizeof", "static", "static_assert", "static_cast", "struct", "switch", "template", "this", "thread_local",
+    "throw", "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void",
+    "volatile", "while",
+];
 
 pub const PLUGIN_ASSET_BASE: &str = "UDrTableAssetBase";
 pub const PLUGIN_ASSET_BASE_HEADER: &str = "DrTableAssetBase.h";
@@ -71,10 +85,10 @@ pub fn build(model: &DataModel, options: &BuildOptions) -> Result<(), BuildError
             "--prefix must be a C++ identifier starting with a letter",
         )));
     }
-    if options.api.as_deref().is_some_and(|m| !is_identifier(m)) {
+    if options.api.as_deref().is_some_and(|m| !is_identifier(m) || CPP_KEYWORDS.contains(&m)) {
         return Err(BuildError::Usage(tr(
-            "--api는 영문자로 시작하는 C++ 식별자여야 합니다(예: MYGAME_API)",
-            "--api must be a C++ identifier starting with a letter (e.g. MYGAME_API)",
+            "--api는 영문자로 시작하고 C++ 예약어가 아닌 식별자여야 합니다(예: MYGAME_API)",
+            "--api must be an identifier starting with a letter that is not a C++ keyword (e.g. MYGAME_API)",
         )));
     }
     let outputs = [&options.out_cpp, &options.out_client, &options.out_server];
@@ -241,4 +255,56 @@ fn normalize(path: &Path) -> PathBuf {
         }
     }
     out
+}
+
+/// What `new` did: whether the workbook was written, and its errors and warnings.
+#[derive(Default)]
+pub struct NewOutcome {
+    pub created: bool,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+/// `drtable new`: a data workbook for `table`. The folders follow the `build` rules (`schema`
+/// None means the input folder holds the schemas). With `input`, every data file is loaded so
+/// reference fields get key dropdowns; data errors stop it, as they stop `build`.
+pub fn new_workbook(
+    out: &Path,
+    table: &str,
+    input: Option<&Path>,
+    schema: Option<&Path>,
+    enums: Option<&Path>,
+    strings: Option<&Path>,
+) -> NewOutcome {
+    let mut outcome = NewOutcome::default();
+    let Some(schema_root) = schema.map(Path::to_path_buf).or_else(|| input.map(schemafile::folder_of)) else {
+        outcome.errors.push(tr("스키마 폴더를 지정하세요", "choose the schema folder"));
+        return outcome;
+    };
+    let mut errors = ErrorCollector::default();
+    let schemas = match schemafile::load_schemas(&schema_root, &schemafile::enum_folder(&schema_root, enums, schema.is_some()), &mut errors) {
+        Ok(schemas) => schemas,
+        Err(ValidationErrors(messages)) => {
+            outcome.errors = messages;
+            return outcome;
+        }
+    };
+    if !errors.messages.is_empty() {
+        outcome.errors = errors.messages;
+        return outcome;
+    }
+    // Reading every data file is slow; skip it when new_workbook is going to refuse anyway.
+    let model = match input {
+        Some(input) if !out.exists() && schemas.tables.contains_key(table) => match excel::load_model(input, schema, enums, strings) {
+            Ok(model) => Some(model),
+            Err(ValidationErrors(messages)) => {
+                outcome.errors = messages;
+                return outcome;
+            }
+        },
+        _ => None,
+    };
+    outcome.created = headers::new_workbook(out, table, &schemas, model.as_ref(), &mut errors, &mut outcome.warnings);
+    outcome.errors = errors.messages;
+    outcome
 }

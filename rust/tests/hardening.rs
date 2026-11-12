@@ -145,7 +145,7 @@ fn api_macro_must_be_an_identifier() {
     let tmp = Tmp::new();
     let source = tmp.join("in.xlsx");
     Book::new().with("T", vec![row!["Id"], row!["ID<int32>"], row!["all"], row![1]]).save(&source);
-    for bad in ["1GAME_API", "MY-GAME", ""] {
+    for bad in ["1GAME_API", "MY-GAME", "", "final", "struct"] {
         let result = build(&source, &tmp, &["--api", bad]);
         assert!(result.is_usage_error(), "{bad}: {}", result.stderr);
         assert!(result.stderr.contains("--api"), "{}", result.stderr);

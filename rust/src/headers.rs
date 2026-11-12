@@ -26,6 +26,28 @@ use crate::value::Value;
 
 const LAST_DATA_ROW: u32 = 1_048_575;
 
+/// Largest integer Excel stores exactly (a double); bigger keys are listed as text.
+const EXACT_INTEGER: i64 = 1 << 53;
+
+/// Lists on the hidden `#Lists` sheet, one column each; equal lists share a column.
+#[derive(Default)]
+struct Lists(Vec<Vec<Value>>);
+
+impl Lists {
+    /// The `'#Lists'!$X$1:$X$N` formula of `values`, adding a column for a new list.
+    fn formula(&mut self, values: Vec<Value>) -> Formula {
+        let index = match self.0.iter().position(|list| *list == values) {
+            Some(index) => index,
+            None => {
+                self.0.push(values);
+                self.0.len() - 1
+            }
+        };
+        let column = column_letter(index + 1);
+        Formula::new(format!("='#Lists'!${column}$1:${column}${}", self.0[index].len()))
+    }
+}
+
 /// Most keys a reference dropdown lists; a larger target gets no dropdown.
 pub const MAX_REF_KEYS: usize = 10_000;
 
@@ -43,8 +65,10 @@ fn ref_keys(model: &DataModel, table: &str, field: &str) -> Option<(String, Vec<
         None => target.columns.iter().position(|c| c.is_role("id"))?,
     };
     let mut seen = HashSet::new();
+    // 0과 빈 이름은 "참조 없음"이라 목록에 넣지 않는다(빈 서브키 칸은 기본값으로 바뀌어 들어온다).
     let keys = target.rows.iter().filter_map(|row| row.get(index))
-        .filter(|value| !matches!(value, Value::Null) && seen.insert(value.py_str()))
+        .filter(|value| !matches!(value, Value::Null | Value::Int(0)) && !matches!(value, Value::Str(s) if s.is_empty()))
+        .filter(|value| seen.insert(value.py_str()))
         .cloned().collect();
     Some((target_name.clone(), keys))
 }
@@ -123,7 +147,7 @@ pub fn new_workbook(
     let missing = tr("(스키마에 없음)", "(not in schema)");
 
     let mut workbook = Workbook::new();
-    let mut long_lists: Vec<Vec<Value>> = Vec::new();
+    let mut lists = Lists::default();
     let sheet = workbook.add_worksheet();
     let written = (|| -> Result<(), rust_xlsxwriter::XlsxError> {
         sheet.set_name(table)?;
@@ -164,15 +188,13 @@ pub fn new_workbook(
                             format!("{target_table} has {} keys; no dropdown (at most {MAX_REF_KEYS})", keys.len()),
                         )));
                     } else if !keys.is_empty() {
-                        long_lists.push(keys);
-                        let list_column = column_letter(long_lists.len());
-                        let formula = format!("='#Lists'!${list_column}$1:${list_column}${}", long_lists.last().unwrap().len());
+                        // 메시지에는 길이 제한(255자)이 있어 테이블 이름을 넣지 않는다.
                         let validation = DataValidation::new()
-                            .allow_list_formula(Formula::new(formula))
+                            .allow_list_formula(lists.formula(keys))
                             .set_error_style(DataValidationErrorStyle::Warning)
                             .set_error_message(tr(
-                                format!("{target_table}에 없는 키입니다. 목록은 파일을 만든 때의 키이므로, 새로 추가한 키라면 계속하세요. build가 참조를 검사합니다."),
-                                format!("Not a key of {target_table}. The list holds the keys from when this file was created; continue if the key is new. The build checks references."),
+                                "목록에 없는 키입니다. 목록은 파일을 만든 때의 키이므로, 새로 추가한 키라면 계속하세요. build가 참조를 검사합니다.",
+                                "Not in the key list. The list holds the keys from when this file was created; continue if the key is new. The build checks references.",
                             ))?;
                         sheet.add_data_validation((DATA_ROW - 1) as u32, column, LAST_DATA_ROW, column, &validation)?;
                     }
@@ -191,10 +213,7 @@ pub fn new_workbook(
                         let validation = if joined.chars().count() <= 255 && !names.iter().any(|name| name.contains(',')) {
                             DataValidation::new().allow_list_strings(&names)?
                         } else {
-                            long_lists.push(names.into_iter().map(Value::Str).collect());
-                            let list_column = column_letter(long_lists.len());
-                            let formula = format!("='#Lists'!${list_column}$1:${list_column}${}", long_lists.last().unwrap().len());
-                            DataValidation::new().allow_list_formula(Formula::new(formula))
+                            DataValidation::new().allow_list_formula(lists.formula(names.into_iter().map(Value::Str).collect()))
                         };
                         sheet.add_data_validation((DATA_ROW - 1) as u32, column, LAST_DATA_ROW, column, &validation)?;
                     }
@@ -208,17 +227,19 @@ pub fn new_workbook(
         Ok(())
     })();
     if !errors.messages.is_empty() { return false; }
-    if written.is_ok() && !long_lists.is_empty() {
-        let lists = workbook.add_worksheet();
+    if written.is_ok() && !lists.0.is_empty() {
+        let list_sheet = workbook.add_worksheet();
         let extra = (|| -> Result<(), rust_xlsxwriter::XlsxError> {
-            lists.set_name("#Lists")?;
-            lists.set_hidden(true);
-            for (column, names) in long_lists.iter().enumerate() {
-                for (row, value) in names.iter().enumerate() {
-                    // Numbers stay numbers so that a typed key matches its list entry.
+            list_sheet.set_name("#Lists")?;
+            list_sheet.set_hidden(true);
+            for (column, values) in lists.0.iter().enumerate() {
+                for (row, value) in values.iter().enumerate() {
+                    // Numbers stay numbers so that a typed key matches its list entry. Integers
+                    // beyond what a double holds exactly are listed as text.
                     match value {
-                        Value::Int(number) => { lists.write_number(row as u32, column as u16, *number as f64)?; }
-                        other => { lists.write_string(row as u32, column as u16, other.py_str())?; }
+                        Value::Int(number) if number.abs() <= EXACT_INTEGER => { list_sheet.write_number(row as u32, column as u16, *number as f64)?; }
+                        Value::Float(number) => { list_sheet.write_number(row as u32, column as u16, *number)?; }
+                        other => { list_sheet.write_string(row as u32, column as u16, other.py_str())?; }
                     }
                 }
             }

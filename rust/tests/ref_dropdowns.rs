@@ -91,3 +91,40 @@ fn data_errors_stop_new() {
     assert_eq!(new(&schemas, &out, Some(&data)).code, 1);
     assert!(!out.exists());
 }
+
+#[test]
+fn shared_lists_and_no_reference_values() {
+    let tmp = Tmp::new();
+    let schemas = tmp.join("Schemas");
+    let data = tmp.join("Data");
+    write_schema(&schemas.join("Items.schema.xlsx"), "Items", &fields(&[("Id", "ID<int32>", "all"), ("Group", "SubKey<int32>", "all")]));
+    write_schema(&schemas.join("Quests.schema.xlsx"), "Quests", &fields(&[("Id", "ID<int32>", "all"), ("A", "Ref<Items>", "all"), ("B", "Ref<Items>", "all"), ("G", "Ref<Items.Group>", "all")]));
+    // Item 3 leaves Group empty: it becomes 0 ("no reference") and must not be listed.
+    let mut rows = vec![row!["Id", "Group"], vec![], vec![]];
+    rows.extend([row![1, 7], row![2, 7], row![3, ()]]);
+    Book::new().with("Items", rows).save_plain(&data.join("Items.xlsx"));
+    let out = tmp.join("Quests.xlsx");
+    let result = drtable(["new", "--table", "Quests", "--out", &s(&out), "--schema", &s(&schemas), "--input", &s(&data)]);
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    let sheet = zip_parts(&out, |name| name == "xl/worksheets/sheet1.xml").pop().unwrap();
+    // A and B share column A of #Lists; G gets column B with the single group 7.
+    assert_eq!(sheet.matches("'#Lists'!$A$1:$A$3").count(), 2, "{sheet}");
+    assert!(sheet.contains("'#Lists'!$B$1:$B$1"), "{sheet}");
+    let lists = zip_parts(&out, |name| name == "xl/worksheets/sheet2.xml").pop().unwrap();
+    assert!(!lists.contains("<v>0</v>"), "{lists}");
+}
+
+#[test]
+fn existing_file_is_refused_without_reading_data() {
+    let (tmp, schemas, data) = project(&[1001]);
+    // Broken data would stop new, but the existing file is refused first.
+    let mut rows = vec![row!["Id", "Group"], vec![], vec![]];
+    rows.push(row!["oops", 1]);
+    Book::new().with("Items", rows).save_plain(&data.join("broken.xlsx"));
+    let out = tmp.join("Quests.xlsx");
+    std::fs::write(&out, b"keep").unwrap();
+    let result = new(&schemas, &out, Some(&data));
+    assert_eq!(result.code, 1);
+    assert!(result.stderr.contains("drtable"), "{}", result.stderr);
+    assert_eq!(std::fs::read(&out).unwrap(), b"keep");
+}

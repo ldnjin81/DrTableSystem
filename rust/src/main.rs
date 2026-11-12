@@ -7,9 +7,9 @@ use std::process::ExitCode;
 
 use drtable::commands::{self, BuildError, BuildOptions};
 use drtable::emit_cpp::{DEFAULT_ASSET_BASE, DEFAULT_ASSET_NAME};
-use drtable::errors::{ErrorCollector, ValidationErrors};
+use drtable::errors::ValidationErrors;
 use drtable::i18n::{self, tr};
-use drtable::{check, diff, excel, graph, headers, l10n, schemafile, VERSION};
+use drtable::{check, diff, excel, graph, l10n, VERSION};
 
 const HELP: &str = "usage: drtable [-h] [--version] [--lang {en,ko}] {build,graph,check,new,diff,l10n} ...
 
@@ -294,36 +294,24 @@ fn run(args: Args) -> ExitCode {
         return if failures.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) };
     }
     if args.command == "new" {
-        let schema_dir = args.path("schema").unwrap();
         let out = args.path("out").unwrap();
-        let mut errors = ErrorCollector::default();
-        let schemas = match schemafile::load_schemas(&schema_dir, &schemafile::enum_folder(&schema_dir, args.path("enums").as_deref(), true), &mut errors) {
-            Ok(schemas) => schemas,
-            Err(ValidationErrors(messages)) => {
-                print_errors(&messages);
-                return ExitCode::from(1);
-            }
-        };
         // With --input every data file is read, so the reference dropdowns list every key.
-        let model = match args.path("input") {
-            Some(input) => match excel::load_model(&input, Some(&schema_dir), args.path("enums").as_deref(), args.path("strings").as_deref()) {
-                Ok(model) => Some(model),
-                Err(ValidationErrors(messages)) => {
-                    print_errors(&messages);
-                    return ExitCode::from(1);
-                }
-            },
-            None => None,
-        };
-        let mut warnings = Vec::new();
-        if errors.messages.is_empty() && headers::new_workbook(&out, args.get("table").unwrap(), &schemas, model.as_ref(), &mut errors, &mut warnings) {
+        let outcome = commands::new_workbook(
+            &out,
+            args.get("table").unwrap(),
+            args.path("input").as_deref(),
+            args.path("schema").as_deref(),
+            args.path("enums").as_deref(),
+            args.path("strings").as_deref(),
+        );
+        if outcome.created {
             println!("{}", out.display());
         }
-        for warning in &warnings {
+        for warning in &outcome.warnings {
             eprintln!("{}: {warning}", tr("경고", "warning"));
         }
-        print_errors(&errors.messages);
-        return if errors.messages.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) };
+        print_errors(&outcome.errors);
+        return if outcome.errors.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) };
     }
     if args.command == "check" && (args.get("server").is_some() || args.get("input").is_none()) {
         return usage(tr("check에는 --client 또는 --input이 필요합니다", "check needs --client or --input"));

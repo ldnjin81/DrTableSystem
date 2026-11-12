@@ -31,6 +31,9 @@ pub struct BuildOptions {
     pub ue_plugin: bool,
     /// Also write a header of key constants per string table (it changes whenever a key is added).
     pub string_keys: bool,
+    /// Module export macro on the row structs and table classes (`DRSAMPLE_API`), so other
+    /// modules can link the generated lookups.
+    pub api: Option<String>,
 }
 
 impl Default for BuildOptions {
@@ -47,6 +50,7 @@ impl Default for BuildOptions {
             asset_name: DEFAULT_ASSET_NAME.into(),
             ue_plugin: false,
             string_keys: false,
+            api: None,
         }
     }
 }
@@ -65,6 +69,12 @@ pub fn build(model: &DataModel, options: &BuildOptions) -> Result<(), BuildError
         return Err(BuildError::Usage(tr(
             "--prefix는 영문자로 시작하는 C++ 식별자여야 합니다",
             "--prefix must be a C++ identifier starting with a letter",
+        )));
+    }
+    if options.api.as_deref().is_some_and(|m| !is_identifier(m)) {
+        return Err(BuildError::Usage(tr(
+            "--api는 영문자로 시작하는 C++ 식별자여야 합니다(예: MYGAME_API)",
+            "--api must be a C++ identifier starting with a letter (e.g. MYGAME_API)",
         )));
     }
     let outputs = [&options.out_cpp, &options.out_client, &options.out_server];
@@ -124,6 +134,7 @@ pub fn build(model: &DataModel, options: &BuildOptions) -> Result<(), BuildError
         asset_base_header.as_deref(),
         runtime_header.as_deref(),
         &options.asset_name,
+        options.api.as_deref(),
     )
     .and_then(|_| {
         emit_json::emit_json(

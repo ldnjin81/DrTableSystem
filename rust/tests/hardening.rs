@@ -118,3 +118,36 @@ fn ue_plugin_preset() {
     assert!(read(&tmp.join("cpp/GmTRow.cpp")).contains("#include \"DrTableRuntime.h\""));
     assert!(tmp.join("cpp/GmTableRegistration.h").exists());
 }
+
+#[test]
+fn api_macro_exports_rows_and_tables() {
+    let tmp = Tmp::new();
+    let source = tmp.join("in.xlsx");
+    Book::new().with("T", vec![row!["Id"], row!["ID<int32>"], row!["all"], row![1]]).save(&source);
+    let without = tmp.join("plain");
+    assert_eq!(build(&source, &without, &["--ue-plugin", "--prefix", "Gm"]).code, 0);
+    let with = tmp.join("api");
+    assert_eq!(build(&source, &with, &["--ue-plugin", "--prefix", "Gm", "--api", "MYGAME_API"]).code, 0);
+    assert!(read(&with.join("cpp/GmTRow.h")).contains("struct MYGAME_API FGmTRow : public FTableRowBase"));
+    assert!(read(&with.join("cpp/GmTTable.h")).contains("class MYGAME_API UGmTTable : public UDrTableAssetBase"));
+    // Without --api the code is unchanged.
+    assert!(read(&without.join("cpp/GmTRow.h")).contains("struct FGmTRow : public FTableRowBase"));
+    for file in ["GmTRow.h", "GmTTable.h"] {
+        let api = read(&with.join("cpp").join(file)).replace("MYGAME_API ", "");
+        assert_eq!(api, read(&without.join("cpp").join(file)), "{file}");
+    }
+    // The JSON does not depend on the macro.
+    assert_eq!(read(&with.join("client/T.json")), read(&without.join("client/T.json")));
+}
+
+#[test]
+fn api_macro_must_be_an_identifier() {
+    let tmp = Tmp::new();
+    let source = tmp.join("in.xlsx");
+    Book::new().with("T", vec![row!["Id"], row!["ID<int32>"], row!["all"], row![1]]).save(&source);
+    for bad in ["1GAME_API", "MY-GAME", ""] {
+        let result = build(&source, &tmp, &["--api", bad]);
+        assert!(result.is_usage_error(), "{bad}: {}", result.stderr);
+        assert!(result.stderr.contains("--api"), "{}", result.stderr);
+    }
+}

@@ -66,6 +66,7 @@ pub fn emit_cpp(
     asset_base_header: Option<&str>,
     runtime_header: Option<&str>,
     asset_name: &str,
+    api: Option<&str>,
 ) -> std::io::Result<()> {
     std::fs::create_dir_all(output)?;
     let header = asset_base_header.unwrap_or(DEFAULT_ASSET_BASE_HEADER);
@@ -74,8 +75,8 @@ pub fn emit_cpp(
     }
     let enums = model.enum_map();
     for table in model.client_tables() {
-        write(&output.join(format!("{prefix}{}Row.h", table.name)), &table_header(table, prefix, &enums, runtime_header.is_some()))?;
-        write(&output.join(format!("{prefix}{}Table.h", table.name)), &asset_header(table, prefix, asset_base, header))?;
+        write(&output.join(format!("{prefix}{}Row.h", table.name)), &table_header(table, prefix, &enums, runtime_header.is_some(), api))?;
+        write(&output.join(format!("{prefix}{}Table.h", table.name)), &asset_header(table, prefix, asset_base, header, api))?;
         if let Some(runtime) = runtime_header {
             write(&output.join(format!("{prefix}{}Row.cpp", table.name)), &row_source(table, prefix, runtime))?;
         }
@@ -88,6 +89,11 @@ pub fn emit_cpp(
         write(&output.join(format!("{prefix}TableRegistration.h")), &registration_header(model, prefix, asset_name))?;
     }
     Ok(())
+}
+
+/// The module export macro before a generated type name (`DRSAMPLE_API `), or nothing.
+fn export(api: Option<&str>) -> String {
+    api.map(|m| format!("{m} ")).unwrap_or_default()
 }
 
 /// The first comment line, naming where the definition lives.
@@ -135,7 +141,7 @@ fn client_columns(table: &TableSchema) -> impl Iterator<Item = &ColumnSchema> {
     table.columns.iter().filter(|c| in_scopes(&c.scope, &CLIENT_SCOPES))
 }
 
-fn table_header(table: &TableSchema, prefix: &str, enums: &Enums, accessors: bool) -> String {
+fn table_header(table: &TableSchema, prefix: &str, enums: &Enums, accessors: bool, api: Option<&str>) -> String {
     let enum_includes: BTreeSet<&str> = client_columns(table).filter_map(|c| c.type_name.strip_prefix('E')).collect();
     let type_includes: BTreeSet<&str> = client_columns(table).filter_map(|c| type_include(&c.type_name)).collect();
     let mut lines = vec![
@@ -158,7 +164,7 @@ fn table_header(table: &TableSchema, prefix: &str, enums: &Enums, accessors: boo
     lines.extend([
         String::new(),
         "USTRUCT(BlueprintType)".into(),
-        format!("struct F{prefix}{}Row : public FTableRowBase", table.name),
+        format!("struct {}F{prefix}{}Row : public FTableRowBase", export(api), table.name),
         "{".into(),
         "    GENERATED_BODY()".into(),
         String::new(),
@@ -449,7 +455,7 @@ fn registration_header(model: &DataModel, prefix: &str, asset_name: &str) -> Str
 }
 
 /// DataAsset class the bake commandlet fills. Indices are computed at build time.
-fn asset_header(table: &TableSchema, prefix: &str, asset_base: &str, asset_base_header: &str) -> String {
+fn asset_header(table: &TableSchema, prefix: &str, asset_base: &str, asset_base_header: &str, api: Option<&str>) -> String {
     let enum_includes: BTreeSet<&str> = client_columns(table).filter_map(|c| c.type_name.strip_prefix('E')).collect();
     let mut lines = vec![
         table_source_line(table),
@@ -464,7 +470,7 @@ fn asset_header(table: &TableSchema, prefix: &str, asset_base: &str, asset_base_
         format!("#include \"{prefix}{}Table.generated.h\"", table.name),
         String::new(),
         "UCLASS(BlueprintType)".into(),
-        format!("class U{prefix}{}Table : public {asset_base}", table.name),
+        format!("class {}U{prefix}{}Table : public {asset_base}", export(api), table.name),
         "{".into(),
         "    GENERATED_BODY()".into(),
         String::new(),

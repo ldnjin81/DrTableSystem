@@ -542,7 +542,7 @@ Outputs are **deterministic**: the same input gives the same bytes (LF line endi
 ```sh
 drtable build --input <xlsx|folder> --out-cpp <dir> --out-client <dir> --out-server <dir>
                [--schema <folder>] [--enums <folder>] [--strings <folder>] [--string-keys]
-               [--prefix Dr] [--ue-plugin] [--asset-base <Class> --asset-base-header <Header.h>]
+               [--prefix Dr] [--api <MODULE>_API] [--ue-plugin] [--asset-base <Class> --asset-base-header <Header.h>]
                [--runtime-header <Header.h>] [--asset-name DA_{table}] [--stamp <ISO8601>]
 drtable graph --input <xlsx|folder> --out references.md [--schema …] [--enums …] [--strings …]
 drtable check --client <client JSON folder> [--server <server JSON folder>]
@@ -559,6 +559,7 @@ drtable [--lang en|ko] …
 | `--strings` | String table data folder. Default: `Strings` next to the schema folder (`Strings` inside the input folder without `--schema`). |
 | `--string-keys` | Also write string table key constant headers (they change when keys change, section 8). |
 | `--prefix` | C++ type prefix (`Dr` → `FDrEffectsRow`, default `Dr`). |
+| `--api` | Module export macro put on the row structs and table asset classes (`--api MYGAME_API` → `struct MYGAME_API FDrEffectsRow`). Needed when another module calls the generated lookups (`FDrEffectsRow::Find`), otherwise linking fails with unresolved symbols. Default: none. |
 | `--ue-plugin` | Settings for the DrTableSystem plugin: asset base `UDrTableAssetBase`, runtime header `DrTableRuntime.h`. Recommended with the plugin. |
 | `--asset-base`, `--asset-base-header` | Base class of the asset classes and the header declaring it. Changing the base without its header is an error, since the code would not compile. |
 | `--runtime-header` | Generates row functions, `.cpp` files and the registration header. |

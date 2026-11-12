@@ -539,7 +539,7 @@ namespace DrTableRuntime {
 ```sh
 drtable build --input <xlsx|폴더> --out-cpp <dir> --out-client <dir> --out-server <dir>
                [--schema <폴더>] [--enums <폴더>] [--strings <폴더>] [--string-keys]
-               [--prefix Dr] [--ue-plugin] [--asset-base <클래스> --asset-base-header <헤더.h>]
+               [--prefix Dr] [--api <모듈>_API] [--ue-plugin] [--asset-base <클래스> --asset-base-header <헤더.h>]
                [--runtime-header <헤더.h>] [--asset-name DA_{table}] [--stamp <ISO8601>]
 drtable graph --input <xlsx|폴더> --out references.md [--schema …] [--enums …] [--strings …]
 drtable check --client <클라 JSON 폴더> [--server <서버 JSON 폴더>]
@@ -556,6 +556,7 @@ drtable [--lang en|ko] …
 | `--strings` | 스트링테이블 데이터 폴더. 기본값은 스키마 폴더 옆의 `Strings`(`--schema`가 없으면 입력 폴더 안의 `Strings`). |
 | `--string-keys` | 스트링테이블 키 상수 헤더도 만듭니다(키가 바뀌면 코드도 바뀜, 8절). |
 | `--prefix` | C++ 타입 접두사(`Dr` → `FDrEffectsRow`, 기본값 `Dr`). |
+| `--api` | 행 구조체와 테이블 에셋 클래스에 붙일 모듈 내보내기 매크로(`--api MYGAME_API` → `struct MYGAME_API FDrEffectsRow`). 다른 모듈이 생성된 조회 함수(`FDrEffectsRow::Find`)를 부르려면 필요합니다. 없으면 링크 단계에서 기호를 못 찾는 오류가 납니다. 기본값은 없음. |
 | `--ue-plugin` | DrTableSystem 플러그인용 설정: 에셋 기반 `UDrTableAssetBase`, 런타임 헤더 `DrTableRuntime.h`. 플러그인과 함께 쓸 때 권장합니다. |
 | `--asset-base`, `--asset-base-header` | 에셋 클래스의 기반 클래스와 그 헤더. 헤더 없이 기반만 바꾸면 오류입니다(컴파일되지 않는 코드가 나오므로). |
 | `--runtime-header` | 행 함수, `.cpp`, 등록 헤더를 생성합니다. |

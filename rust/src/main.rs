@@ -34,7 +34,7 @@ fn command_options(command: &str) -> Option<&'static [(&'static str, bool)]> {
             ("input", true), ("schema", true), ("enums", true), ("strings", true), ("out-cpp", true),
             ("out-client", true), ("out-server", true), ("prefix", true), ("stamp", true), ("asset-base", true),
             ("asset-base-header", true), ("ue-plugin", false), ("runtime-header", true), ("asset-name", true),
-            ("string-keys", false),
+            ("string-keys", false), ("api", true),
         ],
         "graph" => &[("input", true), ("schema", true), ("enums", true), ("strings", true), ("out", true)],
         "check" => &[
@@ -352,6 +352,7 @@ fn build(args: &Args, model: &excel::DataModel, usage: impl Fn(String) -> ExitCo
         asset_name: args.get("asset-name").unwrap_or(DEFAULT_ASSET_NAME).to_string(),
         ue_plugin: args.flags.contains("ue-plugin"),
         string_keys: args.flags.contains("string-keys"),
+        api: args.get("api").map(str::to_string),
     };
     match commands::build(model, &options) {
         Ok(()) => ExitCode::SUCCESS,

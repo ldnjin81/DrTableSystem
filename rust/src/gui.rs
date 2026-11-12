@@ -69,6 +69,7 @@ impl Launch {
                 "out-server" => &mut settings.out_server,
                 "prefix" => &mut settings.prefix,
                 "asset-name" => &mut settings.asset_name,
+                "api" => &mut settings.api,
                 "lang" => {
                     settings.korean = value == "ko";
                     continue;
@@ -95,6 +96,7 @@ struct Settings {
     prefix: String,
     ue_plugin: bool,
     asset_name: String,
+    api: String,
     new_table: String,
     new_out: String,
 }
@@ -113,6 +115,7 @@ impl Default for Settings {
             prefix: "Dr".into(),
             ue_plugin: true,
             asset_name: "DA_{table}".into(),
+            api: String::new(),
             new_table: String::new(),
             new_out: String::new(),
         }
@@ -324,6 +327,7 @@ fn check_or_build(settings: &Settings, build: bool) -> Outcome {
         prefix: settings.prefix.trim().to_string(),
         asset_name: settings.asset_name.trim().to_string(),
         ue_plugin: settings.ue_plugin,
+        api: Some(settings.api.trim()).filter(|m| !m.is_empty()).map(str::to_string),
         ..BuildOptions::default()
     };
     if [&settings.out_cpp, &settings.out_client, &settings.out_server].iter().any(|p| p.trim().is_empty()) {
@@ -488,6 +492,9 @@ impl App {
                 ui.checkbox(&mut s.ue_plugin, tr("언리얼 플러그인용(--ue-plugin)", "Unreal plugin (--ue-plugin)"));
                 ui.label(tr("에셋 이름", "Asset name"));
                 ui.add(egui::TextEdit::singleline(&mut s.asset_name).desired_width(140.0));
+                ui.label(tr("모듈 API", "Module API"));
+                ui.add(egui::TextEdit::singleline(&mut s.api).hint_text("MYGAME_API").desired_width(120.0))
+                    .on_hover_text(tr("다른 모듈에서 행 조회를 쓰려면 모듈 API 매크로를 적습니다(--api)", "Module API macro so other modules can link the row lookups (--api)"));
             });
             ui.end_row();
         });
